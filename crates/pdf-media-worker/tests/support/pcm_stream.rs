@@ -355,6 +355,29 @@ pub(crate) fn words(values: &[u32]) -> Vec<u8> {
 /// An MP4 file of one video track holding `units`, its movie before its media data (14496-12;
 /// ISO/IEC 14496-15 for `avc1` and `avcC`).
 pub(crate) fn mp4(sets: &[Vec<u8>], units: &[Vec<u8>], width: u16, height: u16) -> Vec<u8> {
+    mp4_with(sets, units, width, height, &Tables::default())
+}
+
+/// The timing tables [`mp4_with`] adds to a track (ISO/IEC 14496-12:2012).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Tables {
+    /// `ctts` (8.6.1.3): its version and its entries' sample counts and offsets.
+    pub(crate) composition: Option<(u8, Vec<(u32, i32)>)>,
+    /// `stss` (8.6.2): the sync sample numbers, from 1.
+    pub(crate) sync: Option<Vec<u32>>,
+    /// `elst` (8.6.6), version 0: each edit's segment duration (the movie's 1000 a second) and
+    /// media time (the media's 25 000 a second, −1 for an empty edit).
+    pub(crate) edits: Option<Vec<(u32, i32)>>,
+}
+
+/// [`mp4`] with `tables` in its track.
+pub(crate) fn mp4_with(
+    sets: &[Vec<u8>],
+    units: &[Vec<u8>],
+    width: u16,
+    height: u16,
+    tables: &Tables,
+) -> Vec<u8> {
     let mut record = vec![1, 66, 0, 30, 0xFF, 0xE1];
     record.extend_from_slice(&(sets[0].len() as u16).to_be_bytes());
     record.extend_from_slice(&sets[0]);
@@ -382,6 +405,18 @@ pub(crate) fn mp4(sets: &[Vec<u8>], units: &[Vec<u8>], width: u16, height: u16) 
         stsz.extend_from_slice(&words(&sizes));
         table.extend_from_slice(&full(*b"stsz", 0, &stsz));
         table.extend_from_slice(&full(*b"stco", 0, &words(&[1, data_at])));
+        if let Some((version, entries)) = &tables.composition {
+            let mut fields = words(&[entries.len() as u32]);
+            for (count, offset) in entries {
+                fields.extend_from_slice(&words(&[*count, offset.cast_unsigned()]));
+            }
+            table.extend_from_slice(&full(*b"ctts", u32::from(*version) << 24, &fields));
+        }
+        if let Some(sync) = &tables.sync {
+            let mut fields = words(&[sync.len() as u32]);
+            fields.extend_from_slice(&words(sync));
+            table.extend_from_slice(&full(*b"stss", 0, &fields));
+        }
         let mut info = bx(
             *b"dinf",
             &full(*b"dref", 0, &[words(&[1]), full(*b"url ", 1, &[])].concat()),
@@ -395,6 +430,13 @@ pub(crate) fn mp4(sets: &[Vec<u8>], units: &[Vec<u8>], width: u16, height: u16) 
         ));
         media.extend_from_slice(&bx(*b"minf", &info));
         let mut track = full(*b"tkhd", 1, &[0; 80]);
+        if let Some(edits) = &tables.edits {
+            let mut fields = words(&[edits.len() as u32]);
+            for (duration, time) in edits {
+                fields.extend_from_slice(&words(&[*duration, time.cast_unsigned(), 0x0001_0000]));
+            }
+            track.extend_from_slice(&bx(*b"edts", &full(*b"elst", 0, &fields)));
+        }
         track.extend_from_slice(&bx(*b"mdia", &media));
         let mut header = words(&[0, 0, 1000, 0, 0x0001_0000]);
         header.extend_from_slice(&[0; 76]);

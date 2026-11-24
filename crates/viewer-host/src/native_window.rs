@@ -1256,7 +1256,9 @@ pub trait NativeWindow {
         );
         if let Some(shown) = shown {
             let wake = self.picture_wake();
-            self.state_mut().pictures.play(shown, || wake);
+            // The pictures follow the sound just handed over (ADR 3555).
+            let sound = self.state().sounds.listening();
+            self.state_mut().pictures.play(shown, sound, || wake);
             self.look_at_the_pictures();
         }
         if let Some(note) = note {

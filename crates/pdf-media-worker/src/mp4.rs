@@ -220,6 +220,19 @@ pub struct VideoTrack {
     pub time_scale: u32,
     /// The access units, in decoding order.
     pub access_units: Vec<AccessUnit>,
+    /// Each access unit's composition offset (`ctts`, 8.6.1.3) in the media's time scale, in
+    /// decoding order: "CT(n) = DT(n) + CTTS(n)". Empty where the track has no `ctts`, which "must
+    /// only be present if DT and CT differ for any samples".
+    pub composition_offsets: Vec<i64>,
+    /// The sync samples (`stss`, 8.6.2) as indices from 0 into [`Self::access_units`], ascending;
+    /// `None` where the track has no `stss`: "If the sync sample box is not present, every sample
+    /// is a sync sample."
+    pub sync_samples: Option<Vec<u32>>,
+    /// The `mvhd` time scale, the clock of every [`Edit::segment_duration`], where the movie has
+    /// a header.
+    pub movie_time_scale: Option<u32>,
+    /// The track's edit list (`edts`, `elst`), empty where it has none.
+    pub edits: Vec<Edit>,
 }
 
 /// The most bytes of parameter sets one `avcC` record may carry back.
@@ -240,6 +253,7 @@ pub const MAX_PARAMETER_SET_BYTES: usize = 64 << 10;
 pub fn movie_video_track(movie: &[u8], file_len: u64) -> Result<VideoTrack, String> {
     let budget = &mut Budget::default();
     let mut tracks = Vec::new();
+    let mut movie_time_scale = None;
     for found in Boxes::new(movie, budget) {
         let found = found?;
         match &found.kind {
@@ -250,6 +264,7 @@ pub fn movie_video_track(movie: &[u8], file_len: u64) -> Result<VideoTrack, Stri
                         .to_owned(),
                 );
             }
+            b"mvhd" => movie_time_scale = Some(movie_header_time_scale(found.payload)?),
             b"trak" => tracks.push(found.payload),
             _ => {}
         }
@@ -260,6 +275,20 @@ pub fn movie_video_track(movie: &[u8], file_len: u64) -> Result<VideoTrack, Stri
             let entry = video_description(tables.descriptions, budget)?;
             tables.data_is_here(entry.data_reference, budget)?;
             let access_units = tables.access_units(file_len, budget)?;
+            let composition_offsets = match child(tables.table, *b"ctts", budget)? {
+                Some(offsets) => composition_offsets(offsets, access_units.len())?,
+                None => Vec::new(),
+            };
+            let sync_samples = child(tables.table, *b"stss", budget)?
+                .map(|sync| sync_samples(sync, access_units.len()))
+                .transpose()?;
+            let edits = match child(track, *b"edts", budget)? {
+                Some(edits) => match child(edits, *b"elst", budget)? {
+                    Some(list) => edit_list(list)?,
+                    None => Vec::new(),
+                },
+                None => Vec::new(),
+            };
             return Ok(VideoTrack {
                 width: entry.width,
                 height: entry.height,
@@ -267,10 +296,76 @@ pub fn movie_video_track(movie: &[u8], file_len: u64) -> Result<VideoTrack, Stri
                 parameter_sets: entry.parameter_sets,
                 time_scale: tables.time_scale,
                 access_units,
+                composition_offsets,
+                sync_samples,
+                movie_time_scale,
+                edits,
             });
         }
     }
     Err("the file holds no enabled video track".to_owned())
+}
+
+/// Reads `ctts` (14496-12, 8.6.1.3) for a track of `count` samples: a 32-bit entry count, then
+/// each entry's sample count and offset — "the offsets are expressed as unsigned numbers" in
+/// version 0, and "the offsets are signed" in version 1 — expanded to one offset a sample. A table
+/// that covers other than every sample disagrees with the track and is refused.
+fn composition_offsets(table: &[u8], count: usize) -> Result<Vec<i64>, String> {
+    let (version, _, _) = full(table).ok_or_else(|| truncated("ctts"))?;
+    if version > 1 {
+        return Err(format!(
+            "a composition offset box (ctts) of version {version}"
+        ));
+    }
+    let entries = Entries::new(table, 8, "ctts")?;
+    let mut offsets = Vec::with_capacity(count);
+    for entry in 0..entries.count {
+        let (Some(samples), Some(offset)) = (entries.u32(entry, 0), entries.u32(entry, 1)) else {
+            return Err(truncated("ctts"));
+        };
+        let offset = if version == 0 {
+            i64::from(offset)
+        } else {
+            i64::from(i32::from_be_bytes(offset.to_be_bytes()))
+        };
+        let samples = usize::try_from(samples).unwrap_or(usize::MAX);
+        if samples > count.saturating_sub(offsets.len()) {
+            return Err(format!(
+                "a composition offset box (ctts) covering more than the track's {count} samples"
+            ));
+        }
+        offsets.resize(offsets.len().saturating_add(samples), offset);
+    }
+    if offsets.len() != count {
+        return Err(format!(
+            "a composition offset box (ctts) covering {} of the track's {count} samples",
+            offsets.len()
+        ));
+    }
+    Ok(offsets)
+}
+
+/// Reads `stss` (14496-12, 8.6.2) for a track of `count` samples: a 32-bit entry count, then each
+/// sync sample's number, "arranged in strictly increasing order of sample number" and counted from
+/// 1 as every sample number of the sample tables is; answered as indices from 0.
+fn sync_samples(table: &[u8], count: usize) -> Result<Vec<u32>, String> {
+    let entries = Entries::new(table, 4, "stss")?;
+    let mut sync = Vec::with_capacity(entries.count);
+    for entry in 0..entries.count {
+        let number = entries.u32(entry, 0).ok_or_else(|| truncated("stss"))?;
+        let index = number.checked_sub(1).filter(|index| {
+            usize::try_from(*index).is_ok_and(|index| index < count)
+                && sync.last().is_none_or(|last| index > last)
+        });
+        let Some(index) = index else {
+            return Err(format!(
+                "a sync sample box (stss) naming sample {number}, which is not after the one \
+                 before it among the track's {count} samples"
+            ));
+        };
+        sync.push(index);
+    }
+    Ok(sync)
 }
 
 /// What a video track's first sample entry says.
@@ -484,7 +579,28 @@ const RATE_ONE: i32 = 0x0001_0000;
 /// other list is not applied and the [`Presentation::note`] says so: the media plays whole.
 #[must_use]
 pub fn presentation(track: &SoundTrack) -> Presentation {
-    let edits = &track.edits;
+    edited(
+        &track.edits,
+        track.movie_time_scale,
+        track.time_scale,
+        "sound",
+    )
+}
+
+/// [`presentation`] of `edits`, on a movie clock of `movie_time_scale` and a media clock of
+/// `time_scale`, its note naming the `kind` of track. A video track's edit list is read the same
+/// way: its media time is "in composition time" (8.6.6.3), so a track whose first picture is
+/// composed after zero states its start there — "if the composition time of the first composed
+/// frame is 20, then the edit that maps the media time from 20 onwards to movie time 0 onwards,
+/// would read: Entry-count = 1, Segment-duration = 0, Media-Time = 20, Media-Rate = 1" — and
+/// [`Presentation::skip`] is that composition time (ADR 3554).
+#[must_use]
+pub fn edited(
+    edits: &[Edit],
+    movie_time_scale: Option<u32>,
+    time_scale: u32,
+    kind: &str,
+) -> Presentation {
     if edits.is_empty() {
         return Presentation::default();
     }
@@ -494,7 +610,7 @@ pub fn presentation(track: &SoundTrack) -> Presentation {
         .count();
     let not_applied = |why: &str| Presentation {
         note: Some(format!(
-            "the sound track's edit list (ISO/IEC 14496-12's elst) of {} entries {why}, so it was \
+            "the {kind} track's edit list (ISO/IEC 14496-12's elst) of {} entries {why}, so it was \
              not applied and the whole of the media plays",
             edits.len()
         )),
@@ -511,7 +627,7 @@ pub fn presentation(track: &SoundTrack) -> Presentation {
         .take(leading)
         .fold(0, |sum, edit| sum.saturating_add(edit.segment_duration));
     let needs_movie_scale = delay_movie != 0 || edit.segment_duration != 0;
-    let movie_scale = track.movie_time_scale.filter(|scale| *scale != 0);
+    let movie_scale = movie_time_scale.filter(|scale| *scale != 0);
     let movie_scale = match movie_scale {
         Some(scale) => scale,
         None if needs_movie_scale => {
@@ -520,10 +636,10 @@ pub fn presentation(track: &SoundTrack) -> Presentation {
         None => 1,
     };
     Presentation {
-        delay: rescaled(delay_movie, movie_scale, track.time_scale),
+        delay: rescaled(delay_movie, movie_scale, time_scale),
         skip: edit.media_time.unsigned_abs(),
         keep: (edit.segment_duration != 0)
-            .then(|| rescaled(edit.segment_duration, movie_scale, track.time_scale)),
+            .then(|| rescaled(edit.segment_duration, movie_scale, time_scale)),
         note: None,
     }
 }

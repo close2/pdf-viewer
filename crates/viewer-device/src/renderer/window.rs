@@ -235,24 +235,35 @@ struct VideoLayer {
     sink: render_raster::VideoSink,
     /// Whether the sink's texture holds a picture of the clip now showing.
     shown: bool,
-    /// The screen annotation's quadrilateral in window pixels, `[x0, y0, … x3, y3]` from its
-    /// top-left corner clockwise, `None` where it is not on the window.
-    quad: Option<[f32; 8]>,
+    /// The part of the picture shown and where it goes in window pixels, fitted to the screen
+    /// annotation by Table 291's `/F` (ADR 3553); `None` where it is not on the window.
+    placed: Option<viewer_host::video::Placed>,
 }
 
 impl VideoLayer {
-    /// The texture's unit square onto the quadrilateral: its top-left texel at the first corner,
-    /// its rows along the first edge and its columns down the last, so a rotated or mirrored view
-    /// of the page carries the picture with it.
-    fn placement(quad: [f32; 8]) -> Transform {
-        let [x0, y0, x1, y1, _, _, x3, y3] = quad;
-        Transform {
-            a: x1 - x0,
-            b: y1 - y0,
-            c: x3 - x0,
-            d: y3 - y0,
-            e: x0,
-            f: y0,
+    /// The picture's sample space onto the window: [`viewer_host::video::Placed::affine`], whose
+    /// part's top-left sample corner goes to the quadrilateral's first corner, its rows along the
+    /// first edge and its columns down the last, so a rotated or mirrored view of the page carries
+    /// the picture with it.
+    fn placement(placed: &viewer_host::video::Placed) -> raster_scene::Affine {
+        let [across_x, across_y, down_x, down_y, origin_x, origin_y] = placed.affine();
+        raster_scene::Affine {
+            a: across_x,
+            b: across_y,
+            c: down_x,
+            d: down_y,
+            e: origin_x,
+            f: origin_y,
+        }
+    }
+
+    /// The part of the texture [`Self::placement`] places: the samples the fit shows.
+    fn part(placed: &viewer_host::video::Placed) -> raster_gpu::Texels {
+        raster_gpu::Texels {
+            left: placed.left,
+            top: placed.top,
+            right: placed.right,
+            bottom: placed.bottom,
         }
     }
 }
@@ -302,7 +313,7 @@ impl Window {
         let video = VideoLayer {
             sink: renderer.video_sink(),
             shown: false,
-            quad: None,
+            placed: None,
         };
         let uncaptured = renderer.uncaptured();
         let Some(mut presenter) = renderer.detach_presenter() else {
@@ -851,8 +862,8 @@ impl Window {
         self.proxies.len()
     }
 
-    /// Converts a clip's picture on this device into the texture the next present draws over
-    /// `quad` — the screen annotation in window pixels, `None` where it is off the window — and
+    /// Converts a clip's picture on this device into the texture the next present draws where
+    /// `placed` puts it — fitted to the screen annotation, `None` where it is off the window — and
     /// answers what recording and submitting the conversion cost. Nothing is read back: the
     /// texture is a layer of the presenter's (ADR 3538).
     ///
@@ -863,23 +874,23 @@ impl Window {
         &mut self,
         planes: &pdf_render::video::Planes<'_>,
         conversion: &pdf_render::video::Conversion,
-        quad: Option<[f32; 8]>,
+        placed: Option<viewer_host::video::Placed>,
     ) -> Result<Duration, render_raster::QuorraRasterError> {
         let (_, cost) = self.video.sink.convert(planes, conversion)?;
         self.video.shown = true;
-        self.video.quad = quad;
+        self.video.placed = placed;
         Ok(cost)
     }
 
     /// Moves the picture with its screen annotation, as the view moves.
-    pub fn place_video(&mut self, quad: Option<[f32; 8]>) {
-        self.video.quad = quad;
+    pub fn place_video(&mut self, placed: Option<viewer_host::video::Placed>) {
+        self.video.placed = placed;
     }
 
     /// Takes the clip's picture off the window: it ended, was stopped or refused.
     pub fn clear_video(&mut self) {
         self.video.shown = false;
-        self.video.quad = None;
+        self.video.placed = None;
     }
 
     /// Whether a clip's picture is drawn over the page.
@@ -984,14 +995,16 @@ impl Window {
             }
         }
         // A playing clip's picture over its screen annotation, under the chrome (ADR 3538).
-        if let (true, Some(quad), Some(texture)) =
-            (self.video.shown, self.video.quad, self.video.sink.texture())
-        {
+        if let (true, Some(placed), Some(texture)) = (
+            self.video.shown,
+            self.video.placed,
+            self.video.sink.texture(),
+        ) {
             layers.push(raster_gpu::Layer {
                 texture,
-                placement: affine(VideoLayer::placement(quad)),
+                placement: VideoLayer::placement(&placed),
                 filter: raster_scene::ImageFilter::Linear,
-                within: None,
+                within: Some(VideoLayer::part(&placed)),
             });
         }
         layers.push(raster_gpu::Layer {

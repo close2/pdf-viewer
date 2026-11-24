@@ -215,6 +215,7 @@ fn every_carried_event_round_trips() {
                     duration: pdf_model::media::SimpleDuration::Seconds(1.25),
                     repeat: 0.0,
                     synchronous: true,
+                    fit: pdf_model::media::Fit::Slice,
                     ..pdf_model::media::Playing::default()
                 },
                 screen: None,

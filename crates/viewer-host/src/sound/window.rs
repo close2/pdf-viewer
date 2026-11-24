@@ -186,6 +186,13 @@ impl Sounds {
         }
     }
 
+    /// The sound last handed to the player, to be listened to by a clip's pictures (ADR 3555);
+    /// `None` before the first.
+    #[must_use]
+    pub fn listening(&self) -> Option<super::Listening> {
+        self.player.as_ref().map(Player::listening)
+    }
+
     /// Plays `played` in place of whatever sounds. The first sound makes the player, with `wake`
     /// as what wakes the window's loop from the player's thread; later sounds do not call it.
     pub fn play(&mut self, played: Played, wake: impl FnOnce() -> Wake) {

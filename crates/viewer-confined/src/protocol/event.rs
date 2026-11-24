@@ -923,7 +923,8 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
 
 /// §13.2.5's play parameters beside a sound's samples (ADR 3341): the level, the duration's kind
 /// and seconds, the repeat count, the three flags, and §13.2.4.3's section — its beginning, then
-/// its end or a negative number for the clip's own end (ADR 3398).
+/// its end or a negative number for the clip's own end (ADR 3398), and Table 291's `/F` as its
+/// integer (ADR 3553).
 fn write_playing(writer: &mut Writer, playing: &pdf_model::media::Playing) {
     use pdf_model::media::SimpleDuration;
     let (kind, seconds) = match playing.duration {
@@ -940,7 +941,8 @@ fn write_playing(writer: &mut Writer, playing: &pdf_model::media::Playing) {
         .bool(playing.synchronous)
         .bool(playing.mix)
         .f64(playing.section.begin)
-        .f64(playing.section.end.unwrap_or(-1.0));
+        .f64(playing.section.end.unwrap_or(-1.0))
+        .u8(playing.fit.value());
 }
 
 /// [`write_playing`]'s other half. The confined side is the less trusted one, so each number is
@@ -993,6 +995,13 @@ fn read_playing(reader: &mut Reader<'_>) -> Result<pdf_model::media::Playing, Pr
                 end if end < 0.0 => None,
                 end => Some(unsigned(end, "where a sound's section ends")?),
             },
+        },
+        fit: {
+            let fit = reader.u8("a clip's fit")?;
+            pdf_model::media::Fit::of_value(i64::from(fit)).ok_or(ProtocolError::Unrecognised {
+                what: "a clip's fit",
+                value: u32::from(fit),
+            })?
         },
     })
 }

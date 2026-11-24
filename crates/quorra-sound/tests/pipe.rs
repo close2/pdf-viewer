@@ -126,7 +126,7 @@ fn served(ends: bool) -> Result<Served, Box<dyn std::error::Error>> {
 fn ended_into(sender: std::sync::mpsc::Sender<(u32, u64)>, which: u32) -> Report {
     Box::new(move |said| {
         let _ = sender.send(match said {
-            Progress::Played(frames) => (which, frames),
+            Progress::Played(frames) | Progress::Heard(frames) => (which, frames),
             Progress::Ended => (which, u64::MAX),
         });
     })

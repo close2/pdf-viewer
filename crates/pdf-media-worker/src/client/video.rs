@@ -42,6 +42,8 @@ pub struct VideoStreamed {
     pub pictures: usize,
     /// Whether `deliver` stopped the track before its end.
     pub stopped: bool,
+    /// The sentence for a video edit list this reader does not apply, where the track's is one.
+    pub note: Option<String>,
 }
 
 impl MediaWorker {
@@ -63,13 +65,8 @@ impl MediaWorker {
     }
 
     /// [`Self::decode_mp4_video`], each picture handed on with its presentation time on the
-    /// track's own clock: the `k`-th picture in output order at the `k`-th sample's decoding time,
-    /// the sum of the durations of the samples before it (ISO/IEC 14496-12, 8.6.1.2).
-    ///
-    /// That is the presentation time exactly where a track states no composition offsets
-    /// (`ctts`, 8.6.1.3), whose pictures are presented at their decoding times, and where the
-    /// offsets only reorder pictures of one duration; this reader reads no `ctts` and no video
-    /// edit list (8.6.6), and a window timing frames by it says so (ADR 3538).
+    /// movie's timeline (ISO/IEC 14496-12:2012, 8.6.1 and 8.6.6): each sample's composition time
+    /// through the track's edit list (ADR 3554).
     ///
     /// # Errors
     ///
@@ -77,6 +74,24 @@ impl MediaWorker {
     pub fn decode_mp4_video_timed(
         &mut self,
         file: &[u8],
+        deliver: &mut dyn FnMut(Picture, Duration) -> ControlFlow<()>,
+    ) -> Result<VideoStreamed, MediaError> {
+        self.decode_mp4_video_from(file, Duration::ZERO, deliver)
+    }
+
+    /// [`Self::decode_mp4_video_timed`] begun at the last sync sample presented at or before
+    /// `from` rather than at the track's start — where a paused clip resumes (ADR 3555). A sync
+    /// sample is one "from which decoding may start" without what came before it, so the pictures
+    /// from it on are the stream's own; those presented before `from` are still handed on, and the
+    /// caller drops them. A `from` of zero decodes the whole track.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::decode_mp4_video`].
+    pub fn decode_mp4_video_from(
+        &mut self,
+        file: &[u8],
+        from: Duration,
         deliver: &mut dyn FnMut(Picture, Duration) -> ControlFlow<()>,
     ) -> Result<VideoStreamed, MediaError> {
         let total = u64::try_from(file.len()).unwrap_or(u64::MAX);
@@ -96,34 +111,42 @@ impl MediaWorker {
                 )));
             }
         };
+        let timing = Timing::of(&track);
+        let first = timing.start_for(from, &track.sync);
         let mut streamed = VideoStreamed {
             width: track.width,
             height: track.height,
             time_scale: track.time_scale,
             pictures: 0,
             stopped: false,
+            note: timing.note.clone(),
         };
-        let starts = decoding_times(&track);
+        let order = timing.output_order(first);
         let mut output = 0usize;
         let mut timed = |picture: Picture| {
-            // A picture past the last sample's start is one a reordering decoder let out at the
-            // end; it is held at the last start rather than invented a time.
-            let at = starts
+            // A picture past the last unit's is one a reordering decoder let out at the end; it is
+            // held at the last time rather than invented one.
+            let at = order
                 .get(output)
-                .or_else(|| starts.last())
+                .or_else(|| order.last())
                 .copied()
-                .unwrap_or_default();
+                .flatten();
             output = output.saturating_add(1);
-            deliver(picture, at)
+            match at {
+                Some(at) => deliver(picture, at),
+                // Composed outside what the edit list presents: decoded, and not shown.
+                None => ControlFlow::Continue(()),
+            }
         };
-        let runs = runs(&track);
+        let units = track.units.get(first..).unwrap_or_default();
+        let runs = runs(units);
         let count = runs.len();
         for (index, run) in runs.into_iter().enumerate() {
-            let units: Vec<&[u8]> = run
+            let cut_units: Vec<&[u8]> = run
                 .iter()
                 .filter_map(|&(offset, size, _)| cut(file, offset, size))
                 .collect();
-            if units.len() != run.len() {
+            if cut_units.len() != run.len() {
                 return Err(MediaError::Refused(
                     "an access unit the checked track placed outside the file".to_owned(),
                 ));
@@ -133,7 +156,7 @@ impl MediaWorker {
                 .map(|&(_, _, duration)| u64::from(duration))
                 .sum();
             let last = index.saturating_add(1) == count;
-            if self.run(&track, &units, last, media, &mut timed, &mut streamed)?
+            if self.run(&track, &cut_units, last, media, &mut timed, &mut streamed)?
                 == ControlFlow::Break(())
             {
                 streamed.stopped = true;
@@ -264,31 +287,116 @@ enum Failed {
     Said(MediaError),
 }
 
-/// Each sample's decoding time in decoding order, on the track's clock: the sum of the durations
-/// before it (ISO/IEC 14496-12, 8.6.1.2's `stts`, which the worker's checked answer carries).
-fn decoding_times(track: &VideoTrack) -> Vec<Duration> {
-    let scale = u128::from(track.time_scale.max(1));
-    let mut ticks = 0u128;
-    track
-        .units
-        .iter()
-        .map(|&(_, _, duration)| {
-            let nanos = ticks
-                .saturating_mul(1_000_000_000)
-                .checked_div(scale)
-                .unwrap_or(0);
-            ticks = ticks.saturating_add(u128::from(duration));
-            Duration::from_nanos(u64::try_from(nanos).unwrap_or(u64::MAX))
-        })
-        .collect()
+/// When each of a video track's pictures is presented, on the movie's timeline (ISO/IEC
+/// 14496-12:2012; ADR 3554).
+///
+/// - **Decoding time** (8.6.1.2): each sample's is the sum of the durations before it.
+/// - **Composition time** (8.6.1.3): "CT(n) = DT(n) + CTTS(n) where CTTS(n) is the (uncompressed)
+///   table entry for sample n", and "each sample must have a unique composition timestamp value".
+///   A track without `ctts` composes each sample at its decoding time.
+/// - **The edit list** (8.6.6) maps composition time onto the movie's: its media time is "the
+///   starting time within the media of this edit segment (in media time scale units, in
+///   composition time)", and leading empty edits delay the track. Read as a sound track's is
+///   (`crate::mp4::edited`): a picture composed before the edit's media time, or past
+///   its segment, is decoded and not presented; a list of another shape is not applied, and the
+///   note says so.
+///
+/// **Which picture is which.** The decoder hands its pictures out in output order, the order of
+/// their picture order counts, which a conforming stream keeps in the order of their composition
+/// times; so the `k`-th picture out of a decode begun at sample `s` is the one with the `k`-th
+/// smallest composition time among the samples from `s` on.
+struct Timing {
+    /// Each sample's composition time, in decoding order, in the media's time scale.
+    composition: Vec<i128>,
+    /// The edit list's delay, skip and kept span, in the media's time scale.
+    delay: i128,
+    skip: i128,
+    keep: Option<i128>,
+    time_scale: u32,
+    note: Option<String>,
 }
 
-/// The track's access units in runs: at most [`MAX_UNITS_PER_RUN`] units and
+impl Timing {
+    fn of(track: &VideoTrack) -> Self {
+        let mut decoding = 0i128;
+        let composition = track
+            .units
+            .iter()
+            .enumerate()
+            .map(|(index, &(_, _, duration))| {
+                let offset = track.composition_offsets.get(index).copied().unwrap_or(0);
+                let composed = decoding.saturating_add(i128::from(offset));
+                decoding = decoding.saturating_add(i128::from(duration));
+                composed
+            })
+            .collect();
+        let presented = crate::mp4::edited(
+            &track.edits,
+            track.movie_time_scale,
+            track.time_scale,
+            "video",
+        );
+        Self {
+            composition,
+            delay: i128::from(presented.delay),
+            skip: i128::from(presented.skip),
+            keep: presented.keep.map(i128::from),
+            time_scale: track.time_scale.max(1),
+            note: presented.note,
+        }
+    }
+
+    /// Where on the movie's timeline a sample composed at `composed` is presented, or `None` where
+    /// the edit list presents no part of the media there.
+    fn presented(&self, composed: i128) -> Option<Duration> {
+        let into = composed.checked_sub(self.skip).filter(|into| *into >= 0)?;
+        if self.keep.is_some_and(|keep| into >= keep) {
+            return None;
+        }
+        let ticks = into.saturating_add(self.delay);
+        let nanos = ticks
+            .saturating_mul(1_000_000_000)
+            .checked_div(i128::from(self.time_scale))
+            .unwrap_or(0);
+        Some(Duration::from_nanos(
+            u64::try_from(nanos).unwrap_or(u64::MAX),
+        ))
+    }
+
+    /// The presentation time of each picture a decode begun at sample `first` hands out, in output
+    /// order; `None` for a picture the edit list does not present.
+    fn output_order(&self, first: usize) -> Vec<Option<Duration>> {
+        let mut composed = self.composition.get(first..).unwrap_or_default().to_vec();
+        composed.sort_unstable();
+        composed
+            .into_iter()
+            .map(|composed| self.presented(composed))
+            .collect()
+    }
+
+    /// The sample a decode that shows `from` on begins at: the last sync sample presented at or
+    /// before `from`, and the first sample where none is or `from` is zero.
+    fn start_for(&self, from: Duration, sync: &[bool]) -> usize {
+        if from.is_zero() {
+            return 0;
+        }
+        self.composition
+            .iter()
+            .enumerate()
+            .filter(|&(index, _)| sync.get(index).copied().unwrap_or(true))
+            .filter(|&(_, &composed)| self.presented(composed).is_some_and(|at| at <= from))
+            .map(|(index, _)| index)
+            .next_back()
+            .unwrap_or(0)
+    }
+}
+
+/// Access units in runs: at most [`MAX_UNITS_PER_RUN`] units and
 /// [`MAX_VIDEO_UNIT_BYTES`] bytes a run, in decoding order.
-fn runs(track: &VideoTrack) -> Vec<Vec<(u64, u32, u32)>> {
+fn runs(units: &[(u64, u32, u32)]) -> Vec<Vec<(u64, u32, u32)>> {
     let mut runs: Vec<Vec<(u64, u32, u32)>> = Vec::new();
     let mut bytes = 0usize;
-    for &unit in &track.units {
+    for &unit in units {
         let size = usize::try_from(unit.1).unwrap_or(usize::MAX);
         let fits = runs.last().is_some_and(|run| {
             run.len() < MAX_UNITS_PER_RUN && bytes.saturating_add(size) <= MAX_VIDEO_UNIT_BYTES

@@ -48,7 +48,7 @@ mod playing;
 mod wave;
 
 pub use deprecated::{movie, sound};
-pub use playing::{Honoured, Playing, Section, SimpleDuration};
+pub use playing::{Fit, Honoured, Playing, Section, SimpleDuration};
 pub use wave::{Encoding, SampleFormat, Samples, Wave, wave};
 
 /// Most renditions one walk of §13.2.3.3's tree visits.
@@ -527,12 +527,17 @@ impl Walk<'_> {
         // §13.2.2's viability is relative to the player: a clip this program plays itself is
         // judged against what that player honours, every other against the hand-off (ADR 3350).
         let here = clip.as_dict().is_some_and(|clip| self.played_here(clip));
+        // Table 291's `/F` fits "a visual media type", so only a clip with pictures is judged by it.
+        let pictures = here && clip.as_dict().is_some_and(|clip| self.has_pictures(clip));
         // Table 290's `/PL` takes part in §13.2.7.2.2's algorithm beside the clip's own.
         let play_players = parameters.map(|parameters| document.get_key(parameters, "PL"));
         let mut honoured = None;
         if let Some(parameters) = parameters {
             if here {
-                let read = Playing::of_play_parameters(document, parameters);
+                let mut read = Playing::of_play_parameters(document, parameters);
+                if pictures && read.playing.fit == Fit::Scroll {
+                    unscrolled(&mut read);
+                }
                 reasons.extend(read.must.iter().cloned());
                 honoured = Some(read);
             } else {
@@ -594,6 +599,15 @@ impl Walk<'_> {
             }
             _ => Err(reasons),
         }
+    }
+
+    /// Whether `clip`'s data is an embedded MP4 file of `video/` type, which this program's player
+    /// shows pictures of (ADR 3538).
+    fn has_pictures(&self, clip: &Dictionary) -> bool {
+        let document = self.document;
+        self.terminal(clip, 0).is_some_and(|data| {
+            content_type(document, &data).is_some_and(|kind| container::is_mp4_video(&kind))
+        })
     }
 
     /// Whether this program's own player takes `clip`: the host plays here, and the clip is
@@ -1429,6 +1443,26 @@ impl Walk<'_> {
 /// Tables 291 and 294 define what may be asked — volume, controls, fit, duration, a window, a
 /// monitor — and every one of them is something a player would have to be *told*. In `MH` each is
 /// a reason the object is non-viable; in `BE` each is ignored, which §13.2.2 permits.
+/// Table 291's `/F 3` for a clip with pictures: "A scrolling user interface shall be provided if
+/// the media rectangle is wider or taller than the play rectangle", and no window of this program
+/// provides one over a screen annotation. In `MH` the rendition is non-viable — whether the picture
+/// overflows is known only once it is decoded, so the requirement cannot be shown met — and in
+/// `BE` the fit is set aside: the picture is shown unscaled and cut to the rectangle, which is all
+/// of `/F 3` but its interface (ADR 3553).
+fn unscrolled(read: &mut Honoured) {
+    let why = "it provides no scrolling user interface over a screen annotation (/F 3), and its \
+               pictures are shown unscaled and cut to the rectangle instead";
+    if read.fit_must {
+        read.must.push(format!(
+            "it must be played with Table 291's /F honoured, and this program's player cannot: \
+             {why}"
+        ));
+    } else {
+        read.set_aside
+            .push(format!("Table 291's best-effort /F, because {why}"));
+    }
+}
+
 fn unhonourable(document: &Document, dict: &Dictionary, table: &str, reasons: &mut Vec<String>) {
     let options = document.get_key(dict, "MH");
     let Some(options) = options.as_dict() else {

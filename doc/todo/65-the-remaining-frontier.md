@@ -181,9 +181,9 @@ a normal round extending the existing code.
 The rich text build's last residue, pair kerning in §9.6.2.2's fourteen, is laid out from Adobe's
 published pairs (`doc/questions/A308`, ADR 1916).
 
-- §13.2.5 — Table 291's /F fit for a clip's pictures, which fill the screen annotation's rectangle
-  whatever the value: the fit applied by the sinks, or `/F` 0, 1, 3 and 4 judged non-viable for
-  this program's player in MH and set aside in BE (ADR 3545).
+- §13.2.5 — Table 291's /F 3, "A scrolling user interface shall be provided": no window provides
+  one over a screen annotation, so it is non-viable in MH and set aside in BE; the other values fit
+  the picture (ADR 3553).
 - §13.4 — a movie annotation's poster retrieved from its movie file (Table 306's /Poster `true`)
   and its movie played in place (Table 307's activation dictionary), owed since video was opened
   (`doc/questions/A1006`): an MP4 movie's first H.264 picture taken by `pdf-media-worker` for the
@@ -300,7 +300,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§13.2 — over the media play parameters row, Table 291's /F for a clip's pictures (ADR 3545).
+§13.2 — over the media play parameters row, Table 291's /F 3's scrolling interface (ADR 3553).
 
 The three before it, §12.6, §12.6.4 and §12.6.4.14, are `implemented`, the window holding the
 association a rendition's stop, pause and resume act through (ADR 3433).

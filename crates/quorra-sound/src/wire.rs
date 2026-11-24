@@ -59,6 +59,9 @@ pub const ENDED: u8 = 5;
 pub const PLAYED: u8 = 6;
 /// The pass with this serial was paused after the device had reached this many of its frames.
 pub const PAUSED: u8 = 7;
+/// The device had reached this many frames of the pass with this serial as it was reported
+/// (ADR 3555).
+pub const HEARD: u8 = 8;
 
 /// The most samples one sound may carry: `viewer_host::sound::MAX_PLAYED_SAMPLES`, which bounds
 /// what the window converts, held by the helper as its own bound on what it reads (64 MiB of
@@ -138,6 +141,13 @@ pub enum Reply {
         /// Its serial.
         serial: u64,
         /// Frames written since it started.
+        frames: u64,
+    },
+    /// The device had reached this many frames of the sound with this serial as it was reported.
+    Heard {
+        /// Its serial.
+        serial: u64,
+        /// Frames written, less those the device still held unplayed.
         frames: u64,
     },
 }
@@ -332,6 +342,11 @@ pub fn write_reply(to: &mut impl Write, reply: &Reply) -> Result<(), WireError> 
             to.write_all(&serial.to_le_bytes())?;
             to.write_all(&frames.to_le_bytes())?;
         }
+        Reply::Heard { serial, frames } => {
+            to.write_all(&[HEARD])?;
+            to.write_all(&serial.to_le_bytes())?;
+            to.write_all(&frames.to_le_bytes())?;
+        }
         Reply::Paused { serial, frames } => {
             to.write_all(&[PAUSED])?;
             to.write_all(&serial.to_le_bytes())?;
@@ -365,6 +380,10 @@ pub fn read_reply(from: &mut impl Read) -> Result<Option<Reply>, WireError> {
         },
         ENDED => Reply::Ended(u64::from_le_bytes(read_array(from)?)),
         PLAYED => Reply::Played {
+            serial: u64::from_le_bytes(read_array(from)?),
+            frames: u64::from_le_bytes(read_array(from)?),
+        },
+        HEARD => Reply::Heard {
             serial: u64::from_le_bytes(read_array(from)?),
             frames: u64::from_le_bytes(read_array(from)?),
         },
@@ -478,6 +497,10 @@ mod tests {
             Reply::Paused {
                 serial: 3,
                 frames: 4321,
+            },
+            Reply::Heard {
+                serial: 3,
+                frames: 4000,
             },
         ];
         let mut pipe = Vec::new();

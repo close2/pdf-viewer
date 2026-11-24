@@ -224,6 +224,10 @@ impl Worker {
                 .iter()
                 .map(|unit| (unit.offset, unit.size, unit.duration))
                 .collect(),
+            composition_offsets: track.composition_offsets.clone(),
+            sync: sync_flags(track.sync_samples.as_deref(), track.access_units.len()),
+            movie_time_scale: track.movie_time_scale,
+            edits: track.edits.clone(),
         });
         self.video = Some(session);
         Ok((FRAME_VIDEO_TRACK, reply))
@@ -378,4 +382,23 @@ fn read_frame(input: &mut impl Read) -> Result<Option<Frame>, std::io::Error> {
     let mut payload = vec![0u8; length];
     input.read_exact(&mut payload)?;
     Ok(Some((kind, Some(payload))))
+}
+
+/// One flag a sample, from `stss`'s sync sample indices, or every sample where the track has none
+/// (ISO/IEC 14496-12, 8.6.2: "If the sync sample box is not present, every sample is a sync
+/// sample").
+fn sync_flags(sync: Option<&[u32]>, count: usize) -> Vec<bool> {
+    let Some(sync) = sync else {
+        return vec![true; count];
+    };
+    let mut flags = vec![false; count];
+    for &index in sync {
+        if let Some(flag) = usize::try_from(index)
+            .ok()
+            .and_then(|index| flags.get_mut(index))
+        {
+            *flag = true;
+        }
+    }
+    flags
 }

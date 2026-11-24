@@ -43,6 +43,10 @@ pub use wire::Format;
 pub enum Progress {
     /// This many of the pass's frames have been written to the device since it started.
     Played(u64),
+    /// This many of the pass's frames the device had reached as the report was made: written,
+    /// less what the device said it still held unplayed (ADR 3458's count, sent with each
+    /// [`Progress::Played`]), which a picture clock is slaved to (ADR 3555).
+    Heard(u64),
     /// The pass's last frame has been written.
     Ended,
 }

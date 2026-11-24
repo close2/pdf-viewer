@@ -1291,7 +1291,12 @@ impl App {
             println!("note: {document}: the sound {name:?} {note}");
         }
         if let Some(shown) = shown {
-            self.start_the_pictures(shown);
+            // The pictures follow the sound just handed over (ADR 3555).
+            let sound = self
+                .player
+                .as_ref()
+                .map(viewer_host::sound::Player::listening);
+            self.start_the_pictures(shown, sound);
         }
     }
 

@@ -49,6 +49,67 @@ impl Section {
     };
 }
 
+/// Table 291's `/F`: "The manner in which the player shall treat a visual media type that does
+/// not exactly fit the rectangle in which it plays" — each value named by the SMIL `fit` value
+/// the table's notes give it.
+///
+/// Where a picture stands inside the rectangle, where it does not fill it or is cut by it, the
+/// table does not say; the windows place it at the rectangle's top-left corner, SMIL's default
+/// registration, a choice (ADR 3553).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Fit {
+    /// `0`, SMIL's `meet`: "The media's width and height shall be scaled while preserving the
+    /// aspect ratio so that the media and play rectangles have the greatest possible intersection
+    /// while still displaying all media content."
+    Meet,
+    /// `1`, SMIL's `slice`: "The media's width and height shall be scaled while preserving the
+    /// aspect ratio so that the play rectangle is entirely filled, and the amount of media content
+    /// that does not fit within the play rectangle shall be minimised."
+    Slice,
+    /// `2`, SMIL's `fill`: "The media's width and height shall be scaled independently so that the
+    /// media and play rectangles are the same; the aspect ratio shall not be preserved."
+    Fill,
+    /// `3`, SMIL's `scroll`: "The media shall not be scaled. A scrolling user interface shall be
+    /// provided if the media rectangle is wider or taller than the play rectangle."
+    Scroll,
+    /// `4`, SMIL's `hidden`: "The media shall not be scaled. Only the portions of the media
+    /// rectangle that intersect the play rectangle shall be displayed."
+    Hidden,
+    /// `5`, and the default: "Use the player's default setting (author has no preference)." This
+    /// player's own setting is [`Fit::Meet`], a choice (ADR 3553).
+    #[default]
+    PlayersDefault,
+}
+
+impl Fit {
+    /// Table 291's `/F` integer, or `None` for a value the table does not define.
+    #[must_use]
+    pub fn of_value(value: i64) -> Option<Self> {
+        Some(match value {
+            0 => Self::Meet,
+            1 => Self::Slice,
+            2 => Self::Fill,
+            3 => Self::Scroll,
+            4 => Self::Hidden,
+            5 => Self::PlayersDefault,
+            _ => return None,
+        })
+    }
+
+    /// The integer Table 291 gives this fit.
+    #[must_use]
+    pub fn value(self) -> u8 {
+        match self {
+            Self::Meet => 0,
+            Self::Slice => 1,
+            Self::Fill => 2,
+            Self::Scroll => 3,
+            Self::Hidden => 4,
+            Self::PlayersDefault => 5,
+        }
+    }
+}
+
 /// How a sound is played: §13.2.5's play parameters, with each default the tables state.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Playing {
@@ -73,11 +134,13 @@ pub struct Playing {
     /// The part of the clip a chain of media clip sections defines (§13.2.4.3); the whole of it
     /// for a sound object and for media clip data.
     pub section: Section,
+    /// Table 291's `/F`, which only a clip with pictures is fitted by.
+    pub fit: Fit,
 }
 
 impl Default for Playing {
-    /// Each table's default: `/V` 100, `/D` intrinsic, `/RC` 1.0, `/A` true, `/Synchronous` and
-    /// `/Mix` false.
+    /// Each table's default: `/V` 100, `/D` intrinsic, `/RC` 1.0, `/A` true, `/F` 5,
+    /// `/Synchronous` and `/Mix` false.
     fn default() -> Self {
         Self {
             level: 1.0,
@@ -87,6 +150,7 @@ impl Default for Playing {
             synchronous: false,
             mix: false,
             section: Section::WHOLE,
+            fit: Fit::PlayersDefault,
         }
     }
 }
@@ -182,6 +246,9 @@ pub struct Honoured {
     /// Each `BE` entry set aside, said (trap 5): "if they cannot be honoured, the containing object
     /// is still considered viable".
     pub set_aside: Vec<String>,
+    /// Whether `/F` was read from `MH`, which decides whether a fit the windows cannot honour
+    /// makes a clip with pictures non-viable or is set aside (ADR 3553).
+    pub fit_must: bool,
 }
 
 impl Playing {
@@ -196,9 +263,10 @@ impl Playing {
     ///
     /// What this player honours of Table 291, each argued in ADR 3350: `/V` as a level, `/D`'s
     /// three durations, `/RC` and `/A` (held at its start, and started by the window's resume
-    /// control); `/F` for an aural clip, because the entry is about "a visual media type that does
-    /// not exactly fit the rectangle in which it plays" and a sound is fitted to nothing; and `/C`
-    /// false. `/C` true asks for "a player-specific controller user interface", which this player
+    /// control); `/F`, read into [`Playing::fit`] — every value for an aural clip, because the
+    /// entry is about "a visual media type that does not exactly fit the rectangle in which it
+    /// plays" and a sound is fitted to nothing, and every value but 3 for a clip with pictures
+    /// (ADR 3553); and `/C` false. `/C` true asks for "a player-specific controller user interface", which this player
     /// does not show — a window's keys are not one.
     #[must_use]
     pub fn of_play_parameters(document: &Document, parameters: &Dictionary) -> Honoured {
@@ -206,6 +274,7 @@ impl Playing {
             playing: Self::default(),
             must: Vec::new(),
             set_aside: Vec::new(),
+            fit_must: false,
         };
         let must = document.get_key(parameters, "MH");
         let must = must.as_dict();
@@ -230,6 +299,9 @@ impl Playing {
                     )),
                     _ => Ok(()),
                 };
+                if is_must && key == "F" && answer.is_ok() {
+                    honoured.fit_must = true;
+                }
                 if let Err(why) = answer {
                     if is_must {
                         honoured.must.push(format!(
@@ -275,10 +347,20 @@ impl Playing {
                 }
             }
             "F" => match value {
-                // Table 291's six fits, each of "a visual media type"; a sound has no rectangle
-                // to fit, so every one of them is honoured by playing it.
-                Object::Integer(0..=5) => {}
-                _ => return Err("its value is none of the fits 0 to 5".to_owned()),
+                // Table 291's six fits, each of "a visual media type": a sound has no rectangle to
+                // fit and honours every one by playing; a clip's pictures are fitted by the window,
+                // and the one fit its windows cannot honour, `/F 3`'s scrolling interface, is
+                // judged where the clip is known to have pictures (`Fit::Scroll`, ADR 3553).
+                Object::Integer(stated) => {
+                    self.fit = Fit::of_value(*stated).ok_or_else(|| {
+                        format!(
+                            "its value {stated} is none of the fits 0 to 5, which a BE \
+                             dictionary treats as the default and an MH dictionary as \
+                             non-viable"
+                        )
+                    })?;
+                }
+                _ => return Err("its value is not an integer".to_owned()),
             },
             "D" => self.duration = duration(document, value)?,
             _ => return Err("Table 291 does not define it".to_owned()),

@@ -50,3 +50,11 @@ and RFC 0012's checks were run again on it:
   expected values come from the standard, not from another decoder (`tests/video.rs`).
 - A stream whose memory management operation 5 resets the order count inside a sequence is
   reordered by the counts as they are; the conformance walk (ADR 3527) is where that shows.
+
+## Amended 2026-11-24 by A1027
+
+The owner answered `doc/questions/Q1027` on 2026-11-24 with "option 1" (`doc/questions/A1027`):
+`wide` and `safe_arch` stand in `pdf-media-worker`'s scalar `rusty_h264-decoder` build, inside the
+confined worker (`Profile::Media`), as the part of the graph RFC 0012 did not count. No upstream
+feature request is filed and `rusty_h264` is not forked. The Context's "the tree keeps the build
+inside the confined worker meanwhile" is therefore the standing arrangement, not an interim one.

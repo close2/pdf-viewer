@@ -9,20 +9,20 @@
 //! [`on_the_processor`], the oracle's own conversion (ADR 3529).
 //!
 //! **When a picture is due.** ISO 32000-2 §13.2.5's play parameters are timed against the media
-//! clock of RFC 0015 Part 1 ([`MediaClock`], ADR 3342). A clip's pictures carry the times
-//! `pdf_media_worker::MediaWorker::decode_mp4_video_timed` gives them, on the track's own clock;
-//! the window asks [`VideoPlayer::due`] at each tick, which hands on the newest picture whose time
-//! has come and counts every earlier one it passes over as **dropped late** — a slow window shows
-//! fewer pictures and never a delayed one, and nothing the window does waits for the decoder. The
-//! decoding thread is held back by a queue of [`AHEAD`] pictures, so it runs no further ahead of
-//! the clock than that.
+//! clock of RFC 0015 Part 1 ([`MediaClock`], ADR 3342). A clip's pictures carry their presentation
+//! times on the movie's timeline — composition offsets and the video edit list applied
+//! (`pdf_media_worker::MediaWorker::decode_mp4_video_from`, ADR 3554); the window asks
+//! [`VideoPlayer::due`] at each tick, which hands on the newest picture whose time has come and
+//! counts every earlier one it passes over as **dropped late** — a slow window shows fewer pictures
+//! and never a delayed one, and nothing the window does waits for the decoder. The decoding thread
+//! is held back by a queue of [`AHEAD`] pictures, so it runs no further ahead of the clock than
+//! that.
 //!
-//! **What is approximate until §6 round 9.** The pictures' clock runs on the monotonic clock from
-//! the moment the clip started, as `MediaClock`'s freeze runs, while the clip's sound — played by
-//! [`crate::sound::Player`] from the same file — runs on its device's count. The two start
-//! together and are not locked to each other, so they drift by the two clocks' difference and by
-//! the sound device's start-up latency. A track's composition offsets (`ctts`) and its edit list
-//! are not read, so a picture is timed at its sample's decoding time.
+//! **Whose clock.** A clip with sound is timed by its sound (ADR 3555): the pictures follow the
+//! sound player's [`Listening`], the device's count of the frames it had reached — what is heard,
+//! not what was written — so the two cannot drift apart. They wait while the sound has not begun,
+//! stand while it is paused, and run on the monotonic clock from the sound's last time once it is
+//! over (a sound shorter than its pictures) or where the clip never sounds.
 //!
 //! **What a play parameter does to the pictures.** Table 291's `/A` false holds the clip at its
 //! start until it is resumed; `/RC` repeats it in whole passes (a fraction of a pass rounds up); a
@@ -30,8 +30,8 @@
 //! sentence for such a clip says so.
 //!
 //! **Stop, pause and resume** reach the pictures as they reach a sound (ADR 3433): a pause stops
-//! the decoding and keeps the clock's place; a resume decodes the track again from its start and
-//! shows nothing before that place, so a resumption costs the decoding of what was already shown.
+//! the decoding and keeps the clock's place; a resume decodes from the last sync sample at or
+//! before that place — not from the track's start — and shows nothing before it (ADR 3555).
 
 use std::ops::ControlFlow;
 use std::sync::Arc;
@@ -45,8 +45,8 @@ use pdf_render::video::{Conversion, ConversionRefused, Planes};
 use pdf_syntax::ObjectId;
 use viewer_core::{DocumentId, MediaOperation};
 
-use crate::sound::Wake;
 use crate::sound::clock::MediaClock;
+use crate::sound::{Listening, SoundTime, Wake};
 
 mod window;
 
@@ -58,6 +58,47 @@ pub const AHEAD: usize = 3;
 
 /// The clock's rate: microseconds, which is finer than any picture rate a track states.
 const CLOCK_RATE: u32 = 1_000_000;
+
+/// How soon a clip waiting for its sound to begin is looked at again.
+const WAITING_LOOK: Duration = Duration::from_millis(5);
+
+impl InHand {
+    /// The clip's time at `now`, read and kept: its sound's heard time while the sound is in hand,
+    /// `None` while the sound has not begun, and the clip's own clock otherwise — taken up from
+    /// the sound's last time at the moment the sound is found over.
+    fn clip_time(&mut self, now: Instant) -> Option<Duration> {
+        if let Some(sound) = &self.sound {
+            match sound.time(now) {
+                SoundTime::At(time) => {
+                    self.time = time;
+                    return Some(time);
+                }
+                SoundTime::Waiting => return None,
+                SoundTime::Over => {
+                    self.sound = None;
+                    self.clock = MediaClock::new(CLOCK_RATE);
+                    self.clock
+                        .thawed(u64::try_from(self.time.as_micros()).unwrap_or(u64::MAX));
+                    if self.running {
+                        self.clock.freeze(now);
+                    }
+                }
+            }
+        }
+        self.time = self.clock.time(now);
+        Some(self.time)
+    }
+
+    /// [`Self::clip_time`] without keeping anything, for a look that changes nothing.
+    fn peek_time(&self, now: Instant) -> Option<Duration> {
+        match self.sound.as_ref().map(|sound| sound.time(now)) {
+            Some(SoundTime::At(time)) => Some(time),
+            Some(SoundTime::Waiting) => None,
+            Some(SoundTime::Over) => Some(self.time),
+            None => Some(self.clock.time(now)),
+        }
+    }
+}
 
 /// A clip to show, as the window was handed it in `viewer_core::Event::Media`'s sound.
 #[derive(Debug, Clone)]
@@ -79,6 +120,8 @@ pub struct Shown {
     pub repeat: f64,
     /// Whether a simple duration or a section was stated, which the pictures do not follow yet.
     pub cut: bool,
+    /// Table 291's `/F`: how a picture is fitted to the rectangle ([`placed`]).
+    pub fit: pdf_model::media::Fit,
 }
 
 impl Shown {
@@ -108,6 +151,7 @@ impl Shown {
                 playing.duration,
                 pdf_model::media::SimpleDuration::Intrinsic
             ) || playing.section != pdf_model::media::Section::WHOLE,
+            fit: playing.fit,
         })
     }
 }
@@ -198,6 +242,162 @@ fn signal_of(signal: pdf_media_worker::video::Signal) -> pdf_render::video::Sign
     }
 }
 
+/// A picture placed in its rectangle: the part of it shown, in samples, and the quadrilateral in
+/// window pixels that part covers, its corners clockwise from the part's top-left — the window
+/// maps the part's top-left sample corner to `quad`'s first corner, its rows along the first edge
+/// and its columns down the last.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placed {
+    /// The first column of the picture shown.
+    pub left: u32,
+    /// The first row shown.
+    pub top: u32,
+    /// The first column past the part shown.
+    pub right: u32,
+    /// The first row past it.
+    pub bottom: u32,
+    /// Where the part goes, `[x0, y0, … x3, y3]`.
+    pub quad: [f32; 8],
+}
+
+impl Placed {
+    /// The affine from the picture's sample space — `(0, 0)` its top-left corner, one unit a
+    /// sample — to window pixels: what puts [`Self::left`]..[`Self::right`] by
+    /// [`Self::top`]..[`Self::bottom`] on [`Self::quad`], as `[a, b, c, d, e, f]` (§8.3.3's
+    /// order: `x' = a·x + c·y + e`, `y' = b·x + d·y + f`).
+    #[must_use]
+    pub fn affine(&self) -> [f32; 6] {
+        let [x0, y0, x1, y1, _, _, x3, y3] = self.quad;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a picture's side is at most 1920 samples, far inside f32's exact integers"
+        )]
+        let (columns, rows) = (
+            self.right.saturating_sub(self.left).max(1) as f32,
+            self.bottom.saturating_sub(self.top).max(1) as f32,
+        );
+        let (a, b) = ((x1 - x0) / columns, (y1 - y0) / columns);
+        let (c, d) = ((x3 - x0) / rows, (y3 - y0) / rows);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "as above: a sample index inside a picture's side"
+        )]
+        let (left, top) = (self.left as f32, self.top as f32);
+        [a, b, c, d, x0 - a * left - c * top, y0 - b * left - d * top]
+    }
+    /// The samples of `raster` — the picture converted, RGBA as `render-cpu`'s conversion answers
+    /// it — that this placement shows, for a window that draws the part as an image of its own.
+    #[must_use]
+    pub fn part_of(&self, raster: &pdf_render::Raster) -> pdf_render::Raster {
+        let width = usize::try_from(raster.width).unwrap_or(usize::MAX);
+        let to = |value: u32| usize::try_from(value).unwrap_or(usize::MAX);
+        let (left, right) = (to(self.left).min(width), to(self.right).min(width));
+        let (top, bottom) = (to(self.top), to(self.bottom).min(to(raster.height)));
+        let stride = width.saturating_mul(4).max(1);
+        let mut data = Vec::new();
+        for row in raster
+            .data
+            .chunks_exact(stride)
+            .skip(top)
+            .take(bottom.saturating_sub(top))
+        {
+            data.extend_from_slice(
+                row.get(left.saturating_mul(4)..right.saturating_mul(4))
+                    .unwrap_or_default(),
+            );
+        }
+        pdf_render::Raster {
+            width: u32::try_from(right.saturating_sub(left)).unwrap_or(0),
+            height: u32::try_from(bottom.saturating_sub(top)).unwrap_or(0),
+            format: raster.format,
+            data,
+        }
+    }
+}
+
+/// A picture of `size` samples fitted to the rectangle `quad` (corners clockwise from its
+/// top-left, in window pixels) as ISO 32000-2 Table 291's `/F` says — "the manner in which the
+/// player shall treat a visual media type that does not exactly fit the rectangle in which it
+/// plays" (ADR 3553):
+///
+/// - **0, meet**, and **5**, this player's default: scaled by one factor, the largest at which the
+///   whole picture is inside the rectangle;
+/// - **1, slice**: scaled by one factor, the smallest at which the rectangle is covered, and the
+///   part past the rectangle not shown;
+/// - **2, fill**: each side scaled to the rectangle's;
+/// - **4, hidden**, and **3, scroll**, whose interface no window provides (the rendition judged it):
+///   not scaled — one sample a window pixel, the reading of "not scaled" this player takes, since
+///   the table names no unit — and cut to the rectangle.
+///
+/// Where the picture does not fill the rectangle, or is cut by it, it stands at the rectangle's
+/// top-left corner (`pdf_model::media::Fit`'s choice). The rectangle's sides are measured along
+/// its own edges, so a turned or mirrored view fits the same picture. A picture is taken to have
+/// square samples. `None` where the rectangle or the picture has no extent.
+#[must_use]
+pub fn placed(fit: pdf_model::media::Fit, size: (u32, u32), quad: [f32; 8]) -> Option<Placed> {
+    use pdf_model::media::Fit;
+    let [x0, y0, x1, y1, _, _, x3, y3] = quad;
+    let (across, down) = (
+        f64::from(x1 - x0).hypot(f64::from(y1 - y0)),
+        f64::from(x3 - x0).hypot(f64::from(y3 - y0)),
+    );
+    let (width, height) = (f64::from(size.0), f64::from(size.1));
+    if !(across > 0.0 && down > 0.0 && width > 0.0 && height > 0.0) {
+        return None;
+    }
+    // Each side's scale from samples to the rectangle's pixels.
+    let (sx, sy) = match fit {
+        Fit::Meet | Fit::PlayersDefault => {
+            let scale = (across / width).min(down / height);
+            (scale, scale)
+        }
+        Fit::Slice => {
+            let scale = (across / width).max(down / height);
+            (scale, scale)
+        }
+        Fit::Fill => (across / width, down / height),
+        Fit::Hidden | Fit::Scroll => (1.0, 1.0),
+    };
+    // The part of the picture inside the rectangle, from its top-left corner, in whole samples
+    // (a part's edge to the nearest sample), and the share of each side of the rectangle it covers.
+    let shown = |side: f64, extent: f64, scale: f64| (extent / scale).min(side).round().max(1.0);
+    let (columns, rows) = (shown(width, across, sx), shown(height, down, sy));
+    let (u, v) = (
+        (columns * sx / across).min(1.0),
+        (rows * sy / down).min(1.0),
+    );
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a share of the rectangle, between zero and one, scales a pixel coordinate"
+    )]
+    let (u, v) = (u as f32, v as f32);
+    let corner = |s: f32, t: f32| {
+        (
+            x0 + s * (x1 - x0) + t * (x3 - x0),
+            y0 + s * (y1 - y0) + t * (y3 - y0),
+        )
+    };
+    let (q0, q1, q2, q3) = (
+        corner(0.0, 0.0),
+        corner(u, 0.0),
+        corner(u, v),
+        corner(0.0, v),
+    );
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a count of samples, at least one and at most the picture's side"
+    )]
+    let (right, bottom) = (columns as u32, rows as u32);
+    Some(Placed {
+        left: 0,
+        top: 0,
+        right,
+        bottom,
+        quad: [q0.0, q0.1, q1.0, q1.1, q2.0, q2.1, q3.0, q3.1],
+    })
+}
+
 /// What the decoding thread sends the window.
 enum Decoded {
     /// A picture of pass `generation`, at its time on the track's clock.
@@ -206,10 +406,11 @@ enum Decoded {
         picture: pdf_media_worker::video::Picture,
         at: Duration,
     },
-    /// Pass `generation`'s decode is over, and how.
+    /// Pass `generation`'s decode is over, and how: its last picture's time and the sentence for
+    /// an edit list not applied, or why it stopped.
     Over {
         generation: u64,
-        result: Result<Duration, MediaError>,
+        result: Result<(Duration, Option<String>), MediaError>,
     },
 }
 
@@ -233,7 +434,13 @@ struct Running {
 /// The clip in hand, the window's side of it.
 struct InHand {
     shown: Shown,
+    /// The clip's own clock, on the monotonic clock: the one the pictures run on where the clip is
+    /// silent or its sound is over.
     clock: MediaClock,
+    /// The clip's sound, which the pictures follow while it is in hand (ADR 3555).
+    sound: Option<Listening>,
+    /// The clip's time as last read, on whichever clock it runs.
+    time: Duration,
     /// Whether the clock runs: false while paused or held at the start.
     running: bool,
     /// The pass being decoded, and where in the clip's time that pass begins.
@@ -241,6 +448,8 @@ struct InHand {
     pass_start: Duration,
     /// The passes begun, counting this one.
     passes: u32,
+    /// The last picture's size in samples, which [`VideoPlayer::placed`] fits.
+    size: Option<(u32, u32)>,
     /// The first picture not yet due, kept from the queue.
     next: Option<(Duration, pdf_media_worker::video::Picture)>,
     /// The newest picture's time in the pass, and the interval before it: the pass ends one
@@ -248,7 +457,7 @@ struct InHand {
     last_at: Duration,
     interval: Duration,
     /// How this pass's decode ended, kept until its last picture's interval has run.
-    over: Option<Result<Duration, MediaError>>,
+    over: Option<Result<(Duration, Option<String>), MediaError>>,
     /// The pictures handed on and the ones passed over late.
     shown_count: u64,
     dropped: u64,
@@ -301,8 +510,17 @@ impl VideoPlayer {
         self
     }
 
-    /// Shows `shown`, stopping the clip in hand first (a play stops the one in hand, ADR 3433).
+    /// Shows `shown`, a silent clip or one whose sound no player plays, stopping the clip in hand
+    /// first (a play stops the one in hand, ADR 3433); its pictures run on the monotonic clock.
     pub fn play(&mut self, shown: Shown) {
+        self.play_beside(shown, None);
+    }
+
+    /// Shows `shown` beside its sound, `sound` — what the sound player was handed from the same
+    /// event ([`crate::sound::Player::listening`]) — whose heard time the pictures follow while it
+    /// is in hand: they wait for it to begin, stand when it is paused, and run on the monotonic
+    /// clock from where it was once it is over or where it never sounds (ADR 3555).
+    pub fn play_beside(&mut self, shown: Shown, sound: Option<Listening>) {
         self.stop();
         if shown.screen.is_none() {
             self.seen.push(Seen::Refused(format!(
@@ -324,6 +542,9 @@ impl VideoPlayer {
         self.in_hand = Some(InHand {
             shown,
             clock,
+            sound,
+            time: Duration::ZERO,
+            size: None,
             running: auto_play,
             generation: 0,
             pass_start: Duration::ZERO,
@@ -421,7 +642,9 @@ impl VideoPlayer {
         if !hand.running {
             return false;
         }
-        hand.clock.pause(Instant::now());
+        let now = Instant::now();
+        let _ = hand.clip_time(now);
+        hand.clock.pause(now);
         hand.running = false;
         hand.next = None;
         hand.over = None;
@@ -440,7 +663,10 @@ impl VideoPlayer {
             return false;
         }
         let now = Instant::now();
-        let from = hand.clock.time(now).saturating_sub(hand.pass_start);
+        let from = hand
+            .clip_time(now)
+            .unwrap_or(hand.time)
+            .saturating_sub(hand.pass_start);
         hand.clock.freeze(now);
         hand.running = true;
         hand.over = None;
@@ -506,10 +732,12 @@ impl VideoPlayer {
             (None, Some(_)) => hand.last_at.saturating_add(hand.interval),
             (None, None) => return None,
         };
-        let wait = hand
-            .pass_start
-            .saturating_add(at)
-            .saturating_sub(hand.clock.time(now));
+        // A clip waiting for its sound to begin is looked at again shortly: the sound's start
+        // wakes nothing here.
+        let Some(time) = hand.peek_time(now) else {
+            return now.checked_add(WAITING_LOOK);
+        };
+        let wait = hand.pass_start.saturating_add(at).saturating_sub(time);
         now.checked_add(wait)
     }
 
@@ -521,7 +749,8 @@ impl VideoPlayer {
         {
             let running = self.running.as_ref()?;
             let hand = self.in_hand.as_mut().filter(|hand| hand.running)?;
-            let clip_time = hand.clock.time(now).saturating_sub(hand.pass_start);
+            // The pictures wait while the sound they follow has not begun.
+            let clip_time = hand.clip_time(now)?.saturating_sub(hand.pass_start);
             while hand.over.is_none() {
                 let (at, picture) = match hand.next.take() {
                     Some(next) => next,
@@ -570,12 +799,13 @@ impl VideoPlayer {
             }
         }
         if let Some(result) = over {
-            self.pass_over(now, result);
+            self.pass_over(result);
         }
         let (at, picture) = newest?;
         let hand = self.in_hand.as_mut()?;
         hand.shown_count = hand.shown_count.saturating_add(1);
         let height = u32::try_from(picture.height).unwrap_or(u32::MAX);
+        hand.size = Some((u32::try_from(picture.width).unwrap_or(u32::MAX), height));
         match Conversion::for_signal(signal_of(picture.signal), height) {
             Ok(conversion) => Some(Frame {
                 picture,
@@ -592,6 +822,15 @@ impl VideoPlayer {
         }
     }
 
+    /// Where the clip's picture goes inside `quad`, the screen annotation in window pixels: the
+    /// part of the picture shown and the quadrilateral it covers, by the clip's Table 291 `/F`
+    /// ([`placed`]); `None` before the first picture or where nothing of it is shown.
+    #[must_use]
+    pub fn placed(&self, quad: [f32; 8]) -> Option<Placed> {
+        let hand = self.in_hand.as_ref()?;
+        placed(hand.shown.fit, hand.size?, quad)
+    }
+
     /// Whether the window should draw the picture it holds: a clip is in hand. A clip that ended,
     /// was stopped or refused leaves the rectangle to the page.
     #[must_use]
@@ -600,13 +839,19 @@ impl VideoPlayer {
     }
 
     /// A pass's decode is over: the next pass, the clip's end, or the reason it stopped.
-    fn pass_over(&mut self, now: Instant, result: Result<Duration, MediaError>) {
+    fn pass_over(&mut self, result: Result<(Duration, Option<String>), MediaError>) {
         let Some(hand) = self.in_hand.as_mut() else {
             return;
         };
         let label = hand.shown.label.clone();
         match result {
-            Ok(_) => {
+            Ok((_, note)) => {
+                if let Some(note) = note.filter(|_| hand.passes == 1) {
+                    self.seen.push(Seen::Showing(format!("{label}: {note}")));
+                }
+                let Some(hand) = self.in_hand.as_mut() else {
+                    return;
+                };
                 // §13.2.5's repeat count, in whole passes: zero repeats for ever.
                 let repeat = hand.shown.repeat;
                 let more = repeat <= 0.0 || f64::from(hand.passes) < repeat;
@@ -614,7 +859,7 @@ impl VideoPlayer {
                     hand.passes = hand.passes.saturating_add(1);
                     // The next pass begins where the clock stands as this one's last picture has
                     // been up for its interval.
-                    hand.pass_start = hand.clock.time(now).max(hand.pass_start);
+                    hand.pass_start = hand.time.max(hand.pass_start);
                     hand.next = None;
                     hand.last_at = Duration::ZERO;
                     hand.interval = Duration::ZERO;
@@ -706,7 +951,9 @@ fn decode_pass(
 ) {
     let generation = order.generation;
     let mut last = Duration::ZERO;
-    let result = media.decode_mp4_video_timed(&order.file, &mut |picture, at| {
+    // The decode begins at the sync sample before `from` (ADR 3555); the pictures between it and
+    // `from` are decoded and not sent.
+    let result = media.decode_mp4_video_from(&order.file, order.from, &mut |picture, at| {
         if wanted.load(Ordering::SeqCst) != generation {
             return ControlFlow::Break(());
         }
@@ -730,7 +977,7 @@ fn decode_pass(
     if wanted.load(Ordering::SeqCst) == generation {
         let _ = outbox.send(Decoded::Over {
             generation,
-            result: result.map(|_| last),
+            result: result.map(|streamed| (last, streamed.note)),
         });
         wake();
     }

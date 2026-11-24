@@ -26,6 +26,7 @@ fn shown(repeat: f64) -> Shown {
         auto_play: true,
         repeat,
         cut: false,
+        fit: pdf_model::media::Fit::PlayersDefault,
     }
 }
 
@@ -49,6 +50,9 @@ fn holding(shown: Shown) -> (VideoPlayer, SyncSender<Decoded>, Instant) {
     player.in_hand = Some(InHand {
         shown,
         clock,
+        sound: None,
+        time: Duration::ZERO,
+        size: None,
         running: true,
         generation: 1,
         pass_start: Duration::ZERO,
@@ -96,7 +100,7 @@ fn the_newest_due_picture_is_shown_and_the_ones_it_passes_are_dropped_late() {
     outbox
         .send(Decoded::Over {
             generation: 1,
-            result: Ok(Duration::from_millis(120)),
+            result: Ok((Duration::from_millis(120), None)),
         })
         .expect("queued");
     // The last picture stays up for its interval, 40 ms, before the clip ends.
@@ -171,7 +175,7 @@ fn a_look_after_the_pass_ended_counts_every_picture_it_passes() {
     outbox
         .send(Decoded::Over {
             generation: 1,
-            result: Ok(Duration::from_millis(80)),
+            result: Ok((Duration::from_millis(80), None)),
         })
         .expect("queued");
     assert!(player.due(began + Duration::from_millis(500)).is_none());
@@ -182,4 +186,85 @@ fn a_look_after_the_pass_ended_counts_every_picture_it_passes() {
             "the clip \"c.mp4\": ended after 0 pictures, 3 dropped late".to_owned()
         ))
     );
+}
+
+/// Table 291's `/F` over a 100 by 50 pixel rectangle at (10, 20), for a picture of 40 by 40
+/// samples (ADR 3553): meet scales it by 1.25 to 50 by 50 at the rectangle's top-left; slice by 2.5
+/// to cover the rectangle, showing 40 by 20 samples; fill stretches it to the rectangle; hidden
+/// shows it unscaled, 40 by 40 pixels, all of it.
+#[test]
+fn each_fit_places_the_picture_as_table_291_says() {
+    use pdf_model::media::Fit;
+    let quad = [10.0, 20.0, 110.0, 20.0, 110.0, 70.0, 10.0, 70.0];
+    let at = |fit| placed(fit, (40, 40), quad).expect("placed");
+    let meet = at(Fit::Meet);
+    assert_eq!((meet.right, meet.bottom), (40, 40));
+    assert_eq!(meet.quad, [10.0, 20.0, 60.0, 20.0, 60.0, 70.0, 10.0, 70.0]);
+    assert_eq!(
+        at(Fit::PlayersDefault),
+        meet,
+        "this player's default is meet"
+    );
+    let slice = at(Fit::Slice);
+    assert_eq!((slice.right, slice.bottom), (40, 20));
+    assert_eq!(slice.quad, quad);
+    let fill = at(Fit::Fill);
+    assert_eq!((fill.right, fill.bottom), (40, 40));
+    assert_eq!(fill.quad, quad);
+    let hidden = at(Fit::Hidden);
+    assert_eq!((hidden.right, hidden.bottom), (40, 40));
+    assert_eq!(
+        hidden.quad,
+        [10.0, 20.0, 50.0, 20.0, 50.0, 60.0, 10.0, 60.0]
+    );
+    assert_eq!(
+        at(Fit::Scroll),
+        hidden,
+        "scroll's picture is hidden's, less its interface"
+    );
+    // A picture larger than the rectangle, unscaled, is cut to it.
+    let cut = placed(Fit::Hidden, (300, 30), quad).expect("placed");
+    assert_eq!((cut.right, cut.bottom), (100, 30));
+    assert_eq!(cut.quad, [10.0, 20.0, 110.0, 20.0, 110.0, 50.0, 10.0, 50.0]);
+    // The affine puts the part's corners on the quadrilateral's.
+    let affine = slice.affine();
+    let map = |x: f32, y: f32| {
+        (
+            affine[0] * x + affine[2] * y + affine[4],
+            affine[1] * x + affine[3] * y + affine[5],
+        )
+    };
+    assert_eq!(map(0.0, 0.0), (10.0, 20.0));
+    assert_eq!(map(40.0, 20.0), (110.0, 70.0));
+}
+
+/// A rectangle turned by a quarter fits by its own edges: meet in a 50 wide, 100 tall rectangle
+/// whose first edge runs down the window.
+#[test]
+fn a_turned_rectangle_is_fitted_along_its_own_edges() {
+    let quad = [0.0, 0.0, 0.0, 50.0, -100.0, 50.0, -100.0, 0.0];
+    let meet = placed(pdf_model::media::Fit::Meet, (40, 40), quad).expect("placed");
+    assert_eq!(meet.quad, [0.0, 0.0, 0.0, 50.0, -50.0, 50.0, -50.0, 0.0]);
+}
+
+/// The part of a raster a placement shows: hidden's top-left corner of a picture wider than its
+/// rectangle.
+#[test]
+fn the_part_shown_is_cut_from_the_picture_s_top_left() {
+    let raster = pdf_render::Raster {
+        width: 3,
+        height: 2,
+        format: pdf_render::RasterFormat::Rgba8,
+        data: (0..24).collect(),
+    };
+    let part = Placed {
+        left: 0,
+        top: 0,
+        right: 2,
+        bottom: 1,
+        quad: [0.0; 8],
+    }
+    .part_of(&raster);
+    assert_eq!((part.width, part.height), (2, 1));
+    assert_eq!(part.data, (0..8).collect::<Vec<u8>>());
 }

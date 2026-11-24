@@ -58,6 +58,7 @@ use pdf_model::media::{Encoding, Playing, SampleFormat};
 use pdf_syntax::ObjectId;
 use viewer_core::{Associated, DocumentId, MediaOperation, Recording, SoundData};
 use viewer_host::sound::{Heard, Played, Player};
+use viewer_host::video::{Seen, Shown, VideoPlayer};
 
 /// The device's rate and channel count, which every measured sound is made at.
 const RATE: u32 = 48_000;
@@ -143,7 +144,14 @@ struct Taken {
     /// The index the first and the last sounding frame carried, where the samples carry one.
     first: Option<u64>,
     last: Option<u64>,
+    /// The first frame of the read louder than [`LOUD`], counted from the read's first: where a
+    /// beep begins (ADR 3556).
+    loud: Option<usize>,
 }
+
+/// A sample past this, either channel, is a beep's and not the silence between beeps or a
+/// coder's noise around it.
+const LOUD: f32 = 0.25;
 
 /// Everything the device saw.
 #[derive(Default)]
@@ -454,6 +462,7 @@ fn take(
             sounding: 0,
             first: None,
             last: None,
+            loud: first_loud(&chunk[..frames * FRAME_BYTES]),
         };
         for frame in chunk[..frames * FRAME_BYTES].as_chunks::<FRAME_BYTES>().0 {
             let left = f32::from_le_bytes([frame[0], frame[1], frame[2], frame[3]]);
@@ -489,6 +498,19 @@ fn take(
             .streams
             .push((frames, last.saturating_duration_since(zero)));
     }
+}
+
+/// The first frame of `frames` louder than [`LOUD`] in either channel.
+fn first_loud(frames: &[u8]) -> Option<usize> {
+    frames
+        .as_chunks::<FRAME_BYTES>()
+        .0
+        .iter()
+        .position(|frame| {
+            let left = f32::from_le_bytes([frame[0], frame[1], frame[2], frame[3]]);
+            let right = f32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
+            left.abs() > LOUD || right.abs() > LOUD
+        })
 }
 
 /// Where the stand-in's named pipe is made: `$XDG_RUNTIME_DIR`, else `/dev/shm` — memory file
@@ -1278,4 +1300,191 @@ fn the_sound_path_measured_in_use() {
         !cold.is_empty() && offsets > 0,
         "every sound reached the device"
     );
+}
+
+/// A clip's pictures measured against its sound (RFC 0015 section 6 round 9, ADR 3556): the clip
+/// `AUDIO_IN_USE_AV` — made by `tools/audio-in-use.sh` with `ffmpeg`, its picture `25 × n` and the
+/// start of its `n`-th beep both at `n` seconds of the file — is played by the sound player on the
+/// device and shown by the video player beside it, as a window shows it. Each second's picture is
+/// timed when [`VideoPlayer::due`] hands it on, and each beep when the device took its first loud
+/// frame; the difference is the pictures' offset from the sound, positive where the picture comes
+/// after. Its spread over the clip is the drift the slaving exists to prevent.
+///
+/// `AUDIO_IN_USE_AV_UNSLAVED=1` is the control: the pictures on the monotonic clock from the moment
+/// the clip is handed over, not following the sound, whose offset is the sound's start-up.
+///
+/// What it does not measure: a window's present after `due` (a frame at most), and on the loopback
+/// the capture's period, by which every beep is read late — both the same at every second, so they
+/// move the mean and not the drift.
+#[test]
+#[ignore = "an instrument: run by tools/audio-in-use.sh, which builds its device and its programs"]
+fn a_clip_s_pictures_measured_against_its_sound() {
+    let setup = Setup::from_environment();
+    let Some(clip) = std::env::var_os("AUDIO_IN_USE_AV").map(PathBuf::from) else {
+        println!("no AUDIO_IN_USE_AV clip: the pictures were not measured");
+        return;
+    };
+    let file = std::fs::read(&clip).expect("the clip");
+    let device = Device::open(&setup);
+    device.phase("a clip's pictures and its sound", false);
+    let mut sound = device.player(&setup);
+    let mut video = VideoPlayer::new(Box::new(|| {})).with_worker(setup.worker.clone());
+    sound.play(played(
+        Recording::Mp4(file.clone()),
+        Playing::default(),
+        false,
+    ));
+    video.play_beside(
+        Shown {
+            document: DOCUMENT,
+            label: "the measured clip".to_owned(),
+            file: Arc::from(file.as_slice()),
+            screen: Some(SCREEN),
+            associated: None,
+            auto_play: true,
+            repeat: 1.0,
+            cut: false,
+            fit: pdf_model::media::Fit::PlayersDefault,
+        },
+        // The instrument's control: `AUDIO_IN_USE_AV_UNSLAVED` runs the pictures on the monotonic
+        // clock instead, as they ran before ADR 3555, which the reading must tell apart.
+        std::env::var_os("AUDIO_IN_USE_AV_UNSLAVED")
+            .is_none()
+            .then(|| sound.listening()),
+    );
+    let began = Instant::now();
+    // Each picture handed on: its time in the clip and when it was handed.
+    let mut handed: Vec<(Duration, Instant)> = Vec::new();
+    let mut said = Vec::new();
+    'shown: while began.elapsed() < Duration::from_secs(600) {
+        if let Some(frame) = video.due(Instant::now()) {
+            handed.push((frame.at, Instant::now()));
+        }
+        for seen in video.seen() {
+            let over = matches!(
+                seen,
+                Seen::Ended(_) | Seen::Stopped(_) | Seen::Refused(_) | Seen::HandOn(_)
+            );
+            said.push(seen.sentence().to_owned());
+            if over {
+                break 'shown;
+            }
+        }
+        let _ = sound.heard();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    sound.stop();
+    let seen = device.close();
+    let (beeps, offsets) = av_offsets(&seen, began, &handed);
+    let report = av_report(&clip, &handed, &beeps, &offsets, &said);
+    println!("{report}");
+    let out = setup.directory.join("av-readings.txt");
+    std::fs::write(&out, &report).expect("the readings written");
+    assert!(
+        !offsets.is_empty(),
+        "the pictures and the beeps were both seen"
+    );
+}
+
+/// Each beep's start as the device took it, and each second's picture's offset from its beep in
+/// milliseconds: [`a_clip_s_pictures_measured_against_its_sound`]'s reading of what it saw.
+fn av_offsets(
+    seen: &DeviceLog,
+    began: Instant,
+    handed: &[(Duration, Instant)],
+) -> (Vec<Instant>, Vec<f64>) {
+    let started = seen
+        .phases
+        .iter()
+        .find(|(name, _)| *name == "a clip's pictures and its sound")
+        .map_or(began, |(_, at)| *at);
+    // Each beep's start: a read with a loud frame after half a second without one.
+    let mut beeps = Vec::new();
+    let mut last_loud: Option<Instant> = None;
+    for taken in seen.taken.iter().filter(|taken| taken.at >= started) {
+        let Some(loud) = taken.loud else {
+            continue;
+        };
+        let before =
+            Duration::from_nanos(((taken.frames - loud) as u64) * 1_000_000_000 / u64::from(RATE));
+        let onset = taken.at.checked_sub(before).unwrap_or(taken.at);
+        if last_loud
+            .is_none_or(|last| onset.saturating_duration_since(last) > Duration::from_millis(500))
+        {
+            beeps.push(onset);
+        }
+        last_loud = Some(onset);
+    }
+    // Each second's picture: the first handed on at or after the second, moved back by how far
+    // past it it was (a picture passed over late is not handed on).
+    let seconds = handed.last().map_or(0, |(at, _)| at.as_secs());
+    let pictures: Vec<Instant> = (0..=seconds)
+        .filter_map(|second| {
+            let (at, when) = handed
+                .iter()
+                .find(|(at, _)| *at >= Duration::from_secs(second))?;
+            let late = at.saturating_sub(Duration::from_secs(second));
+            Some(when.checked_sub(late).unwrap_or(*when))
+        })
+        .collect();
+    // Each beep against the second's picture nearest it: a beep the device's start swallowed
+    // leaves its second out rather than pairing every later beep with the second before its own.
+    let offsets = beeps
+        .iter()
+        .filter_map(|beep| {
+            pictures
+                .iter()
+                .map(|picture| signed_ms(*picture, *beep))
+                .min_by(|one, other| one.abs().total_cmp(&other.abs()))
+        })
+        .collect();
+    (beeps, offsets)
+}
+
+/// The A/V reading's sentences.
+fn av_report(
+    clip: &std::path::Path,
+    handed: &[(Duration, Instant)],
+    beeps: &[Instant],
+    offsets: &[f64],
+    said: &[String],
+) -> String {
+    let mut report = String::new();
+    let _ = writeln!(
+        report,
+        "a clip's pictures against its sound ({}): {} pictures handed on, {} beeps heard, {} seconds compared",
+        clip.display(),
+        handed.len(),
+        beeps.len(),
+        offsets.len()
+    );
+    for sentence in said {
+        let _ = writeln!(report, "  the video player said: {sentence}");
+    }
+    if !offsets.is_empty() {
+        let mean = offsets.iter().sum::<f64>() / offsets.len() as f64;
+        let (low, high) = offsets.iter().fold(
+            (f64::INFINITY, f64::NEG_INFINITY),
+            |(low, high), &offset| (low.min(offset), high.max(offset)),
+        );
+        let tenth = (offsets.len() / 10).max(1);
+        let head = offsets[..tenth].iter().sum::<f64>() / tenth as f64;
+        let tail = offsets[offsets.len() - tenth..].iter().sum::<f64>() / tenth as f64;
+        let _ = writeln!(
+            report,
+            "  picture after sound: mean {mean:.1} ms, from {low:.1} to {high:.1} ms; the first tenth's mean {head:.1} ms, the last tenth's {tail:.1} ms (drift {:.1} ms)",
+            tail - head
+        );
+        let _ = writeln!(report, "  picture after sound: {}", spread(offsets));
+        let _ = writeln!(
+            report,
+            "  each second: {}",
+            offsets
+                .iter()
+                .map(|offset| format!("{offset:.0}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+    }
+    report
 }

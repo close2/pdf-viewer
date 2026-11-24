@@ -262,7 +262,8 @@ impl Helper {
                         Reply::Opened(_)
                         | Reply::Failed(_)
                         | Reply::Ended(_)
-                        | Reply::Played { .. } => {
+                        | Reply::Played { .. }
+                        | Reply::Heard { .. } => {
                             break Err(HelperError::OutOfTurn);
                         }
                     }
@@ -295,7 +296,8 @@ impl Helper {
                     Reply::Opened(_)
                     | Reply::Failed(_)
                     | Reply::Ended(_)
-                    | Reply::Played { .. } => break Err(HelperError::OutOfTurn),
+                    | Reply::Played { .. }
+                    | Reply::Heard { .. } => break Err(HelperError::OutOfTurn),
                 }
             }
         });
@@ -408,6 +410,14 @@ fn read_replies(mut output: impl Read, said: &std::sync::mpsc::Sender<Reply>, wa
                     && *waited == serial
                 {
                     report(Progress::Played(frames));
+                }
+            }
+            Reply::Heard { serial, frames } => {
+                let mut slot = waiting.lock().unwrap_or_else(PoisonError::into_inner);
+                if let Some((waited, report)) = slot.as_mut()
+                    && *waited == serial
+                {
+                    report(Progress::Heard(frames));
                 }
             }
             reply => {

@@ -148,6 +148,7 @@ fn played(
                     Box::new(move |said| {
                         let _ = progress.send(match said {
                             Progress::Played(frames) => Reply::Played { serial, frames },
+                            Progress::Heard(frames) => Reply::Heard { serial, frames },
                             Progress::Ended => Reply::Ended(serial),
                         });
                     }),

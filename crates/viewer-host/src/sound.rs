@@ -113,6 +113,65 @@ pub type OpenSink = Box<dyn FnMut() -> Result<Box<dyn Sink>, String> + Send>;
 /// What wakes the window's loop when the player has something to say.
 pub type Wake = Box<dyn Fn() + Send>;
 
+/// Which played sound the shared clock is of: the ticket of the one begun last, and the latest
+/// ticket whose sound is over — ended, stopped, refused, or never begun.
+#[derive(Debug, Default)]
+struct Listened {
+    ticket: u64,
+    over: u64,
+}
+
+/// One played sound's time as a listener hears it, for a clip's pictures to follow (ADR 3555):
+/// the device's count of the frames it had reached, never the processor's clock.
+#[derive(Clone)]
+pub struct Listening {
+    clock: Arc<Mutex<Option<MediaClock>>>,
+    listened: Arc<Mutex<Listened>>,
+    ticket: u64,
+}
+
+impl std::fmt::Debug for Listening {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Listening")
+            .field("ticket", &self.ticket)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Where a [`Listening`] stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SoundTime {
+    /// The sound has not begun: it is still being decoded, or the device is opening.
+    Waiting,
+    /// The sound is in hand, heard at this time ([`MediaClock::heard_time`]); a paused or held
+    /// sound's stands still.
+    At(Duration),
+    /// The sound is over, or never sounded.
+    Over,
+}
+
+impl Listening {
+    /// Where the sound stands at `now`.
+    #[must_use]
+    pub fn time(&self, now: Instant) -> SoundTime {
+        let listened = self.listened.lock().unwrap_or_else(PoisonError::into_inner);
+        if listened.over >= self.ticket || listened.ticket > self.ticket {
+            return SoundTime::Over;
+        }
+        if listened.ticket < self.ticket {
+            return SoundTime::Waiting;
+        }
+        self.clock
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map_or(SoundTime::Waiting, |clock| {
+                SoundTime::At(clock.heard_time(now))
+            })
+    }
+}
+
 /// One sound to play, from [`viewer_core::Event::Media`]'s `sound`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Played {
@@ -171,8 +230,8 @@ impl Heard {
 
 /// What the window asks of the player's thread.
 enum Order {
-    /// Play this, stopping whatever sounds.
-    Play(Played),
+    /// Play this, stopping whatever sounds, under its ticket.
+    Play(Played, u64),
     /// Stop whatever sounds.
     Stop,
     /// This document closed; stop its sound if it is the one sounding.
@@ -211,6 +270,10 @@ pub struct Player {
     early: Vec<Heard>,
     /// The clock of the sound now sounding, which the thread moves and the window reads.
     clock: Arc<Mutex<Option<MediaClock>>>,
+    /// Which played sound the clock is of, and which are over (ADR 3555).
+    listened: Arc<Mutex<Listened>>,
+    /// The ticket of the last sound given to [`Self::play`], counted from 1.
+    tickets: u64,
     /// The screen annotation a sound plays in, followed from what the player says (ADR 3407).
     painting: painting::Painting,
 }
@@ -251,6 +314,8 @@ impl Player {
             running: None,
             early: Vec::new(),
             clock: Arc::new(Mutex::new(None)),
+            listened: Arc::new(Mutex::new(Listened::default())),
+            tickets: 0,
             painting: painting::Painting::default(),
         }
     }
@@ -273,7 +338,19 @@ impl Player {
         if self.running.is_none() {
             self.start();
         }
-        self.send(Order::Play(played));
+        self.tickets = self.tickets.wrapping_add(1);
+        self.send(Order::Play(played, self.tickets));
+    }
+
+    /// The sound last given to [`Self::play`], to be listened to: what a clip's pictures are
+    /// slaved to while it sounds (ADR 3555).
+    #[must_use]
+    pub fn listening(&self) -> Listening {
+        Listening {
+            clock: Arc::clone(&self.clock),
+            listened: Arc::clone(&self.listened),
+            ticket: self.tickets,
+        }
     }
 
     /// Stops whatever sounds. Nothing before the first sound.
@@ -375,6 +452,7 @@ impl Player {
         let ended = orders.clone();
         let worker = self.worker.clone();
         let clock = Arc::clone(&self.clock);
+        let listened = Arc::clone(&self.listened);
         let spawned = std::thread::Builder::new()
             .name("media-player".to_owned())
             .spawn(move || {
@@ -389,6 +467,8 @@ impl Player {
                     sounding: None,
                     serial: 0,
                     clock,
+                    listened,
+                    ticket: 0,
                 }
                 .run();
             });
@@ -495,6 +575,10 @@ struct Thread {
     serial: u64,
     /// The clock of the sound in hand, shared with [`Player::position`].
     clock: Arc<Mutex<Option<MediaClock>>>,
+    /// Which sound the clock is of, shared with each [`Listening`].
+    listened: Arc<Mutex<Listened>>,
+    /// The ticket of the sound the last play order asked for.
+    ticket: u64,
 }
 
 impl Thread {
@@ -540,12 +624,24 @@ impl Thread {
                     operation,
                 } => self.operated(document, annotation, operation),
                 Order::Progress(serial, progress) => self.progressed(serial, progress),
-                Order::Play(played) => {
+                Order::Play(played, ticket) => {
+                    self.ticket = ticket;
                     if self.resumes_instead(&played) {
+                        // The sound resumed is the one this ticket listens to.
+                        self.listen(|listened| {
+                            listened.ticket = ticket;
+                        });
+                        if self.sounding.is_none() {
+                            self.listen(|listened| listened.over = ticket);
+                        }
                         continue;
                     }
                     self.silence();
                     self.streamed(&played, &mut queued);
+                    if self.sounding.is_none() {
+                        // Refused, or over before this order was done with: nothing to wait for.
+                        self.listen(|listened| listened.over = listened.over.max(ticket));
+                    }
                 }
             }
         }
@@ -572,7 +668,7 @@ impl Thread {
                 }
             }
             // Both end the sound arriving, and are queued rather than read here.
-            Order::Play(_) | Order::Quit => {}
+            Order::Play(..) | Order::Quit => {}
         }
     }
 
@@ -850,6 +946,8 @@ impl Thread {
         };
         *self.clock.lock().unwrap_or_else(PoisonError::into_inner) =
             Some(MediaClock::new(format.rate));
+        let ticket = self.ticket;
+        self.listen(|listened| listened.ticket = ticket);
         self.sounding = Some(Sounding {
             serial: 0,
             document: played.document,
@@ -924,6 +1022,7 @@ impl Thread {
         let pass = sounding.pass;
         match progress {
             Progress::Played(frames) => self.with_clock(|clock| clock.played(frames)),
+            Progress::Heard(frames) => self.with_clock(|clock| clock.heard(frames, Instant::now())),
             Progress::Ended => {
                 self.with_clock(|clock| clock.sounded(pass.sounding));
                 if pass.frozen == Some(0) {
@@ -982,7 +1081,7 @@ impl Thread {
             }
             None => {
                 if let Some(sounding) = self.sounding.take() {
-                    *self.clock.lock().unwrap_or_else(PoisonError::into_inner) = None;
+                    self.clock_over();
                     self.paint(None);
                     self.tell(Heard::Ended(format!(
                         "{} came to its end (ISO 32000-2 §13.3, §13.2.5)",
@@ -1022,7 +1121,7 @@ impl Thread {
     /// The device would not start a pass: the sound is dropped and that is said.
     fn refused(&mut self, why: &str) {
         if let Some(sounding) = self.sounding.take() {
-            *self.clock.lock().unwrap_or_else(PoisonError::into_inner) = None;
+            self.clock_over();
             self.paint(None);
             self.tell(Heard::Refused(format!(
                 "{} was not played: the audio device: {why}",
@@ -1042,7 +1141,7 @@ impl Thread {
             sink.stop();
         }
         if let Some(sounding) = self.sounding.take() {
-            *self.clock.lock().unwrap_or_else(PoisonError::into_inner) = None;
+            self.clock_over();
             self.paint(None);
             self.tell(Heard::Stopped(format!(
                 "{} was stopped{why}",
@@ -1189,6 +1288,16 @@ impl Thread {
         }
     }
 
+    /// The sound in hand is over: its clock goes, and a [`Listening`] to it hears that it is.
+    fn clock_over(&self) {
+        *self.clock.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        self.listen(|listened| listened.over = listened.over.max(listened.ticket));
+    }
+
+    fn listen(&self, change: impl FnOnce(&mut Listened)) {
+        change(&mut self.listened.lock().unwrap_or_else(PoisonError::into_inner));
+    }
+
     fn with_clock(&self, move_it: impl FnOnce(&mut MediaClock)) {
         if let Some(clock) = self
             .clock
@@ -1313,7 +1422,7 @@ fn described(playing: &pdf_model::media::Playing) -> Vec<String> {
 /// to start.
 fn supersedes(order: &Order, document: DocumentId) -> bool {
     match order {
-        Order::Play(_) | Order::Stop | Order::Quit => true,
+        Order::Play(..) | Order::Stop | Order::Quit => true,
         Order::Closed(closed) => *closed == document,
         Order::Resume | Order::Operate { .. } | Order::Progress(..) => false,
     }

@@ -132,7 +132,12 @@ impl Host {
                     _ => None,
                 },
             )
-            .map(|(raster, quad)| (crate::page::texture(raster), quad));
+            // Fitted by the clip's Table 291 `/F` (ADR 3553): the part of the picture shown, over
+            // the part of the rectangle it covers.
+            .and_then(|(raster, quad)| {
+                let placed = self.state.pictures.placed(quad)?;
+                Some((crate::page::texture(&placed.part_of(raster)), placed.quad))
+            });
         let Some((texture, quad)) = placed else {
             if let Some(widget) = &self.shown.widget {
                 widget.set_paintable(gtk4::gdk::Paintable::NONE);
@@ -190,9 +195,10 @@ impl Host {
     }
 }
 
-/// The texture of `size` laid over the bounding box of `quad`, device pixels of the viewport, in
-/// the page layer's logical units at `scale`: [`super::stand_in::place`]'s construction. A page
-/// turned by a quarter keeps its rectangle's box, and the picture fills it upright.
+/// The texture of `size` laid over the bounding box of `quad` — the part of the rectangle the fitted
+/// picture covers — device pixels of the viewport, in the page layer's logical units at `scale`:
+/// [`super::stand_in::place`]'s construction. A page turned by a quarter keeps its rectangle's box,
+/// and the picture fills it upright.
 fn placement(quad: [f32; 8], size: (i32, i32), scale: f64) -> gtk4::gsk::Transform {
     let xs = [quad[0], quad[2], quad[4], quad[6]];
     let ys = [quad[1], quad[3], quad[5], quad[7]];

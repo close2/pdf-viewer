@@ -47,9 +47,16 @@ impl Pictures {
         self
     }
 
-    /// Shows `shown` in place of the clip in hand. The first clip makes the player, with `wake` as
-    /// what wakes the window's loop from the decoding thread; later clips do not call it.
-    pub fn play(&mut self, shown: Shown, wake: impl FnOnce() -> Wake) {
+    /// Shows `shown` in place of the clip in hand, its pictures following `sound` — the clip's
+    /// sound as [`crate::sound::Sounds::listening`] answers it — where it has one (ADR
+    /// 3555). The first clip makes the player, with `wake` as what wakes the window's loop from the
+    /// decoding thread; later clips do not call it.
+    pub fn play(
+        &mut self,
+        shown: Shown,
+        sound: Option<crate::sound::Listening>,
+        wake: impl FnOnce() -> Wake,
+    ) {
         let worker = self.worker.clone();
         let player = self.player.get_or_insert_with(|| {
             let player = VideoPlayer::new(wake());
@@ -58,7 +65,7 @@ impl Pictures {
                 None => player,
             }
         });
-        player.play(shown);
+        player.play_beside(shown, sound);
     }
 
     /// Escape: stops the clip in hand and answers whether there was one, so that a window with
@@ -153,6 +160,13 @@ impl Pictures {
     #[must_use]
     pub fn next_look(&self, now: Instant) -> Option<Instant> {
         self.player.as_ref()?.next_due(now)
+    }
+
+    /// Where the picture goes inside `quad`, the screen annotation in window pixels, by the clip's
+    /// Table 291 `/F` ([`super::placed`]).
+    #[must_use]
+    pub fn placed(&self, quad: [f32; 8]) -> Option<super::Placed> {
+        self.player.as_ref()?.placed(quad)
     }
 
     /// The picture held up and the document and screen annotation it is drawn over.

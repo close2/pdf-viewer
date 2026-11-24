@@ -488,6 +488,14 @@ impl<'a> Little<'a> {
     fn u64(&mut self) -> Option<u64> {
         self.take(8)?.try_into().ok().map(u64::from_le_bytes)
     }
+
+    fn u8(&mut self) -> Option<u8> {
+        self.take(1)?.first().copied()
+    }
+
+    fn array<const N: usize>(&mut self) -> Option<[u8; N]> {
+        self.take(N)?.try_into().ok()
+    }
 }
 
 /// A request's bytes: `format`, then `run`.
@@ -877,17 +885,37 @@ pub struct VideoTrack {
     pub time_scale: u32,
     /// Each access unit's offset in the file, size and duration, in decoding order.
     pub units: Vec<(u64, u32, u32)>,
+    /// Each access unit's composition offset, in decoding order, or empty where the track states
+    /// none (`crate::mp4::VideoTrack::composition_offsets`).
+    pub composition_offsets: Vec<i64>,
+    /// Whether each access unit is a sync sample, in decoding order
+    /// (`crate::mp4::VideoTrack::sync_samples`, every one where the track has no `stss`).
+    pub sync: Vec<bool>,
+    /// The movie header's time scale, where there is one.
+    pub movie_time_scale: Option<u32>,
+    /// The track's edit list.
+    pub edits: Vec<crate::mp4::Edit>,
 }
 
 /// A video track reply's bytes before its units: the version, the width, the height, the time scale
 /// and the count.
 const VIDEO_TRACK_HEADER_BYTES: usize = 1 + 2 + 2 + 4 + 4;
 
+/// A video track reply's bytes for each access unit: its offset, size and duration, its composition
+/// offset, and whether it is a sync sample.
+const VIDEO_UNIT_BYTES: usize = 8 + 4 + 4 + 8 + 1;
+
+/// A video track reply's bytes for each edit: its segment duration, media time and rate.
+const EDIT_BYTES: usize = 8 + 8 + 4;
+
 /// A video track reply's bytes.
 #[must_use]
 pub fn encode_video_track(track: &VideoTrack) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(
-        VIDEO_TRACK_HEADER_BYTES.saturating_add(track.units.len().saturating_mul(16)),
+        VIDEO_TRACK_HEADER_BYTES
+            .saturating_add(track.units.len().saturating_mul(VIDEO_UNIT_BYTES))
+            .saturating_add(8)
+            .saturating_add(track.edits.len().saturating_mul(EDIT_BYTES)),
     );
     bytes.push(VERSION);
     bytes.extend_from_slice(&track.width.to_le_bytes());
@@ -898,10 +926,24 @@ pub fn encode_video_track(track: &VideoTrack) -> Vec<u8> {
             .unwrap_or(u32::MAX)
             .to_le_bytes(),
     );
-    for (offset, size, duration) in &track.units {
+    for (index, (offset, size, duration)) in track.units.iter().enumerate() {
         bytes.extend_from_slice(&offset.to_le_bytes());
         bytes.extend_from_slice(&size.to_le_bytes());
         bytes.extend_from_slice(&duration.to_le_bytes());
+        let composition = track.composition_offsets.get(index).copied().unwrap_or(0);
+        bytes.extend_from_slice(&composition.to_le_bytes());
+        bytes.push(u8::from(track.sync.get(index).copied().unwrap_or(true)));
+    }
+    bytes.extend_from_slice(&track.movie_time_scale.unwrap_or(0).to_le_bytes());
+    bytes.extend_from_slice(
+        &u32::try_from(track.edits.len())
+            .unwrap_or(u32::MAX)
+            .to_le_bytes(),
+    );
+    for edit in &track.edits {
+        bytes.extend_from_slice(&edit.segment_duration.to_le_bytes());
+        bytes.extend_from_slice(&edit.media_time.to_le_bytes());
+        bytes.extend_from_slice(&edit.media_rate.to_le_bytes());
     }
     bytes
 }
@@ -933,13 +975,17 @@ pub fn decode_video_track(payload: &[u8], total: u64) -> Result<VideoTrack, Stri
     if time_scale == 0 {
         return Err("a video track whose time scale is 0".to_owned());
     }
-    if count > crate::mp4::MAX_ACCESS_UNITS || fields.0.len() != count.saturating_mul(16) {
+    if count > crate::mp4::MAX_ACCESS_UNITS
+        || fields.0.len() < count.saturating_mul(VIDEO_UNIT_BYTES)
+    {
         return Err(format!(
             "a video track reply of {} bytes that its count of {count} does not fit",
             payload.len()
         ));
     }
     let mut units = Vec::with_capacity(count);
+    let mut composition_offsets = Vec::with_capacity(count);
+    let mut sync = Vec::with_capacity(count);
     for _ in 0..count {
         let offset = fields.u64().ok_or_else(cut)?;
         let size = fields.u32().ok_or_else(cut)?;
@@ -956,12 +1002,39 @@ pub fn decode_video_track(payload: &[u8], total: u64) -> Result<VideoTrack, Stri
             ));
         }
         units.push((offset, size, duration));
+        composition_offsets.push(i64::from_le_bytes(fields.array().ok_or_else(cut)?));
+        sync.push(match fields.u8().ok_or_else(cut)? {
+            0 => false,
+            1 => true,
+            other => return Err(format!("a sync flag of {other}")),
+        });
+    }
+    let movie_time_scale = Some(fields.u32().ok_or_else(cut)?).filter(|scale| *scale != 0);
+    let edit_count = usize::try_from(fields.u32().ok_or_else(cut)?).unwrap_or(usize::MAX);
+    if edit_count > crate::mp4::MAX_EDITS || fields.0.len() != edit_count.saturating_mul(EDIT_BYTES)
+    {
+        return Err(format!(
+            "a video track reply whose {edit_count} edits its {} last bytes do not fit",
+            fields.0.len()
+        ));
+    }
+    let mut edits = Vec::with_capacity(edit_count);
+    for _ in 0..edit_count {
+        edits.push(crate::mp4::Edit {
+            segment_duration: fields.u64().ok_or_else(cut)?,
+            media_time: i64::from_le_bytes(fields.array().ok_or_else(cut)?),
+            media_rate: i32::from_le_bytes(fields.array().ok_or_else(cut)?),
+        });
     }
     Ok(VideoTrack {
         width,
         height,
         time_scale,
         units,
+        composition_offsets,
+        sync,
+        movie_time_scale,
+        edits,
     })
 }
 

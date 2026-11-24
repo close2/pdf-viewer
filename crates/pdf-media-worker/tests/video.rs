@@ -25,7 +25,9 @@ const WORKER: &str = env!("CARGO_BIN_EXE_pdf-media-worker");
 #[path = "support/pcm_stream.rs"]
 mod pcm_stream;
 
-use pcm_stream::{Coding, held_stream, movie_of, mp4, picture_set, sequence_with_vui, stream};
+use pcm_stream::{
+    Coding, Tables, held_stream, movie_of, mp4, mp4_with, picture_set, sequence_with_vui, stream,
+};
 
 #[test]
 fn every_pcm_picture_decodes_to_the_samples_it_carries() {
@@ -278,4 +280,149 @@ fn a_set_cut_inside_its_vui_is_refused() {
         matches!(&error, VideoError::Refused(sentence) if sentence.contains("VUI")),
         "{error:?}"
     );
+}
+
+/// The times a decode of `file` from `from` hands its pictures on at, in milliseconds, and the
+/// index in `pictures` of each picture handed on.
+#[expect(
+    clippy::expect_used,
+    reason = "a test's helper: a stream this file wrote, decoded wrong, fails the test loudly"
+)]
+fn timed_from(
+    file: &[u8],
+    from: std::time::Duration,
+    pictures: &[pdf_media_worker::video::Picture],
+) -> (Vec<u128>, Vec<usize>, Option<String>) {
+    let mut worker = MediaWorker::with_program(WORKER.into());
+    let mut times = Vec::new();
+    let mut which = Vec::new();
+    let streamed = worker
+        .decode_mp4_video_from(file, from, &mut |picture, at| {
+            times.push(at.as_millis());
+            which.push(
+                pictures
+                    .iter()
+                    .position(|known| *known == picture)
+                    .expect("a picture of the stream"),
+            );
+            ControlFlow::Continue(())
+        })
+        .expect("decoded");
+    (times, which, streamed.note)
+}
+
+/// ISO/IEC 14496-12:2012 8.6.1.3, "CT(n) = DT(n) + CTTS(n)", and 8.6.6's edit list, whose media
+/// time is "in composition time": four pictures 40 ms apart composed 2000 units (80 ms at 25 000 a
+/// second) after they are decoded are presented from 80 ms with no edit list, and from 0 ms under
+/// the standard's own shift — "Entry-count = 1, Segment-duration = 0, Media-Time = 20" with 2000 in
+/// place of 20. A leading empty edit of 500 ms (the movie's 1000 a second) delays them by that
+/// (ADR 3554).
+#[test]
+fn composition_offsets_and_the_edit_list_time_each_picture() {
+    let (sets, units, pictures) = stream(4, 16, 16, Coding::Progressive);
+    let offset = Tables {
+        composition: Some((0, vec![(4, 2000)])),
+        ..Tables::default()
+    };
+    let file = mp4_with(&sets, &units, 16, 16, &offset);
+    let zero = std::time::Duration::ZERO;
+    assert_eq!(timed_from(&file, zero, &pictures).0, [80, 120, 160, 200]);
+    let shifted = Tables {
+        edits: Some(vec![(0, 2000)]),
+        ..offset.clone()
+    };
+    let file = mp4_with(&sets, &units, 16, 16, &shifted);
+    let (times, which, note) = timed_from(&file, zero, &pictures);
+    assert_eq!(times, [0, 40, 80, 120]);
+    assert_eq!(which, [0, 1, 2, 3]);
+    assert_eq!(note, None);
+    let delayed = Tables {
+        edits: Some(vec![(500, -1), (0, 2000)]),
+        ..offset.clone()
+    };
+    let file = mp4_with(&sets, &units, 16, 16, &delayed);
+    assert_eq!(timed_from(&file, zero, &pictures).0, [500, 540, 580, 620]);
+    // A version 1 table's offsets are signed: −1000 units presents each picture 40 ms early, and
+    // the one composed before the edit's start is decoded and not presented.
+    let early = Tables {
+        composition: Some((1, vec![(4, -1000)])),
+        edits: Some(vec![(0, 0)]),
+        ..Tables::default()
+    };
+    let file = mp4_with(&sets, &units, 16, 16, &early);
+    let (times, which, _) = timed_from(&file, zero, &pictures);
+    assert_eq!(times, [0, 40, 80]);
+    assert_eq!(which, [1, 2, 3]);
+    // Two edits of the media are not a shape this reader applies, and it says so.
+    let twice = Tables {
+        edits: Some(vec![(80, 0), (80, 0)]),
+        ..Tables::default()
+    };
+    let file = mp4_with(&sets, &units, 16, 16, &twice);
+    let (times, _, note) = timed_from(&file, zero, &pictures);
+    assert_eq!(times, [0, 40, 80, 120]);
+    assert!(note.is_some_and(|note| note.contains("video track's edit list")));
+}
+
+/// A decode from a place begins at the last sync sample presented at or before it (8.6.2's
+/// `stss`), not at the track's start: samples 1 and 3 are sync samples, so a decode from 85 ms
+/// begins at the third sample (80 ms) and its first picture is that sample's. With no `stss`,
+/// "every sample is a sync sample" and the decode begins at the sample presented at or before the
+/// place (ADR 3555).
+#[test]
+fn a_decode_from_a_place_begins_at_the_sync_sample_before_it() {
+    let (sets, units, pictures) = stream(4, 16, 16, Coding::Progressive);
+    let synced = Tables {
+        sync: Some(vec![1, 3]),
+        ..Tables::default()
+    };
+    let file = mp4_with(&sets, &units, 16, 16, &synced);
+    let from = std::time::Duration::from_millis(85);
+    let (times, which, _) = timed_from(&file, from, &pictures);
+    assert_eq!(times, [80, 120]);
+    assert_eq!(which, [2, 3]);
+    let early = std::time::Duration::from_millis(79);
+    assert_eq!(timed_from(&file, early, &pictures).1, [0, 1, 2, 3]);
+    let file = mp4(&sets, &units, 16, 16);
+    let (times, which, _) = timed_from(&file, std::time::Duration::from_millis(125), &pictures);
+    assert_eq!(times, [120]);
+    assert_eq!(which, [3]);
+}
+
+/// The reader's tables: `ctts` expanded to one offset a sample, signed in version 1; `stss`'s
+/// numbers from 1 as indices from 0; `elst`'s entries; and a `ctts` that covers other than every
+/// sample, or an `stss` out of order, refused.
+#[test]
+fn the_mp4_reader_reads_the_timing_tables() {
+    let (sets, units, _) = stream(3, 16, 16, Coding::Progressive);
+    let tables = Tables {
+        composition: Some((1, vec![(1, 0), (2, -500)])),
+        sync: Some(vec![1, 3]),
+        edits: Some(vec![(100, -1), (0, 7)]),
+    };
+    let file = mp4_with(&sets, &units, 16, 16, &tables);
+    let track = movie_video_track(movie_of(&file), file.len() as u64).expect("the track");
+    assert_eq!(track.composition_offsets, [0, -500, -500]);
+    assert_eq!(track.sync_samples, Some(vec![0, 2]));
+    assert_eq!(track.movie_time_scale, Some(1000));
+    assert_eq!(
+        track
+            .edits
+            .iter()
+            .map(|edit| (edit.segment_duration, edit.media_time))
+            .collect::<Vec<_>>(),
+        [(100, -1), (0, 7)]
+    );
+    let short = Tables {
+        composition: Some((0, vec![(2, 0)])),
+        ..Tables::default()
+    };
+    let file = mp4_with(&sets, &units, 16, 16, &short);
+    assert!(movie_video_track(movie_of(&file), file.len() as u64).is_err());
+    let unordered = Tables {
+        sync: Some(vec![2, 1]),
+        ..Tables::default()
+    };
+    let file = mp4_with(&sets, &units, 16, 16, &unordered);
+    assert!(movie_video_track(movie_of(&file), file.len() as u64).is_err());
 }

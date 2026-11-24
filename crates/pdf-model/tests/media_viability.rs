@@ -1341,3 +1341,65 @@ fn a_sound_played_in_its_screen_annotations_rectangle_paints_the_background() {
         .map(|(_, clip)| clip.background);
     assert_eq!(handed, Some(None), "the hand-off paints nothing");
 }
+
+/// Table 291's `/F` for a clip with pictures, read for a host that shows video (ADR 3553): each
+/// of the values 0, 1, 2, 4 and 5 is the clip's fit; 3's "scrolling user interface" is provided by
+/// no window, so it makes an `MH` rendition non-viable and is set aside from `BE`; and an
+/// unrecognised value "shall be treated as the default value if the entry is in a BE dictionary.
+/// If the entry is in an MH dictionary and it has an unrecognised value, the object shall be
+/// considered non-viable." A sound is fitted to nothing, so `MH /F 3` leaves an `audio/` clip
+/// viable.
+#[test]
+fn a_clips_fit_is_read_from_its_play_parameters_and_scrolling_is_not_provided() {
+    use pdf_model::media::Fit;
+    let shows_video = Processor {
+        language: None,
+        players: Players::AlsoVideoHere,
+    };
+    let video = format!("<< /S /MCD /CT (video/mp4) /D {EMBEDDED} >>");
+    let with = |options: &str, clip: &str| {
+        judged(
+            &format!("<< /S /MR /P << {options} >> /C {clip} >>"),
+            shows_video,
+        )
+    };
+    for (value, fit) in [
+        (0, Fit::Meet),
+        (1, Fit::Slice),
+        (2, Fit::Fill),
+        (4, Fit::Hidden),
+        (5, Fit::PlayersDefault),
+    ] {
+        for dictionary in ["MH", "BE"] {
+            let report = with(&format!("/{dictionary} << /F {value} >>"), &video);
+            let (_, chosen) = report.chosen().expect("viable");
+            assert_eq!(chosen.playing.fit, fit, "/{dictionary} /F {value}");
+            assert_eq!(chosen.unhonoured, Vec::<String>::new());
+        }
+    }
+    assert_eq!(
+        with("", &video).chosen().expect("viable").1.playing.fit,
+        Fit::PlayersDefault,
+        "Default value: 5"
+    );
+    assert!(with("/MH << /F 3 >>", &video).chosen().is_none());
+    let report = with("/BE << /F 3 >>", &video);
+    let (_, chosen) = report.chosen().expect("viable on a best-effort fit");
+    assert_eq!(chosen.playing.fit, Fit::Scroll);
+    assert!(chosen.unhonoured.iter().any(|note| note.contains("/F 3")));
+    assert!(with("/MH << /F 9 >>", &video).chosen().is_none());
+    let report = with("/BE << /F 9 >>", &video);
+    assert_eq!(
+        report.chosen().expect("viable").1.playing.fit,
+        Fit::PlayersDefault
+    );
+    let sound = format!("<< /S /MCD /CT (audio/mp4) /D {EMBEDDED} >>");
+    let report = with("/MH << /F 3 >>", &sound);
+    assert!(
+        report
+            .chosen()
+            .expect("a sound honours every fit")
+            .1
+            .played_here
+    );
+}

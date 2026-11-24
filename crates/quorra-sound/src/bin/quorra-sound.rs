@@ -191,6 +191,7 @@ where
     T: cpal::SizedSample + cpal::FromSample<f32>,
 {
     let channels = usize::from(config.channels.max(1));
+    let rate = config.sample_rate;
     let from = usize::try_from(pass.from)
         .unwrap_or(usize::MAX)
         .saturating_mul(channels);
@@ -236,6 +237,7 @@ where
                         .unwrap_or_default(),
                 )
                 .unwrap_or(u64::MAX);
+                let mut heard = None;
                 if let Ok(mut timing) = timing.lock() {
                     *timing = Timing {
                         before: timing.before.saturating_add(timing.written),
@@ -244,6 +246,7 @@ where
                         delay: stamp.playback.duration_since(stamp.callback),
                         at: Some(Instant::now()),
                     };
+                    heard = Some(timing.reached(Instant::now(), rate));
                 }
                 if let (Some(trace), Some(entered), Some(read_at)) =
                     (trace.as_mut(), entered, read_at)
@@ -261,6 +264,11 @@ where
                 }
                 if read.over || frames.saturating_sub(reported) >= step {
                     reported = frames;
+                    // What the device had reached goes first, so that a clock reading both never
+                    // sees the written count ahead of a stale heard one (ADR 3555).
+                    if let Some(heard) = heard {
+                        report(Progress::Heard(heard));
+                    }
                     report(Progress::Played(frames));
                 }
                 if read.over {

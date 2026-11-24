@@ -6,6 +6,8 @@
 #   AUDIO_IN_USE_LONG_SECONDS=5 tools/audio-in-use.sh   # a dry run of the same, a minute and a half
 #   AUDIO_IN_USE_ROUTE=loopback tools/audio-in-use.sh <out-dir>   # on ALSA's loopback card (ADR 3459)
 #   AUDIO_IN_USE_TRACE=1 tools/audio-in-use.sh <out-dir>   # and a trace of each callback (ADR 3465)
+#   AUDIO_IN_USE_ONLY=av tools/audio-in-use.sh <out-dir>   # a clip's pictures against its sound alone
+#                                                           # (ADR 3556; AUDIO_IN_USE_AV_SECONDS, 120)
 #
 # Builds the sound helper and the media worker in the `gates` profile (release-grade optimisation,
 # thin LTO), makes the AAC LC clip with `ffmpeg`'s own encoder and fetches ISO/IEC 14496-26's two
@@ -56,6 +58,15 @@ lc="$out/streams/aac_lc_48_2_30s.mp4"
 [ -s "$lc" ] || ffmpeg -hide_banner -loglevel error -y -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=30" \
     -ac 2 -c:a aac -profile:a aac_low -b:a 128k "$lc"
 
+# A clip whose picture 25 n and whose n-th beep (50 ms of 1 kHz) both start at n seconds: H.264 Main
+# with B pictures, so its composition offsets and its edit list are read, and AAC LC (ADR 3556).
+av_seconds=${AUDIO_IN_USE_AV_SECONDS:-120}
+av="$out/streams/av_beeps_${av_seconds}s.mp4"
+[ -s "$av" ] || ffmpeg -hide_banner -loglevel error -y \
+    -f lavfi -i "testsrc2=size=320x240:rate=25:duration=$av_seconds" \
+    -f lavfi -i "aevalsrc=if(lt(mod(t\,1)\,0.05)\,0.8*sin(2*PI*1000*t)\,0):s=48000:d=$av_seconds" \
+    -c:v libx264 -profile:v main -bf 2 -g 25 -pix_fmt yuv420p -c:a aac -profile:a aac_low -b:a 128k -ac 2 "$av"
+
 export CARGO_INCREMENTAL=0
 cargo build --profile gates -p quorra-sound -p pdf-media-worker --bins
 export AUDIO_IN_USE_HELPER="$target/gates/quorra-sound"
@@ -63,13 +74,16 @@ export AUDIO_IN_USE_WORKER="$target/gates/pdf-media-worker"
 export AUDIO_IN_USE_DIR="$out/device"
 export AUDIO_IN_USE_CLIPS="AAC LC 48 kHz stereo (ffmpeg's encoder, 30 s)=$lc;HE-AAC al_sbr_cm_48_2 (ISO/IEC 14496-26)=$out/streams/al_sbr_cm_48_2.mp4;HE-AAC v2 al_sbr_ps_01_new (ISO/IEC 14496-26)=$out/streams/al_sbr_ps_01_new.mp4"
 export AUDIO_IN_USE_ROUTE=${AUDIO_IN_USE_ROUTE:-pipe}
+export AUDIO_IN_USE_AV="$av"
 # The helper's trace of each callback, and the device's underruns beside it on the wall clock
 # (ADR 3465): `<out-dir>/trace/pass-*.tsv` and `<out-dir>/trace/device.tsv`.
 if [ "${AUDIO_IN_USE_TRACE:-0}" = 1 ]; then
     rm -rf "$out/trace" && mkdir -p "$out/trace"
     export QUORRA_SOUND_TRACE="$out/trace"
 fi
-run=(cargo test --profile gates -p viewer-host --test audio_in_use -- --ignored --nocapture --test-threads 1)
+only=()
+[ "${AUDIO_IN_USE_ONLY:-}" = av ] && only=(a_clip_s_pictures_measured_against_its_sound --exact)
+run=(cargo test --profile gates -p viewer-host --test audio_in_use -- --ignored --nocapture --test-threads 1 "${only[@]}")
 if [ "$AUDIO_IN_USE_ROUTE" = loopback ]; then
     grep -q '^Loopback' <(sed -n 's/^ *[0-9]* \[\([A-Za-z]*\) *\].*/\1/p' /proc/asound/cards) \
         || { echo "audio-in-use: no loopback card (modprobe snd-aloop, as root)" >&2; exit 1; }
@@ -78,5 +92,6 @@ if [ "$AUDIO_IN_USE_ROUTE" = loopback ]; then
     fi
 fi
 "${run[@]}" 2>&1 | tee "$out/run.log"
-cp "$out/device/readings.txt" "$out/readings.txt"
+[ -s "$out/device/readings.txt" ] && cp "$out/device/readings.txt" "$out/readings.txt"
+[ -s "$out/device/av-readings.txt" ] && cp "$out/device/av-readings.txt" "$out/av-readings.txt"
 echo "audio-in-use: the readings are in $out/readings.txt"

@@ -16,6 +16,11 @@
 
 use std::time::{Duration, Instant};
 
+/// How far past the device's last word on what it had reached a heard time runs on the monotonic
+/// clock: two of the helper's report steps (a twentieth of a second each), so a device that stops
+/// taking frames — an underrun, a stall — stops a picture clock slaved to it within that (ADR 3555).
+pub const HEARD_REACH: Duration = Duration::from_millis(100);
+
 /// One sound's clock, in the device's frames.
 #[derive(Debug, Clone)]
 pub struct MediaClock {
@@ -27,6 +32,9 @@ pub struct MediaClock {
     sounding: u64,
     /// Where a freeze began, while one lasts.
     frozen: Option<Instant>,
+    /// The device's last word on the frames of the pass now sounding that it had reached, and when
+    /// it arrived (ADR 3555).
+    heard: Option<(u64, Instant)>,
 }
 
 impl MediaClock {
@@ -38,6 +46,7 @@ impl MediaClock {
             over: 0,
             sounding: 0,
             frozen: None,
+            heard: None,
         }
     }
 
@@ -52,6 +61,13 @@ impl MediaClock {
     /// frames the device still held, so this one may be lower and is taken as it is (ADR 3458).
     pub fn reached(&mut self, frames: u64) {
         self.sounding = frames;
+        self.heard = None;
+    }
+
+    /// The device had reached `frames` of the pass now sounding as of `now`: written, less what it
+    /// still held unplayed (`quorra_sound::Progress::Heard`).
+    pub fn heard(&mut self, frames: u64, now: Instant) {
+        self.heard = Some((frames, now));
     }
 
     /// The pass now sounding is over after `frames` — its whole length, which the device's last
@@ -59,6 +75,7 @@ impl MediaClock {
     pub fn sounded(&mut self, frames: u64) {
         self.over = self.over.saturating_add(frames);
         self.sounding = 0;
+        self.heard = None;
     }
 
     /// A freeze begins at `now`.
@@ -87,6 +104,7 @@ impl MediaClock {
     /// freeze's remainder. The clock then stands still until a pass or a freeze starts again.
     pub fn pause(&mut self, now: Instant) -> (u64, u64) {
         let sounded = std::mem::take(&mut self.sounding);
+        self.heard = None;
         let frozen = self.frozen.take().map_or(0, |began| self.since(began, now));
         self.over = self.over.saturating_add(sounded).saturating_add(frozen);
         (sounded, frozen)
@@ -105,6 +123,25 @@ impl MediaClock {
     #[must_use]
     pub fn time(&self, now: Instant) -> Duration {
         self.span(self.frames(now))
+    }
+
+    /// The time of the sound a listener hears at `now`: in a pass the device has said what it
+    /// had reached, that count run on at the device's rate for at most [`HEARD_REACH`] since it
+    /// was said; otherwise [`Self::time`]. This is what a clip's
+    /// pictures are slaved to (ADR 3555): the written count runs ahead of the sound by the frames
+    /// the device holds, a few tens of milliseconds, and the reports are a twentieth of a second
+    /// apart.
+    #[must_use]
+    pub fn heard_time(&self, now: Instant) -> Duration {
+        match (self.heard, self.frozen) {
+            (Some((heard, at)), None) => {
+                let since = now.saturating_duration_since(at).min(HEARD_REACH);
+                let reached =
+                    heard.saturating_add(self.since(at, at.checked_add(since).unwrap_or(at)));
+                self.span(self.over.saturating_add(reached))
+            }
+            _ => self.time(now),
+        }
     }
 
     /// The frames of this device from `began` to `now`, on the monotonic clock.
@@ -187,5 +224,28 @@ mod tests {
         assert_eq!(clock.pause(quarter), (0, 250));
         assert_eq!(clock.frames(later), 1250);
         assert_eq!(clock.thaws_at(1), None, "no freeze lasts while paused");
+    }
+
+    /// The heard time is the device's word on what it had reached, run on at its rate for no more
+    /// than `HEARD_REACH`, and the written count's time where no such word was said (ADR 3555).
+    #[test]
+    fn the_heard_time_runs_on_from_the_device_s_word_and_stops_past_its_reach() {
+        let start = Instant::now();
+        let mut clock = MediaClock::new(1000);
+        clock.played(500);
+        assert_eq!(clock.heard_time(start), Duration::from_millis(500));
+        clock.heard(460, start);
+        assert_eq!(clock.heard_time(start), Duration::from_millis(460));
+        assert_eq!(
+            clock.heard_time(start + Duration::from_millis(30)),
+            Duration::from_millis(490)
+        );
+        assert_eq!(
+            clock.heard_time(start + Duration::from_secs(5)),
+            Duration::from_millis(460) + HEARD_REACH,
+            "a device that said nothing more holds the clock past its reach"
+        );
+        clock.sounded(1000);
+        assert_eq!(clock.heard_time(start), Duration::from_millis(1000));
     }
 }

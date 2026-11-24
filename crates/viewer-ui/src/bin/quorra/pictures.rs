@@ -22,9 +22,14 @@ use viewer_host::video::{Seen, Shown, VideoPlayer};
 use crate::app::App;
 
 impl App {
-    /// Shows `shown`'s pictures in place of the clip in hand, making the player — its thread and
-    /// its worker started at this first clip, never at the launch — with the loop's waker.
-    pub(crate) fn start_the_pictures(&mut self, shown: Shown) {
+    /// Shows `shown`'s pictures in place of the clip in hand, following `sound` — the clip's sound
+    /// as the sound player was handed it — making the player, its thread and its worker started at
+    /// this first clip, never at the launch, with the loop's waker.
+    pub(crate) fn start_the_pictures(
+        &mut self,
+        shown: Shown,
+        sound: Option<viewer_host::sound::Listening>,
+    ) {
         let waker = self.waker.clone();
         let video = self.video.get_or_insert_with(|| {
             VideoPlayer::new(Box::new(move || {
@@ -33,7 +38,7 @@ impl App {
                 }
             }))
         });
-        video.play(shown);
+        video.play_beside(shown, sound);
         self.show_the_pictures();
     }
 
@@ -47,14 +52,14 @@ impl App {
         let holds = video.holds_a_picture();
         let mut changed = false;
         if let Some(frame) = frame {
-            let quad = self.picture_quad();
+            let placed = self.picture_placed();
             let shown = match self.device_window() {
                 Some(window) => frame
                     .planes()
                     .map_err(|refused| refused.to_string())
                     .and_then(|planes| {
                         window
-                            .show_video(&planes, &frame.conversion, quad)
+                            .show_video(&planes, &frame.conversion, placed)
                             .map_err(|refused| refused.to_string())
                     })
                     .map(drop),
@@ -147,19 +152,27 @@ impl App {
     /// Moves the device's picture with the pages, at each frame: the view may have scrolled or
     /// zoomed since the picture was put up, and a paused clip has no next picture to move it.
     pub(crate) fn place_the_picture(&mut self) {
-        let quad = self.picture_quad();
+        let placed = self.picture_placed();
         if let Some(window) = self.device_window()
             && window.shows_video()
         {
-            window.place_video(quad);
+            window.place_video(placed);
         }
+    }
+
+    /// The picture fitted to its screen annotation by Table 291's `/F` (ADR 3553): the part of it
+    /// shown and the quadrilateral that part covers, in window pixels.
+    pub(crate) fn picture_placed(&self) -> Option<viewer_host::video::Placed> {
+        let quad = self.picture_quad()?;
+        self.video.as_ref()?.placed(quad)
     }
 
     /// The processor's picture as the lowest overlay, over its screen annotation — the overlays'
     /// pixels are the window's, `width` by `height`.
     pub(crate) fn picture_list(&self, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
         let raster = self.picture.as_ref()?;
-        let quad = self.picture_quad()?;
+        let placed = self.picture_placed()?;
+        let part = placed.part_of(raster);
         #[expect(
             clippy::cast_precision_loss,
             reason = "window dimensions are far below f32's exact integer range"
@@ -167,15 +180,15 @@ impl App {
         let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
         list.push(DrawCommand::Image {
             image: ImageSource::Decoded(pdf_render::Image {
-                width: raster.width,
-                height: raster.height,
-                data: Arc::from(raster.data.as_slice()),
+                width: part.width,
+                height: part.height,
+                data: Arc::from(part.data.as_slice()),
                 // A picture is drawn at the rectangle's size, larger or smaller than its own;
                 // smoothing it is this window's choice, as the device's sampler makes it.
                 interpolate: true,
                 sample_alpha: SampleAlpha::Shape,
             }),
-            transform: unit_square_onto(quad),
+            transform: unit_square_onto(placed.quad),
             alpha: 1.0,
             clip: None,
             mask: None,
