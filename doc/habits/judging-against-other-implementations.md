@@ -182,3 +182,19 @@ Round 1901 (ADR 2636) expected `F001u_3_7j` to be a cut program; its `FontFile2`
 `Truncated` on a program this reader draws whole. A `Truncated` decode is routed only after its decoded
 length is set beside ISO 32000-2 Table 125's `/Length1`, `/Length2` and `/Length3`; a program that reaches
 its stated extent is whole, and the cut in its check value is a separate fault with its own sentence.
+
+## The errata are searched for the clause before a disagreement is called another implementation's
+
+Round 2220 (ADRs 3581, 3582) found that veraPDF-library #1668, filed by this tree as a validator
+reading ISO 19005 6.2.10.3.1's supplement comparison backwards, was a validator that had followed
+pdf-issues #77 — an erratum the PDF/A working group agreed in 2022 and the site publishes — while
+`pdf-archive` defended the printed text. A census and an upstream issue were spent on a sentence
+the standard's own authors had withdrawn. So before a difference from veraPDF, a renderer or any
+other implementation is called theirs, and before anything is drafted for `doc/upstream/`, the
+clause is searched in `doc/errata/`: the site's page for the standard
+(`site/docs/<standard>/`, the `<del>` and `<ins>` under the clause's heading), `pdfa.md` for
+ISO 19005, and `issues.jsonl` and `comments.jsonl` for the clause number, where an agreement not
+yet on the site is recorded. `tools/spec-errata check` names a quotation in this tree that a
+published erratum struck. An agreed correction governs (`CLAUDE.md` principle 5); a parked or open
+issue is evidence, and the draft says which it found. `doc/upstream/README.md`'s template carries
+the line that records the search.

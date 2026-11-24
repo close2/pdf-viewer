@@ -2,7 +2,8 @@
 
 What `tools/spec-errata check` named, and what each passage turned out to be. Begun in the
 four-hundred-and-seventeenth session so that nobody reads them twice and finished in the
-four-hundred-and-eighteenth. ADR 0252 built the tool; ADR 0253 and ADR 0254 are the two readings.
+four-hundred-and-eighteenth. ADR 0252 built the tool; ADR 0253 and ADR 0254 are the two readings. The PDF/A errata, which the
+site publishes and no PDF here annotates, are read in `doc/errata-read-pdfa.md` (ADR 3590).
 
 **All 120 distinct passages `check` names now carry a verdict**, and the four-hundred-and-twenty-ninth session re-ran it eleven rounds later and got **the same 151 lines for the same 120 passages**: nothing remains unread and the number is not moving. The three tables below are the
 order they were read in rather than three kinds of thing: **the 79 lines / 65 distinct passages**

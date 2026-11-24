@@ -4,7 +4,7 @@ The input to the next round's verdicts (step 4 of the owner's plan of 2026-11-24
 issue of `pdf-association/pdf-issues` carrying a `PDF/A-…` label or naming ISO 19005 or PDF/A in
 its title, as `issues.jsonl` and `comments.jsonl` beside this file held them on 2026-11-24, with
 its resolution as the comments record it and the `pdf-archive` rows whose clauses it names. Written
-by this tree, not fetched; a verdict column is the next round's. "Agreed" quotes the comment that
+by this tree, not fetched; each issue's verdict is in `doc/errata-read-pdfa.md` (ADR 3590). "Agreed" quotes the comment that
 records a working group's agreement; ISO 19005-4's errata page (`site/docs/19005-4-2020/
 clause06.md`) publishes #77, #104 and #123, of which #104 and #123 carry `data-iso="approved"`.
 

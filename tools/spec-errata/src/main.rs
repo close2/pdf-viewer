@@ -65,6 +65,23 @@ fn main() -> std::process::ExitCode {
     };
     let paths: Vec<PathBuf> = arguments.map(PathBuf::from).collect();
     let mut notes = Vec::new();
+    // The second input (ADR 3589): the errata the site publishes, wherever the tree holds them.
+    // `emit` writes the PDFs' annotations alone, because its output is the PDFs' and is ignored by
+    // git; the site's are CC-BY-4.0 and are read in place.
+    let site = PathBuf::from("doc/errata/site");
+    if !matches!(
+        command,
+        Command::Emit | Command::Renumbered | Command::Applied
+    ) && site.join("docs").is_dir()
+    {
+        match spec_errata::site::read(&site) {
+            Ok(read) => notes.extend(read),
+            Err(error) => {
+                println!("{error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        }
+    }
     for path in &paths {
         match spec_errata::read(path) {
             Ok(read) => notes.extend(read),
@@ -158,17 +175,24 @@ fn census(notes: &[Note]) {
 ///
 /// Whatever [`spec_errata::landings`] or [`spec_errata::still_in_conversion`] answered.
 fn check(notes: &[Note]) -> Result<(), spec_errata::Error> {
-    let still = spec_errata::still_in_conversion(notes, &PathBuf::from("doc/md"))?;
+    let (pdfa, rest): (Vec<Note>, Vec<Note>) =
+        notes.iter().cloned().partition(spec_errata::site::is_pdfa);
+    let mut still = spec_errata::still_in_conversion(&rest, &PathBuf::from("doc/md"))?;
+    let pdfa_conversions = PathBuf::from("doc/pdfa");
+    if pdfa_conversions.is_dir() {
+        still.extend(spec_errata::still_in_conversion(&pdfa, &pdfa_conversions)?);
+    }
     println!(
-        "{} struck passage(s) of {} words or more that doc/md/ still carries as current text",
+        "{} struck passage(s) of {} words or more that doc/md/ or doc/pdfa/ still carries as \
+         current text",
         still.len(),
         spec_errata::MIN_WORDS
     );
     for note in &still {
         println!(
-            "  {} p.{} {} — {}",
+            "  {} {} {} — {}",
             note.document,
-            note.page,
+            note.place(),
             note.subject.as_deref().unwrap_or("(no /Subj)"),
             note.section.as_deref().unwrap_or("(no section)")
         );
@@ -183,6 +207,16 @@ fn check(notes: &[Note]) -> Result<(), spec_errata::Error> {
         notes,
         &PathBuf::from("doc"),
     )?);
+    landings.extend(spec_errata::rule_landings(
+        notes,
+        &PathBuf::from("crates/pdf-archive/src/table"),
+    )?);
+    let before = landings.len();
+    let landings = reconciled(landings);
+    println!(
+        "{} landing(s) the site and Collection 3 both state, reported once under the PDF's note",
+        before.saturating_sub(landings.len())
+    );
     let (cited, elsewhere): (Vec<_>, Vec<_>) = landings
         .iter()
         .partition(|landing| spec_errata::Landing::in_clause(landing));
@@ -224,7 +258,34 @@ fn moved(notes: &[Note]) -> Result<(), spec_errata::Error> {
         structural.len(),
         notes.len()
     );
+    let rules = spec_errata::rule_clauses(&PathBuf::from("crates/pdf-archive/src/table"))?;
     for erratum in &structural {
+        if spec_errata::site::is_pdfa(&erratum.note) {
+            // ISO 19005's ground is `pdf-archive`'s table, not the ISO 32000-2 ledger.
+            println!(
+                "\n{} {} {} — {}",
+                erratum.note.document,
+                erratum.note.place(),
+                erratum.note.subject.as_deref().unwrap_or("(no issue)"),
+                erratum.verbs.join(", ")
+            );
+            for clause in &erratum.clauses {
+                let clause = clause.to_string();
+                let standing: Vec<_> = rules
+                    .iter()
+                    .filter(|(_, _, cited)| {
+                        cited.as_deref().is_some_and(|cited| {
+                            cited == clause || cited.starts_with(&format!("{clause}."))
+                        })
+                    })
+                    .collect();
+                println!("  §{clause} — {} pdf-archive row(s)", standing.len());
+                for (file, line, _) in standing {
+                    println!("      {}:{}", file.display(), line);
+                }
+            }
+            continue;
+        }
         let ground = spec_errata::standing_on(
             &erratum.clauses,
             &PathBuf::from("doc/conformance/ledger.toml"),
@@ -236,9 +297,9 @@ fn moved(notes: &[Note]) -> Result<(), spec_errata::Error> {
             &PathBuf::from("doc"),
         )?;
         println!(
-            "\n{} p.{} {} [{}] — {}",
+            "\n{} {} {} [{}] — {}",
             erratum.note.document,
-            erratum.note.page,
+            erratum.note.place(),
             erratum.note.subject.as_deref().unwrap_or("(no /Subj)"),
             erratum
                 .note
@@ -465,16 +526,44 @@ fn by_kind(landings: &[&spec_errata::Landing]) -> String {
     format!(" ({})", joined(&counts))
 }
 
+/// The landings with the site's duplicates of the PDF's taken out (ADR 3589).
+///
+/// Where Collection 3's annotations and the site state the same issue and a quotation lands on
+/// both, it is one finding, and the PDF's note is kept: its `covered` is the page's own glyphs,
+/// the text `doc/md/` was converted from, where the site's is a window this tool cut. Where only
+/// one of them states it, that one stands — the site carries corrections published after the
+/// collection, and the collection carries annotations the site never published.
+fn reconciled(landings: Vec<spec_errata::Landing>) -> Vec<spec_errata::Landing> {
+    let from_pdf: std::collections::BTreeSet<(PathBuf, usize, u32)> = landings
+        .iter()
+        .filter(|landing| landing.note.origin == spec_errata::Origin::Annotation)
+        .flat_map(|landing| {
+            spec_errata::site::issues_of(&landing.note)
+                .into_iter()
+                .map(|issue| (landing.file.clone(), landing.line, issue))
+        })
+        .collect();
+    landings
+        .into_iter()
+        .filter(|landing| {
+            landing.note.origin == spec_errata::Origin::Annotation
+                || !spec_errata::site::issues_of(&landing.note)
+                    .into_iter()
+                    .any(|issue| from_pdf.contains(&(landing.file.clone(), landing.line, issue)))
+        })
+        .collect()
+}
+
 /// One landing, with the erratum's own words beside the quotation's.
 fn print_landing(landing: &spec_errata::Landing) {
     println!(
-        "  [{}] {}:{} §{} — {} p.{} {} [{}]",
+        "  [{}] {}:{} §{} — {} {} {} [{}]",
         landing.kind.as_str(),
         landing.file.display(),
         landing.line,
         landing.clause.as_deref().unwrap_or("?"),
         landing.note.document,
-        landing.note.page,
+        landing.note.place(),
         landing.note.subject.as_deref().unwrap_or("(no /Subj)"),
         landing
             .note

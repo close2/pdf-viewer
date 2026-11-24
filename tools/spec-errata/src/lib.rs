@@ -44,6 +44,7 @@
 
 pub mod applied;
 pub mod renumbered;
+pub mod site;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -187,9 +188,30 @@ pub struct Note {
     /// Empty where nothing replied, which Table 174 makes mean `None` — "\[t]he user has indicated
     /// nothing about the change (the default)" — and not `Accepted`.
     pub states: BTreeSet<String>,
+    /// Which of the two inputs the note was read from, which says what [`Self::page`] counts.
+    pub origin: Origin,
+}
+
+/// Where a note was read from (ADR 3589).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// An annotation in one of the PDFs; [`Note::page`] is the page it is on.
+    Annotation,
+    /// A change pdf-issues.pdfa.org publishes ([`site`]); [`Note::page`] is the line of the page's
+    /// source the changed passage starts on, and [`Note::document`] names that page.
+    Site,
 }
 
 impl Note {
+    /// Where the note is, as a reader finds it: a page of a PDF or a line of the site's source.
+    #[must_use]
+    pub fn place(&self) -> String {
+        match self.origin {
+            Origin::Annotation => format!("p.{}", self.page),
+            Origin::Site => format!("line {}", self.page),
+        }
+    }
+
     /// Whether this note retires text: a strikeout that covers words.
     ///
     /// §12.5.6.10 gives `StrikeOut` no meaning beyond the mark — "\[t]ext markup annotations shall
@@ -198,7 +220,9 @@ impl Note {
     /// `Issue #NNN` in its `/Subj`. Both are the caller's to judge; this is only the shape.
     #[must_use]
     pub fn retires_text(&self) -> bool {
-        self.subtype == "StrikeOut" && self.covered.is_some()
+        // A site note carries `covered` only where its change retires printed text
+        // ([`site`]'s module comment says when an insertion does).
+        (self.subtype == "StrikeOut" || self.origin == Origin::Site) && self.covered.is_some()
     }
 }
 
@@ -345,6 +369,7 @@ pub fn read(path: &Path) -> Result<Vec<Note>, Error> {
                     .as_reference()
                     .and_then(|id| states.get(&id).cloned())
                     .unwrap_or_default(),
+                origin: Origin::Annotation,
             });
         }
     }
@@ -382,6 +407,12 @@ pub enum Quoted {
     /// because the erratum supplies the other side of the comparison and needs no syntax saying
     /// which quotations are the standard's (ADR 0254).
     Document,
+    /// A `pdf-archive` requirement's `asks` — the rule text a verdict cites ISO 19005 by.
+    ///
+    /// Paraphrase by rule (`doc/third-party-data.md`: ISO 19005 is cited and paraphrased, never
+    /// quoted), so a landing here is a paraphrase that kept the printed words a site erratum
+    /// struck — the shape #77's retired supplement comparison had (ADR 3589).
+    Rule,
 }
 
 impl Quoted {
@@ -394,6 +425,7 @@ impl Quoted {
             Self::Comment => "comment",
             Self::LedgerNote => "ledger",
             Self::Document => "document",
+            Self::Rule => "rule",
         }
     }
 }
@@ -452,6 +484,119 @@ impl Landing {
             });
         usable.then_some(token)
     }
+}
+
+/// Every `pdf-archive` requirement's `asks` that overlaps a passage a note retires.
+///
+/// The table is read as text, not linked: this crate does not depend on `pdf-archive`, and the
+/// shape is fixed — `asks: "…",` as one Rust string literal, continued with `\` across lines,
+/// followed by `clauses: Clauses::both("…", "…")`, `only_two("…")` or `only_four("…")`. The
+/// clause a landing cites is part 4's where the row states one and part 2's otherwise, since
+/// the site publishes errata for part 4 alone.
+///
+/// # Errors
+///
+/// [`Error::Unreadable`] where `directory` or a file in it cannot be read.
+pub fn rule_landings(notes: &[Note], directory: &Path) -> Result<Vec<Landing>, Error> {
+    let struck = retired(notes);
+    let mut files: Vec<PathBuf> = std::fs::read_dir(directory)
+        .map_err(|error| Error::Unreadable(directory.to_owned(), error))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+        .collect();
+    files.sort();
+    let mut found = Vec::new();
+    for file in files {
+        let source = std::fs::read_to_string(&file)
+            .map_err(|error| Error::Unreadable(file.clone(), error))?;
+        for (line, asks, clause) in rule_texts(&source) {
+            for (note, passage) in &struck {
+                if overlaps(&asks, passage) {
+                    found.push(Landing {
+                        file: file.clone(),
+                        line,
+                        kind: Quoted::Rule,
+                        clause: clause.clone(),
+                        quotation: asks.clone(),
+                        note: (*note).clone(),
+                    });
+                }
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// Where each `pdf-archive` requirement is, with the clause [`rule_landings`] reads it as citing —
+/// the ground `moved` reports a part 4 erratum standing on.
+///
+/// # Errors
+///
+/// [`Error::Unreadable`] where `directory` or a file in it cannot be read.
+pub fn rule_clauses(directory: &Path) -> Result<Vec<(PathBuf, usize, Option<String>)>, Error> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(directory)
+        .map_err(|error| Error::Unreadable(directory.to_owned(), error))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+        .collect();
+    files.sort();
+    let mut found = Vec::new();
+    for file in files {
+        let source = std::fs::read_to_string(&file)
+            .map_err(|error| Error::Unreadable(file.clone(), error))?;
+        for (line, _, clause) in rule_texts(&source) {
+            found.push((file.clone(), line, clause));
+        }
+    }
+    Ok(found)
+}
+
+/// Each `asks` literal of a table file, with its line and the clause the row cites.
+fn rule_texts(source: &str) -> Vec<(usize, String, Option<String>)> {
+    let mut found = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+    let mut index = 0_usize;
+    while let Some(line) = lines.get(index) {
+        let Some(start) = line.trim_start().strip_prefix("asks: \"") else {
+            index = index.saturating_add(1);
+            continue;
+        };
+        let first = index;
+        let mut text = String::new();
+        let mut piece = start;
+        loop {
+            if let Some(body) = piece.strip_suffix('\\') {
+                text.push_str(body);
+                index = index.saturating_add(1);
+                piece = lines.get(index).map_or("", |next| next.trim_start());
+            } else {
+                text.push_str(piece.strip_suffix("\",").unwrap_or(piece));
+                break;
+            }
+        }
+        let clause = lines
+            .iter()
+            .skip(index.saturating_add(1))
+            .take(4)
+            .find_map(|next| clause_of_row(next));
+        found.push((first.saturating_add(1), text.replace("\\\"", "\""), clause));
+        index = index.saturating_add(1);
+    }
+    found
+}
+
+/// The clause a `clauses:` line cites: part 4's where it names one.
+fn clause_of_row(line: &str) -> Option<String> {
+    let call = line.trim_start().strip_prefix("clauses: Clauses::")?;
+    let numbers: Vec<&str> = call.split('"').skip(1).step_by(2).collect();
+    let number = if call.starts_with("both") {
+        numbers.get(1)
+    } else {
+        numbers.first()
+    };
+    number.map(|number| (*number).to_owned())
 }
 
 /// The struck passages long enough to compare a quotation against, squeezed once.
@@ -874,6 +1019,9 @@ impl Ground {
 #[must_use]
 pub fn structural(notes: &[Note]) -> Vec<Structural> {
     let mut found = Vec::new();
+    // The site states one instruction above several changes, and every change carries it; the
+    // instruction moves ground once (ADR 3589).
+    let mut instructions: BTreeSet<(&str, &str)> = BTreeSet::new();
     for note in notes {
         if note.role == Role::Reply {
             continue;
@@ -881,6 +1029,9 @@ pub fn structural(notes: &[Note]) -> Vec<Structural> {
         let Some(contents) = note.contents.as_deref() else {
             continue;
         };
+        if note.origin == Origin::Site && !instructions.insert((note.document.as_str(), contents)) {
+            continue;
+        }
         let lowered = contents.to_lowercase();
         let verbs: Vec<&'static str> = STRUCTURAL
             .into_iter()
@@ -1181,6 +1332,7 @@ mod tests {
             covered: None,
             created: None,
             states: BTreeSet::new(),
+            origin: Origin::Annotation,
         };
         let notes = vec![
             note("all of subclause 12.3.6 Navigators was moved and demoted one level"),
@@ -1211,6 +1363,7 @@ mod tests {
             covered: None,
             created: None,
             states: BTreeSet::new(),
+            origin: Origin::Annotation,
         };
         assert!(!note.retires_text());
         assert!(
