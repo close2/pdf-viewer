@@ -142,6 +142,8 @@ impl DeviceSpots {
                 } => {
                     space = base;
                 }
+                // A grey read as the intent's black names no colourant (§10.2, ADR 3654).
+                grey if grey.is_grey_as_intent_black() => break,
                 ColourSpace::Separation { names, .. } | ColourSpace::Simulated { names, .. } => {
                     named.extend(
                         names
@@ -422,6 +424,15 @@ impl SpotSet {
         match space {
             ColourSpace::AllColourants => Named::All,
             ColourSpace::NoColourant { .. } => Named::Nothing,
+            // `DeviceGray` read as the intent's black ink is a device colour carried in a
+            // `Separation`'s shape, and §10.2 settles it by its family, not by the name that
+            // shape carries: "Colours specified in any device or CIE-based colour space shall be
+            // rendered as process colours." A page may name a spot colourant `/DeviceGray`, and
+            // that plane is then a plane like any other, which a grey never reaches (ADR 3654).
+            ColourSpace::Separation {
+                tints: Tints::GreyAsBlack,
+                ..
+            } => Named::Process,
             ColourSpace::Separation { names, .. } if self.available(names, native) => {
                 Named::Direct(names)
             }

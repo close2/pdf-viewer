@@ -394,7 +394,9 @@ impl ColourSpace {
     /// which is a `shall` about the group and so outranks the intent too (ADR 2012).
     /// `DeviceGray` beside a four-component intent has one source more: §10.3.2's conversion to
     /// the press, which makes it the intent's black ink alone in either view
-    /// ([`super::GreyReading::IntentBlack`], `super::intent_grey`, ADR 2765).
+    /// ([`super::GreyReading::IntentBlack`], `super::intent_grey`, ADR 2765), and on §10.8.3's
+    /// simulated press of the assumed inks the same rule over that press
+    /// ([`super::GreyReading::AssumedInksBlack`], ADR 3655).
     /// Failing all three, the device space itself — where §8.6.4.4 states no conversion,
     /// §10.4.2.5 states one and §10.4.2.1 ranks it below §10.3's ICC route, so what happens
     /// then is this processor's own choice between two answers the standard has already
@@ -435,6 +437,10 @@ impl ColourSpace {
             && let Some(black) = reading.intent.and_then(Self::grey_as_intent_black)
         {
             return Some(black);
+        }
+        // On the simulated press of the assumed inks, the same rule over that press (ADR 3655).
+        if matches!(device, Self::Gray) && reading.grey == super::GreyReading::AssumedInksBlack {
+            return Some(Self::grey_as_assumed_inks_black());
         }
         Some(device)
     }

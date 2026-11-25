@@ -435,9 +435,10 @@ impl Interpreter<'_> {
             }
         }
 
-        // A pattern is positioned relative to the page's default space, not to the
-        // transform in force where it is used. Getting this wrong moves every gradient on
-        // the page by whatever the current transform happened to be.
+        // A pattern is positioned relative to its parent content stream's default space
+        // (§8.7.2), which `self.base` holds, not to the transform in force where it is used.
+        // Getting this wrong moves every gradient by whatever the current transform happened
+        // to be.
         let matrix = crate::shading::matrix_of(self.document, &dict, "Matrix");
         // Unresolved on purpose: `shading::Cache` is keyed by the reference, and a pattern
         // painted a thousand times states the same one every time.

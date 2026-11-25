@@ -1,4 +1,5 @@
-//! `DeviceGray` on a page whose output intent is a CMYK press: the press's black ink alone.
+//! `DeviceGray` on a page whose output intent is a CMYK press, or on §10.8.3's simulated press of
+//! the assumed inks: the press's black ink alone.
 //!
 //! **The press view.** §10.3.2 says that on a device whose native colour space is CMYK a grey
 //! "should follow the method described in 10.4.2.3", and §10.8.3's simulated press is such a
@@ -51,15 +52,23 @@ pub enum GreyReading {
     /// the owner's choice (ADR 2765). A `/DefaultGray` the resources state still outranks it, by
     /// §8.6.5.6.
     IntentBlack,
+    /// `DeviceGray` is the assumed press's black ink alone, §10.4.2.3's method, on §10.8.3's
+    /// simulated press of a page with no four-component intent: that device is the assumed inks
+    /// of ADR 0263, whose native colour space is CMYK as much as an intent's, so §10.3.2's
+    /// sentence binds there too (ADR 3655). Asked of the simulation alone; the screen view of
+    /// such a page keeps this reader's grey. A `/DefaultGray` still outranks it, by §8.6.5.6.
+    AssumedInksBlack,
 }
 
-/// The one component name the space carries, which no device has a colourant of.
+/// The one component name the space carries, which is a label and never a colourant.
 ///
 /// A `Separation` names its colourant, and a colourant the simulated device of §10.8.3 has is
 /// painted directly rather than through the alternate (`super::spots`). `DeviceGray` names no
-/// colourant at all, and the clause routes it through the intent's profile on every device, so
-/// the name is the family's own: it is none of §8.6.6.4's process names and no spot colourant a
-/// page can name collides with a space family's name in this tree's reading.
+/// colourant at all — §10.2: "Colours specified in any device or CIE-based colour space shall be
+/// rendered as process colours" — so the name is the family's own, for a report to print. It is
+/// none of §8.6.6.4's process names, but a page may name a spot colourant `/DeviceGray`, since a
+/// colourant name is any name: so no question of which colourants a space paints reads this one
+/// by its name. `SpotSet::named` answers this space by its tints, as a process colour (ADR 3654).
 static NAMES: LazyLock<Arc<[Name]>> =
     LazyLock::new(|| Arc::from([Name::new(b"DeviceGray".to_vec())]));
 
@@ -81,7 +90,22 @@ impl ColourSpace {
         }
     }
 
-    /// Whether this is [`Self::grey_as_intent_black`]'s space, whose single component is a grey
+    /// `DeviceGray` read as the assumed press's black ink alone
+    /// ([`GreyReading::AssumedInksBlack`]): the same construction as
+    /// [`Self::grey_as_intent_black`] over `DeviceCMYK`, which on the assumed press *is* that
+    /// press's four inks, so `0.5 g` and `0 0 0 0.5 k` reach it as one colour (ADR 3655).
+    #[must_use]
+    pub fn grey_as_assumed_inks_black() -> Self {
+        Self::Separation {
+            inputs: 1,
+            names: Arc::clone(&NAMES),
+            alternate: Box::new(Self::Cmyk),
+            tints: Tints::GreyAsBlack,
+        }
+    }
+
+    /// Whether this is [`Self::grey_as_intent_black`]'s or
+    /// [`Self::grey_as_assumed_inks_black`]'s space, whose single component is a grey
     /// level and not a tint.
     #[must_use]
     pub fn is_grey_as_intent_black(&self) -> bool {

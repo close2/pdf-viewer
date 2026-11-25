@@ -124,11 +124,22 @@ impl Interpreter<'_> {
         // `run` takes `&mut self`: one pointer clone per glyph description, against a `Dictionary`
         // that has to outlive the call. [`Interpreter::page_resources`](crate::content::Interpreter::page_resources) says why it is owned.
         let page_resources = Arc::clone(&self.page_resources);
+        // ISO 32000-2 §8.7.2: a pattern matrix maps "to the default coordinate system of the
+        // pattern's parent content stream (the content stream in which the pattern is defined
+        // as a resource)", and Table 110's `/Resources` are those "required by the glyph
+        // descriptions in this font", so a pattern this description paints with has the
+        // description as its parent. Its default coordinate system is the CTM §9.6.4 starts it
+        // with, `inner.transform`, swapped in as a form's `Do` swaps the form's — and swapped
+        // whichever dictionary the search above ends in, since a page dictionary reached by
+        // Issue #128's last step is still read *by this stream*, as it is for a form stating no
+        // `/Resources` (ADR 3653).
+        let outer_base = std::mem::replace(&mut self.base, inner.transform);
         self.run(
             &data,
             font.resources(stated.as_ref(), &page_resources),
             &inner,
         );
+        self.base = outer_base;
         self.leave_ledger_frame();
         if reference.is_some() {
             self.descriptions_running.pop();

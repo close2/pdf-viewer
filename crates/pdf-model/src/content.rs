@@ -1304,7 +1304,8 @@ fn separate(
         return Err(NotSeparated::Nothing);
     }
     let named = crate::colourants::spot_colourants(document, page);
-    let (intent, grey) = colour::output_intent_reading(document, Some(&page.dict));
+    // Asked only where the simulation is, above.
+    let (intent, grey) = colour::output_intent_reading(document, Some(&page.dict), true);
     let named = named.readable(
         document,
         &page.resources,
@@ -1555,7 +1556,11 @@ impl<'a> Interpreter<'a> {
             PagePress::Beyond(beyond) => Some(beyond),
             PagePress::Device | PagePress::In(_) => None,
         };
-        let (output_intent, grey) = colour::output_intent_reading(document, Some(&page.dict));
+        let (output_intent, grey) = colour::output_intent_reading(
+            document,
+            Some(&page.dict),
+            state.separation_simulation(),
+        );
         let delegated = match state.widget_appearances() {
             crate::view::WidgetAppearances::Drawn => BTreeSet::new(),
             crate::view::WidgetAppearances::Delegated => {
@@ -2894,11 +2899,14 @@ struct Interpreter<'a> {
     /// another arrives, so a page that imported would clear the cache the containing document
     /// shares with every other page of itself. See [`Interpreter::enter_imported`].
     across: Option<&'a FontCache>,
-    /// Maps PDF user space to page space.
+    /// Maps the default user space of the content stream now running to page space.
     ///
-    /// Pattern space is defined relative to the page's default coordinates rather than to
-    /// the transform in force when a pattern is used, so this is kept for patterns and
-    /// must not be confused with the current transform.
+    /// ISO 32000-2 §8.7.2 places a pattern against "the default coordinate system of the
+    /// pattern's parent content stream", not against the transform in force where the pattern
+    /// is used, so this is kept for patterns and must not be confused with the current
+    /// transform. It is the page's default space while the page runs, and every nested stream
+    /// swaps in its own for its run: a form's `Do`, an annotation appearance, a tiling cell, a
+    /// soft mask's group, an imported page and a Type 3 glyph description (ADR 3653).
     base: Transform,
     /// The parameters ISO 32000-2 §11.6.7 hands a shading pattern selected in the content stream
     /// now running — the graphics state it *began* with, not the one at the `scn`.
@@ -3018,8 +3026,9 @@ struct Interpreter<'a> {
     /// when nothing nearer to hand says otherwise.
     output_intent: Option<ColourSpace>,
     /// What `DeviceGray` means beside [`Self::output_intent`]: the press's black ink alone where
-    /// the intent is a CMYK profile (§10.3.2 and §14.11.5, ADR 2765), and this reader's grey
-    /// everywhere else. Decided with the intent, from the same selection
+    /// the intent is a CMYK profile (§10.3.2 and §14.11.5, ADR 2765), the assumed press's black
+    /// ink alone on §10.8.3's simulated press of a page with no such intent (ADR 3655), and this
+    /// reader's grey everywhere else. Decided with the intent, from the same selection
     /// (`colour::output_intent_reading`).
     grey: crate::colour::GreyReading,
     /// The `ICCBased` CMYK blending space §11.7.2 redefines `DeviceCMYK` to be where the

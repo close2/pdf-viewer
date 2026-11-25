@@ -152,7 +152,9 @@ fn first_intent(document: &Document, intents: &Object) -> Option<Dictionary> {
 /// ADR 2712), which this rule now covers without reading the file's identification.
 ///
 /// A 'GRAY' intent already stands in for the family by its component count, and an 'RGB' one
-/// leaves the grey this reader's. `DefaultGray` is the resources' to answer, where the device
+/// leaves the grey this reader's — on screen; on §10.8.3's simulated press a page with no CMYK
+/// intent is separated on the assumed inks, and `content::colour::output_intent_reading` reads
+/// its grey as that press's black (ADR 3655). `DefaultGray` is the resources' to answer, where the device
 /// family is resolved (`ColourSpace::device_family`), so it outranks this and is not asked here.
 pub(crate) fn grey_reading(selected: &Selected) -> GreyReading {
     if matches!(&selected.space, ColourSpace::Icc { profile } if profile.channels() == 4) {

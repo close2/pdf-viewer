@@ -571,6 +571,10 @@ mod context_tests {
                 grey: GreyReading::IntentBlack,
                 ..context
             },
+            ConversionContext {
+                grey: GreyReading::AssumedInksBlack,
+                ..context
+            },
         ];
         for (i, left) in variants.iter().enumerate() {
             let owned = (*left).to_conversion();

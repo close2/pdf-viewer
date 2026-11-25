@@ -44,7 +44,8 @@ pub(in crate::content) struct Tiling {
     /// spill into the gap between them. `/BBox` is required, so a pattern without one is
     /// malformed; it is then not clipped, which is the only reading that draws anything.
     pub(super) bbox: Option<[f32; 4]>,
-    /// Maps pattern space to the page's default space.
+    /// Maps pattern space to page space, through the parent content stream's default space
+    /// (§8.7.2).
     pub(super) to_page: Transform,
     /// The colour an uncoloured pattern is poured through, if it is uncoloured.
     ///

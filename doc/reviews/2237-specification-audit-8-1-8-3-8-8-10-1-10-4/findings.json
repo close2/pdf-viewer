@@ -13,7 +13,7 @@
   "code": "crates/pdf-model/src/content/text/type3.rs:96 (inner.transform set; self.base left as the caller's); crates/pdf-model/src/content/pattern.rs:441-464 (transform: matrix.then(self.base)); crates/pdf-model/src/content/pattern/tiling.rs:228; the right sites: crates/pdf-model/src/content/xobject.rs:274, annotations.rs:554, pattern/cell.rs:156, transparency/soft_mask.rs:411; crates/pdf-model/src/content/run.rs:103 (pattern_initial reset for every nested run, glyphs included)",
   "change": "In draw_type3_glyph, swap self.base for inner.transform (FontMatrix x text space) around the glyph's run and restore it after, where the glyph's resources are the glyph stream's or the font's own; a Type 3 font stating no /Resources reads the page's (Issue #128's last step), whose parent content stream is the page, and the fix round decides that case by the same sentence.",
   "execution": "FAIL (expected): crates/pdf-model/tests/coordinates_8_3_10_4_spec_audit.rs::a_pattern_in_a_type3_glyph_is_placed_in_the_glyphs_space_spec_audit (content_suite) \u2014 round 2237: [242, 0, 13] at the centre, where half blue is expected; its control (the same pattern and square through a form XObject with the same 1/10 /Matrix) passes.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2237-B02",
@@ -29,7 +29,7 @@
   "code": "crates/pdf-colour/src/colour/intent_grey.rs:56-64 (NAMES: 'no spot colourant a page can name collides'); crates/pdf-colour/src/colour/spots.rs:401 (available) and :425 (named: Separation whose names are available paints Direct)",
   "change": "Make the grey construction unable to name a plane: SpotSet::named (and reach/overprint) answer Named::Process for a space is_grey_as_intent_black() reports, before the names are compared; or give Tints::GreyAsBlack its own ColourSpace arm rather than a Separation's name.",
   "execution": "FAIL (expected): crates/pdf-model/tests/coordinates_8_3_10_4_spec_audit.rs::a_device_gray_colour_never_paints_a_spot_colourant_spec_audit (content_suite) \u2014 round 2237; its control (the same page with the spot named /Gold) passes.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2237-B03",
@@ -44,7 +44,7 @@
   "code": "crates/pdf-model/src/output_intent.rs:156-162 (grey_reading keys on the intent alone); crates/pdf-model/src/content.rs:1484-1494 (simulated_press: the assumed press without an intent); crates/pdf-model/src/content/transparency/press.rs:298; crates/pdf-colour/src/colour/intent_grey.rs:66 (grey_as_intent_black needs an Icc intent)",
   "change": "Where the reader asks for the simulation and the page has no four-component intent, read DeviceGray as the assumed press's black ink alone too (ADR 2712's construction over the assumed inks profile), keeping the screen view's neutral grey; a 'should', so a fix round that declines it records the departure and why.",
   "execution": "FAIL (expected): crates/pdf-model/tests/coordinates_8_3_10_4_spec_audit.rs::a_grey_is_black_ink_alone_on_the_assumed_simulated_press_spec_audit (content_suite) \u2014 round 2237; its control (the same grey under a CMYK intent) passes.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2237-D01",
@@ -71,6 +71,6 @@
   "code": "crates/pdf-model/src/content.rs:2897-2902; crates/pdf-model/src/content/pattern.rs:438-440",
   "change": "State the parent content stream's default space, citing \u00a78.7.2.",
   "execution": "Read, not executed.",
-  "status": "open"
+  "status": "fixed"
  }
 ]

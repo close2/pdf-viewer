@@ -857,17 +857,26 @@ pub(super) fn output_intent_space(
 /// [`output_intent_space`] together with what `DeviceGray` means beside it, from one selection:
 /// the interpreter's two answers about the page's intent, which §10.3.2 and §14.11.5 tie
 /// together under a CMYK intent in either view (`crate::output_intent::grey_reading`, ADR 2765).
+///
+/// `simulated` is whether the run is drawn for §10.8.3's simulation, whose device, with no
+/// four-component intent, is the assumed inks (`simulated_press`): a CMYK device, so §10.3.2's
+/// sentence makes a grey that press's black ink alone there as well (ADR 3655). The screen
+/// view of such a page keeps this reader's grey, which no clause moves.
 pub(super) fn output_intent_reading(
     document: &Document,
     page: Option<&Dictionary>,
+    simulated: bool,
 ) -> (Option<ColourSpace>, GreyReading) {
-    match crate::output_intent::selected(document, page) {
-        Some(selected) => {
-            let grey = crate::output_intent::grey_reading(&selected);
-            (Some(selected.space), grey)
-        }
-        None => (None, GreyReading::Device),
-    }
+    let selected = crate::output_intent::selected(document, page);
+    let grey = match &selected {
+        Some(selected) => crate::output_intent::grey_reading(selected),
+        None => GreyReading::Device,
+    };
+    let grey = match grey {
+        GreyReading::Device if simulated => GreyReading::AssumedInksBlack,
+        grey => grey,
+    };
+    (selected.map(|selected| selected.space), grey)
 }
 
 /// The object that identifies a colour space a resource dictionary states, where one can.

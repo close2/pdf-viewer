@@ -98,7 +98,7 @@ impl Interpreter<'_> {
         // with are the ones any pattern it selects inherits. Saved and restored around the run
         // rather than assigned, because a content stream is a scope: what a pattern named after the
         // `Do` inherits is what this stream's caller inherited. The companion of
-        // `Interpreter::base`, which the same four sites swap for the same sentence. See
+        // `Interpreter::base`, which every nested stream's site swaps for the same sentence. See
         // [`super::pattern::PatternInitial`].
         let outer = std::mem::replace(
             &mut self.pattern_initial,
