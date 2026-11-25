@@ -615,3 +615,256 @@ fn a_free_entry_s_number_is_not_given_to_a_new_object() {
         Some("A title")
     );
 }
+
+/// A one-page document whose page shows `word` in Helvetica through an unfiltered content stream.
+fn one_page_showing(word: &str) -> Vec<u8> {
+    one_page_with(word, "")
+}
+
+/// [`one_page_showing`], its content stream's dictionary stating `entries` before `/Length`.
+fn one_page_with(word: &str, entries: &str) -> Vec<u8> {
+    let content = format!("BT /F1 12 Tf 20 100 Td ({word}) Tj ET");
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 5 0 R \
+         >> >> /Contents 4 0 R >>"
+            .to_owned(),
+        format!(
+            "<< {entries}/Length {} >>\nstream\n{content}\nendstream",
+            content.len().saturating_add(1)
+        ),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+    ];
+    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(
+            format!("{} 0 obj\n{object}\nendobj\n", index.saturating_add(1)).as_bytes(),
+        );
+    }
+    let xref = bytes.len();
+    bytes.extend_from_slice(b"xref\n0 6\n0000000000 65535 f \n");
+    for offset in offsets {
+        bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    bytes.extend_from_slice(
+        format!("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+    );
+    bytes
+}
+
+/// `clear` written again under §7.6.4's standard security handler at `/V` 5 (AES-256), with the
+/// empty user password, so that it opens without one.
+fn under_aes(clear: &[u8], owner: &str) -> Vec<u8> {
+    use pdf_syntax::serialize::{Assembly, Form, Options};
+    let document = read(clear);
+    let mut assembly = Assembly::new(vec![&document]);
+    for number in 1..=5 {
+        assembly
+            .copy(0, pdf_syntax::ObjectId::new(number, 0))
+            .expect("the fixture's object copies");
+    }
+    assembly.set_root(pdf_syntax::ObjectId::new(1, 0));
+    let mut out = Vec::new();
+    pdf_syntax::serialize_encrypted(
+        &assembly,
+        pdf_syntax::Version { major: 1, minor: 7 },
+        Options::new(Form::of(&document)),
+        &pdf_syntax::Protection::owner_only(owner),
+        &mut pdf_syntax::SystemEntropy,
+        &mut out,
+    )
+    .expect("the fixture is encrypted");
+    out
+}
+
+/// Inserts `incoming`'s page in front of `destination`'s and answers the updated file, after
+/// checking the carried page's content stream: the `/Length` the update states is the number of
+/// bytes it wrote, its `/Filter` names no §7.4.10 crypt filter, and the page shows `word`.
+fn insert_and_check(destination: &[u8], destination_encrypted: bool, incoming: &[u8], word: &str) {
+    let (updated, _) = amend(
+        destination,
+        Edit::InsertPages { from: 1, at: 1 },
+        Some(incoming),
+    )
+    .expect("inserted");
+    appended(destination, &updated);
+    let after = read(&updated);
+    let pages = Pages::new(&after);
+    assert_eq!(pages.len(), 2);
+    let page = pages.get(0).expect("the carried page");
+    let contents = page
+        .dict
+        .get("Contents")
+        .and_then(pdf_syntax::Object::as_reference)
+        .expect("the carried page's contents are one stream");
+    let stream = after.get(contents);
+    let stream = stream.as_stream().expect("a stream");
+    // The reader hands the data back out of §7.6's encryption, so what the file holds is that
+    // plaintext in the clear, or — under the destination's AES — §7.6.3.1's sixteen-byte
+    // initialisation vector and the plaintext padded to whole sixteen-byte blocks.
+    let plaintext = stream.data.len();
+    let written = if destination_encrypted {
+        plaintext
+            .div_euclid(16)
+            .saturating_add(1)
+            .saturating_mul(16)
+            .saturating_add(16)
+    } else {
+        plaintext
+    };
+    assert_eq!(
+        stream
+            .dict
+            .get("Length")
+            .and_then(pdf_syntax::Object::as_integer),
+        i64::try_from(written).ok(),
+        "§7.3.8.2: the /Length states the bytes written, not the encrypted source's"
+    );
+    assert!(
+        stream.dict.get("Filter").is_none(),
+        "the source's stream was unfiltered, and §7.6's encryption is not a /Filter it carries"
+    );
+    assert!(
+        after.repairs().is_empty(),
+        "the update reads back with nothing repaired: {:?}",
+        after.repairs()
+    );
+    assert_eq!(pdf_model::interpret(&after, &page).text.trim(), word);
+}
+
+/// ISO 32000-2 §7.3.8.2: "Every stream dictionary shall have a Length entry that indicates how
+/// many bytes of the PDF file are used for the stream's data". A page carried out of an
+/// AES-encrypted document holds its data decrypted (§7.6.2), sixteen bytes of initialisation
+/// vector and the padding shorter than the source's `/Length` counted; into an unencrypted
+/// document that plaintext is what is written, under a `/Length` that counts it.
+#[test]
+fn a_page_carried_out_of_an_encrypted_document_states_its_plaintext_length() {
+    insert_and_check(
+        &one_page_showing("HERE"),
+        false,
+        &under_aes(&one_page_showing("CARRIED"), "source-owner"),
+        "CARRIED",
+    );
+}
+
+/// The same page carried into a document encrypted under another key: the update encrypts it
+/// under the destination's key (§7.6.2 on the way out), and its `/Length` counts that ciphertext.
+#[test]
+fn a_page_carried_between_two_encrypted_documents_states_its_ciphertext_length() {
+    insert_and_check(
+        &under_aes(&one_page_showing("HERE"), "destination-owner"),
+        true,
+        &under_aes(&one_page_showing("CARRIED"), "source-owner"),
+        "CARRIED",
+    );
+}
+
+/// `encrypted` with its page's content stream naming its crypt filter itself: §7.4.10's `/Crypt`
+/// first in `/Filter`, Table 14's `/Name` the document's own `/StdCF`, written back by an update
+/// that encrypts it under that filter (§7.6.6).
+fn with_own_crypt_filter(encrypted: &[u8]) -> Vec<u8> {
+    use pdf_syntax::{Dictionary, Name, Object, Stream};
+    let document = read(encrypted);
+    let page = Pages::new(&document).get(0).expect("a page");
+    let id = page
+        .dict
+        .get("Contents")
+        .and_then(Object::as_reference)
+        .expect("one content stream");
+    let read = document.get(id);
+    let stream = read.as_stream().expect("a stream");
+    let mut dict = stream.dict.clone();
+    dict.insert(
+        Name::new(&b"Filter"[..]),
+        Object::Array(vec![Object::Name(Name::new(&b"Crypt"[..]))]),
+    );
+    let mut parms = Dictionary::new();
+    parms.insert(
+        Name::new(&b"Name"[..]),
+        Object::Name(Name::new(&b"StdCF"[..])),
+    );
+    dict.insert(
+        Name::new(&b"DecodeParms"[..]),
+        Object::Array(vec![Object::Dictionary(parms)]),
+    );
+    let replacement = Object::Stream(std::sync::Arc::new(Stream {
+        dict,
+        data: std::sync::Arc::clone(&stream.data),
+        decryption_failed: false,
+    }));
+    let updated = pdf_syntax::write::incremental_update(
+        &document,
+        &std::collections::BTreeMap::from([(id, replacement)]),
+    )
+    .expect("the fixture's update is written");
+    assert!(
+        read_text(&updated).contains("CARRIED"),
+        "the plant: the stream decrypts through its own /Crypt filter"
+    );
+    updated
+}
+
+/// Page one's text.
+fn read_text(bytes: &[u8]) -> String {
+    let document = read(bytes);
+    let page = Pages::new(&document).get(0).expect("a page");
+    pdf_model::interpret(&document, &page).text
+}
+
+/// ISO 32000-2 §7.4.10: the `Crypt` filter "allows the document-level security handler (see 7.6,
+/// "Encryption") to determine which algorithms should be used to decrypt the input data", and
+/// Table 14's `/Name` "shall correspond to an entry in the CF entry of the encryption
+/// dictionary". The carried data is already out of the source's crypt filter, and the
+/// destination's `/CF` is not the source's, so the stage goes and the destination's own §7.6.2
+/// decides how the bytes are written. Kept, it names a filter an unencrypted destination does
+/// not define, and the page reads back with no content.
+#[test]
+fn a_carried_stream_s_own_crypt_filter_stays_with_its_source() {
+    insert_and_check(
+        &one_page_showing("HERE"),
+        false,
+        &with_own_crypt_filter(&under_aes(&one_page_showing("CARRIED"), "source-owner")),
+        "CARRIED",
+    );
+}
+
+/// The same into an encrypted destination, which writes the bytes under its own `/StmF`.
+#[test]
+fn a_carried_stream_s_own_crypt_filter_gives_way_to_the_destination_s() {
+    insert_and_check(
+        &under_aes(&one_page_showing("HERE"), "destination-owner"),
+        true,
+        &with_own_crypt_filter(&under_aes(&one_page_showing("CARRIED"), "source-owner")),
+        "CARRIED",
+    );
+}
+
+/// A stream §7.6's decryption refused is refused by name rather than carried empty.
+///
+/// The document carried in states no encryption dictionary, and its content stream's `/Crypt`
+/// stage names `/Secret`, which Table 14's `/Name` "shall correspond to an entry in the CF entry
+/// of the encryption dictionary": there is none, so the reader holds the stream empty and marks
+/// it, and writing it would replace the page's content with nothing.
+#[test]
+fn a_stream_whose_decryption_failed_is_refused_rather_than_carried_empty() {
+    let bytes = one_page_with(
+        "CARRIED",
+        "/Filter /Crypt /DecodeParms << /Name /Secret >> ",
+    );
+    assert!(
+        read_text(&bytes).trim().is_empty(),
+        "the plant: the reader holds the stream empty"
+    );
+    let refused = amend(
+        &one_page_showing("HERE"),
+        Edit::InsertPages { from: 1, at: 1 },
+        Some(&bytes),
+    );
+    assert!(
+        matches!(&refused, Err(Refusal::Assembly(detail)) if detail.contains("decryption")),
+        "{refused:?}"
+    );
+}

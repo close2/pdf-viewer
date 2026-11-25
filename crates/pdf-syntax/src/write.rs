@@ -368,6 +368,7 @@ pub fn incremental_update_extending(
         let value = document
             .encrypt_for_update(*id, value)
             .ok_or(UpdateError::Encryption)?;
+        let value = with_written_length(value);
         offsets.push((*id, out.len().saturating_sub(origin)));
         let mut header = String::new();
         let _ = writeln!(header, "{} {} obj", id.number, id.generation);
@@ -418,6 +419,41 @@ pub fn incremental_update_extending(
         cross_reference_table(&mut out, &section, document, additions)?;
     }
     Ok(out)
+}
+
+/// A stream whose `/Length` is the number of bytes [`object`] writes for it; any other value
+/// passes through unchanged.
+///
+/// ISO 32000-2 §7.3.8.2:
+///
+/// > Every stream dictionary shall have a Length entry that indicates how many bytes of the PDF
+/// > file are used for the stream's data.
+///
+/// and Table 5 counts them "from the beginning of the line following the keyword stream to the
+/// last byte just before the keyword endstream" — a statement about the bytes this update writes,
+/// which only this function sees. **The entry is the writer's, as `/Size` and `/Prev` are, and is
+/// overwritten rather than obeyed** (ADR 3681): a caller's dictionary can carry a count that
+/// was never about these bytes — a stream the reader found by `endstream` past a `/Length` too
+/// short (logged then, as `STREAM_EXTENT_FROM_ENDSTREAM`), a stream carried out of an encrypted
+/// document whose `/Length` counted the ciphertext, or an indirect `/Length` whose object this
+/// update does not rewrite. Nothing is counted here, because the reader already named the first
+/// and the other two are not defects of anything. `serialize` and `linearize` re-derive the entry
+/// the same way.
+fn with_written_length(value: Object) -> Object {
+    let Object::Stream(stream) = &value else {
+        return value;
+    };
+    let written = i64::try_from(stream.data.len()).unwrap_or(i64::MAX);
+    if stream.dict.get("Length").and_then(Object::as_integer) == Some(written) {
+        return value;
+    }
+    let mut dict = stream.dict.clone();
+    dict.insert(Name::new(&b"Length"[..]), Object::Integer(written));
+    Object::Stream(std::sync::Arc::new(crate::object::Stream {
+        dict,
+        data: std::sync::Arc::clone(&stream.data),
+        decryption_failed: stream.decryption_failed,
+    }))
 }
 
 /// §7.5.4's generation for a free entry outside the linked list: "shall never be reused".

@@ -3721,6 +3721,10 @@ pub(crate) struct DefaultAppearance {
     pub(crate) font: Option<pdf_syntax::Name>,
     /// The `Tf`'s second operand; `Some(0.0)` is the clause's auto-size request.
     pub(crate) size: Option<f32>,
+    /// The same operand as the lexer read it, before [`as_number`] narrows it to lay text out:
+    /// what a writer that restates the producer's `Tf` writes, so that a size past `f32`'s range
+    /// is restated as the number it was rather than as an infinity.
+    pub(crate) size_as_stated: Option<f64>,
     /// The one `Tm` the string may carry, whose translation this module replaces.
     matrix: Option<[f32; 6]>,
     /// `TL`, which decides the distance between lines when the string sets one.
@@ -3765,6 +3769,7 @@ impl DefaultAppearance {
             operators: String::new(),
             font: None,
             size: None,
+            size_as_stated: None,
             matrix: None,
             leading: None,
             character_spacing: 0.0,
@@ -3810,6 +3815,11 @@ impl DefaultAppearance {
                     _ => None,
                 });
                 self.size = number(1);
+                self.size_as_stated = operands.get(1).and_then(|token| match token {
+                    Token::Integer(value) => i32::try_from(*value).ok().map(f64::from),
+                    Token::Real(value) => Some(*value),
+                    _ => None,
+                });
                 // Replayed by the caller with the resolved size, so it is not passed through.
                 return;
             }
@@ -3843,7 +3853,8 @@ fn write(out: &mut String, token: &Token<'_>) {
             let _ = write!(out, "{value} ");
         }
         Token::Real(value) => {
-            let _ = write!(out, "{} ", narrow(*value));
+            out.push_str(&real_operand(*value));
+            out.push(' ');
         }
         // The other name this module writes, and it had the same two defects as the `Tf`
         // operand: a `/DA` may set a colour space with `cs`, a graphics state with `gs` or a
@@ -3864,6 +3875,29 @@ fn write(out: &mut String, token: &Token<'_>) {
         // operator this module replays, and dropping it keeps the stream well formed.
         _ => {}
     }
+}
+
+/// A real operand in §7.3.3's syntax, through `pdf_syntax::write`'s formatter.
+///
+/// ISO 32000-2 §7.3.3:
+///
+/// > A real value shall be written as one or more decimal digits with an optional sign and a
+/// > leading, trailing, or embedded PERIOD (2Eh) (decimal point).
+///
+/// The value is the `f64` the lexer read, written whole — never narrowed to the `f32` this module
+/// lays text out in, because a real past `f32`'s range is §7.3.3 syntax (Annex C's Table C.1,
+/// which names that range, is informative) and narrowed it would be written `inf`, an operator
+/// token rather than a number. The formatter writes the shortest decimal that reads back as the
+/// same double and never an exponent, so every finite value is written as itself. A literal past
+/// `f64`'s own range reaches here already finite — the lexer holds it at the nearest double,
+/// `f64::MAX` with its sign — and is written as that many digits; the formatter's `0` for a value
+/// §7.3.3 cannot spell is reached only by a caller's infinity or NaN, which a script's `textSize`
+/// can supply (ADR 3683).
+pub(crate) fn real_operand(value: f64) -> String {
+    let mut written = Vec::new();
+    pdf_syntax::write::object(&Object::Real(value), &mut written);
+    // §7.3.3's syntax is digits, a sign and a PERIOD, so the bytes are ASCII and each is its char.
+    written.into_iter().map(char::from).collect()
 }
 
 /// A token's value as a number, for an operand.

@@ -1655,17 +1655,21 @@ fn scripted_appearance(
     // replayed string is the one the text is shown in (ADR 1762).
     if let Some((resource, size)) = font {
         let stated = variable_text::DefaultAppearance::parse(&appearance);
-        let resource = resource.or_else(|| {
-            stated
-                .font
-                .as_ref()
-                .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
-        });
+        // The font stays a `Name` from the producer's string to the `Tf` written, its bytes never
+        // through text: §7.3.5's escape is `Name::escaped`'s, one statement for every writer of a
+        // name (ADR 0453), and a `/DR` key such as `Helv#20Bold` keeps its SPACE escaped.
+        let resource = resource
+            .map(|resource| Name::new(resource.as_bytes()))
+            .or(stated.font);
         // not a repair: neither the script nor the producer's string states a size, and §12.7.4.3
         // gives a `Tf` size of 0 the meaning "auto-sized".
-        let size = size.or_else(|| stated.size.map(f64::from)).unwrap_or(0.0);
+        let size = size.or(stated.size_as_stated).unwrap_or(0.0);
         if let Some(resource) = resource {
-            appended.push(format!("/{resource} {} Tf", format_number(size)));
+            appended.push(format!(
+                "/{} {} Tf",
+                resource.escaped(),
+                variable_text::real_operand(size)
+            ));
         }
     }
     if appended.is_empty() {
@@ -1886,19 +1890,6 @@ fn colour_array(colour: crate::view::Colour) -> Object {
             .map(|component| Object::Real(component.clamp(0.0, 1.0)))
             .collect(),
     )
-}
-
-/// A number as an operand of the `/DA` a script's property writes: at most four decimals, and no
-/// trailing zero.
-fn format_number(value: f64) -> String {
-    let mut text = format!("{value:.4}");
-    while text.contains('.') && text.ends_with('0') {
-        text.pop();
-    }
-    if text.ends_with('.') {
-        text.pop();
-    }
-    text
 }
 
 /// An Adobe colour as the nonstroking colour operator §8.6.8 gives its device space, or `None` for

@@ -11,7 +11,7 @@
   "code": "crates/pdf-syntax/src/write.rs:113-118 (write::object's Stream arm writes stream.dict then stream.data) and :362-376 (incremental_update_extending writes each replacement through object()); contrast serialize.rs:1740-1747 and linearize.rs:2739-2745; crates/pdf-transform/src/update.rs:1043-1053 (Carry::value copies the incoming dictionary)",
   "change": "Re-derive /Length as a direct integer from the bytes written for every stream an incremental update writes, as serialize and linearize do, and count the disagreements for the caller.",
   "execution": "FAIL (expected): crates/pdf-syntax/tests/objects_7_3_spec_audit.rs::an_incremental_update_states_the_length_of_the_bytes_it_writes_spec_audit \u2014 round 2243: /Length Some(3) over 15 bytes written; its control (a right /Length kept) passes.",
-  "status": "open"
+  "status": "fixed (ADR 3681; write::incremental_update re-derives every stream's /Length from the bytes it writes; objects_7_3_spec_audit::an_incremental_update_states_the_length_of_the_bytes_it_writes_spec_audit passes, and pdf-transform tests/update.rs carries a page out of an AES-256 source into a clear and an encrypted destination)"
  },
  {
   "id": "2243-B02",
@@ -66,7 +66,7 @@
   "code": "crates/pdf-model/src/appearance.rs:1656-1668 (scripted_appearance: stated.font through String::from_utf8_lossy, then format!(\"/{resource} {} Tf\", ...)); form_font (:1689) keeps a script's textFont to keys needing no escape, so the stated-font fallback is the open route",
   "change": "Keep the restated font as a Name and write it with Name::escaped, as variable_text does.",
   "execution": "FAIL (expected): crates/pdf-model/tests/default_appearance_syntax_7_3_spec_audit.rs::a_restated_default_appearance_font_name_is_escaped_spec_audit (forms_suite) \u2014 round 2243: got '/Helv#20Bold 10 Tf 0 g /Helv Bold 14 Tf'; its control (/Helv restated as itself) passes.",
-  "status": "open"
+  "status": "fixed (ADR 3683; scripted_appearance keeps the restated font a Name and writes it through Name::escaped; default_appearance_syntax_7_3_spec_audit::a_restated_default_appearance_font_name_is_escaped_spec_audit passes)"
  },
  {
   "id": "2243-B06",
@@ -80,6 +80,6 @@
   "code": "crates/pdf-model/src/variable_text.rs:3839-3847 (write: Token::Real written as narrow(*value), narrow = value as f32 at :3889)",
   "change": "Write the operand's f64 through pdf_syntax::write's real formatter (or the token's own bytes), so the replay is a number whatever its magnitude.",
   "execution": "FAIL (expected): crates/pdf-model/tests/default_appearance_syntax_7_3_spec_audit.rs::a_replayed_default_appearance_real_is_written_as_a_number_spec_audit (forms_suite) \u2014 round 2243: the appearance holds 'inf w'; its control (2.5 w replayed) passes.",
-  "status": "open"
+  "status": "fixed (ADR 3683; variable_text's replay and scripted_appearance's Tf size write reals through pdf_syntax::write's formatter at the f64 the lexer read; default_appearance_syntax_7_3_spec_audit::a_replayed_default_appearance_real_is_written_as_a_number_spec_audit passes)"
  }
 ]
