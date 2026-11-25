@@ -197,7 +197,28 @@ impl BlendingSpace {
 ///
 /// A pixel nothing painted is left alone: with no alpha there is no colour to convert, and
 /// [`crate::impose_on_medium`] is what puts the medium there.
+///
+/// **Divided across rayon's pool above `CUBE_PARALLEL_FLOOR`, and a pixel equal to the one
+/// converted before it takes that one's answer**, on [`resolve_cube`]'s argument: a pixel's
+/// answer is a function of its own bytes and its black plane's, so neither changes a byte. The
+/// window draws a page whose group composites in four components through here on every frame
+/// that builds its scene (ADR 3701), where the four-dimensional interpolation of a window's
+/// worth of pixels on one thread was the larger part of `personwithdog.pdf`'s turn.
 pub fn resolve(chromatic: &mut [u8], black: &[u8], space: &BlendingSpace) {
+    if chromatic.len() >= CUBE_PARALLEL_FLOOR {
+        chromatic
+            .par_chunks_mut(CUBE_BLOCK)
+            .zip(black.par_chunks(CUBE_BLOCK))
+            .for_each(|(block, ink)| resolve_in(block, ink, space));
+    } else {
+        resolve_in(chromatic, black, space);
+    }
+}
+
+/// [`resolve`] over one piece of a raster and the same piece of its black plane, on the calling
+/// thread.
+fn resolve_in(chromatic: &mut [u8], black: &[u8], space: &BlendingSpace) {
+    let mut previous: Option<([u8; 5], [u8; 4])> = None;
     for (pixel, ink) in chromatic
         .as_chunks_mut::<4>()
         .0
@@ -206,6 +227,13 @@ pub fn resolve(chromatic: &mut [u8], black: &[u8], space: &BlendingSpace) {
     {
         let alpha = f32::from(pixel[3]);
         if pixel[3] == 0 {
+            continue;
+        }
+        let before = [pixel[0], pixel[1], pixel[2], pixel[3], ink[0]];
+        if let Some((converted, answer)) = previous
+            && converted == before
+        {
+            pixel.copy_from_slice(&answer);
             continue;
         }
         let component = |value: u8| 1.0 - (f32::from(value) / alpha).clamp(0.0, 1.0);
@@ -228,6 +256,7 @@ pub fn resolve(chromatic: &mut [u8], black: &[u8], space: &BlendingSpace) {
                 *channel = scaled as u8;
             }
         }
+        previous = Some((before, [pixel[0], pixel[1], pixel[2], pixel[3]]));
     }
 }
 

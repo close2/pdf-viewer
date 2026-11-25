@@ -25,12 +25,11 @@
 #![forbid(unsafe_code)]
 
 use pdf_render::{
-    ClipId, DisplayList, Medium, Raster, RasterFormat, Rasterizer, Selection, SoftMaskId,
-    TargetSpec,
+    ClipId, DisplayList, Medium, Raster, RasterFormat, Rasterizer, SoftMaskId, TargetSpec,
 };
-use raster_scene::ResourceId;
 
 mod cache;
+mod finish;
 mod present;
 mod scene;
 mod stroke;
@@ -579,47 +578,12 @@ impl Rasterizer for QuorraRasterizer {
 
     fn rasterize(&mut self, list: &DisplayList, target: TargetSpec) -> Result<Raster, Self::Error> {
         let began = std::time::Instant::now();
-
-        // ISO 32000-2 §11.4.7 puts a colour space under the whole page — "[a]ll page-level
-        // compositing shall be done in the default blending colour space of the page, and the
-        // entire result shall then ... be converted to the native colour space of the output
-        // device before being composited with the context-dependent backdrop". Where that
-        // space has four components §11.3.4 makes the compositing formula per component, so
-        // the page arrives as *two* lists on the same geometry — the additive complements of
-        // cyan, magenta and yellow, and the complement of black — and this draws the second
-        // one against the same device before `pdf_render::blending` puts the pair back
-        // together. That the second render is whole, shares the first's uploaded resources
-        // and costs no geometry at all is `raster-gpu/tests/two_rasters.rs`'s claim, and
-        // `doc/QUORRA_FEEDBACK.md` section 17.1 is where it was measured.
-        let four_components = list.blending().zip(list.black());
-        // Both passes are needed premultiplied: `blending::resolve` divides each channel by
-        // the pixel's own alpha to recover the ink, and `impose_on_medium` composites the
-        // medium in the space where that composite is exact. raster hands back straight
-        // alpha, so the round trip is here — and only where something below needs it, because
-        // it is lossy at a partly transparent pixel.
         // §14.11.2.1's clip, which belongs to the page rather than to the medium — so it is
-        // asked for even where the caller wants the page's own alpha back. `None` for a
-        // page-sized target, where the raster's own edge is already the boundary.
+        // asked for even where the caller wants the page's own alpha back.
         let crop = pdf_render::crop_area(list, target);
-        // The one-component form of the same clause — a `CalGray` or `ICCBased` 'GRAY' page
-        // group, whose composited component leaves through a curve — is one render and one
-        // pass over the readback, at the same point (`pdf_render::blending::GreyCurve`).
-        let one_component = list.grey_curve();
-        // And the three-component form — a `CalRGB` or `ICCBased` 'RGB ' page group, whose
-        // composited components leave through a cube — the same way
-        // (`pdf_render::blending::ColourCube`).
-        let three_components = list.colour_cube();
-        // §10.8.3 on a page whose group composites in one or three components: the list is its
-        // own process separation and the spot planes are multiplied into it after the curve or
-        // the cube, as the CPU backend does over its own rasters (ADR 1329).
-        let beside = list.separation().filter(|_| four_components.is_none());
         // Where the page owes no pass over its components, the crop and the medium are the
         // device's, in the read-back's own pass, and the bytes come back opaque (ADR 2150).
-        let converted = four_components.is_some()
-            || one_component.is_some()
-            || three_components.is_some()
-            || beside.is_some();
-        let onto = if converted {
+        let onto = if finish::converts(list) {
             None
         } else {
             self.backdrop_on_the_device(target, crop)
@@ -637,90 +601,29 @@ impl Rasterizer for QuorraRasterizer {
         self.last = cost;
         let mut data = drawn?;
 
-        if onto.is_none() && (converted || self.medium.marks_anything() || crop.is_some()) {
-            premultiply(&mut data);
-            if let Some((space, black)) = four_components {
-                let mut ink_cost = FrameCost::default();
-                let drawn = self.render(black, target, &mut ink_cost);
-                self.last.add(ink_cost);
-                let mut ink = drawn?;
-                premultiply(&mut ink);
-                match list.separation() {
-                    // ISO 32000-2 §10.8.3's simulated press, on a page naming a spot colourant
-                    // under a reader's request: every spot plane is one more whole render against
-                    // the same device, exactly as the black one above is, and steps b) to d)
-                    // multiply them in over the readback (`pdf_render::separation`, ADR 1317).
-                    // The same pass the CPU backend runs over its own rasters, so the two cannot
-                    // answer the clause apart (trap 2).
-                    Some(separation) => {
-                        let spots = self.spot_planes(separation, target)?;
-                        let spots: Vec<&[u8]> = spots.iter().map(Vec::as_slice).collect();
-                        pdf_render::resolve_separation(&mut data, &ink, &spots, space, separation);
-                    }
-                    None => pdf_render::resolve_blending(&mut data, &ink, space),
+        // The passes the clauses put after compositing, in `finish`'s order — the same sequence
+        // the window's present runs for a page that needs it (ADR 3701), and the same passes the
+        // CPU oracle runs over its own read-back (trap 2). A plane of ink is the page's cost; the
+        // shapes §11.7.5.2 draws to choose each pixel's transfer function are not, so the frame's
+        // counters are kept across them.
+        let medium = self.medium;
+        finish::finish(
+            list,
+            target,
+            medium,
+            &mut data,
+            onto.is_some(),
+            |plane, kind| {
+                let mut plane_cost = FrameCost::default();
+                let residue = self.residue;
+                let drawn = self.render(plane, target, &mut plane_cost);
+                match kind {
+                    finish::Plane::Ink => self.last.add(plane_cost),
+                    finish::Plane::Shapes => self.residue = residue,
                 }
-            }
-            // Step b)'s matte under the list in its own components, before the curve or the cube
-            // takes it out of them (`pdf_render::separation::matte`).
-            if beside.is_some() {
-                pdf_render::separation_matte(&mut data);
-            }
-            if let Some(curve) = one_component {
-                pdf_render::resolve_grey(&mut data, curve);
-            }
-            if let Some(cube) = three_components {
-                pdf_render::resolve_cube(&mut data, cube);
-            }
-            if let Some(separation) = beside {
-                let spots = self.spot_planes(separation, target)?;
-                let spots: Vec<&[u8]> = spots.iter().map(Vec::as_slice).collect();
-                pdf_render::resolve_separation_over_device(&mut data, &spots, separation);
-            }
-            // The page's own ink is cut where §14.11.2.1 says it stops, before anything is put
-            // under it: the crop is about what the page may show, and a pass that ran after the
-            // composite would cut the ground a window puts beside the page instead.
-            if let Some(crop) = crop {
-                pdf_render::crop_to_page(&mut data, target.width, 0, crop);
-            }
-            // §11.4.7's page group is isolated, so the medium composites with the *result* —
-            // and after the conversion above, which is where the clause puts it. Where 𝑊 stops
-            // is §14.11.2.1's page boundary rather than the target's edge, which is the same
-            // rectangle for a page-sized target and is not for a window.
-            if self.medium.marks_anything() {
-                pdf_render::impose_within(
-                    &mut data,
-                    target.width,
-                    0,
-                    pdf_render::page_area(list, target),
-                    self.medium,
-                );
-            }
-            demultiply(&mut data);
-        }
-
-        // ISO 32000-2 §11.7.5.2's transfer function, last of all because §11.7.5.3's NOTE puts it
-        // there: "the current halftone and transfer function, whose values are used only when all
-        // colour compositing has been completed and rasterization is being performed". The clause
-        // chooses the function by the topmost elementary object covering a point rather than by
-        // the colour under it, so `pdf_model` leaves it off the colours and hands the marks'
-        // shapes over on the list instead. `pdf_render::resolve_transfers` is the one statement of
-        // what that means — the CPU oracle runs the identical pass over its own read-back, which
-        // is what keeps the two from answering it apart (trap 2).
-        //
-        // A shape list is a scene like any other, so it goes through [`Self::render`]: it is the
-        // page's own marks with their paint replaced, and the alpha that comes back *is*
-        // §11.7.5.2's object shape. The frame's counters are the *page's* and not the shape
-        // passes', so they are saved across them.
-        if let Some(channel) = list.transfers() {
-            let page_cost = self.last;
-            let page_residue = self.residue;
-            pdf_render::resolve_transfers(channel, list, target, &mut data, |shapes| {
-                let mut cost = FrameCost::default();
-                self.render(shapes, target, &mut cost)
-            })?;
-            self.last = page_cost;
-            self.residue = page_residue;
-        }
+                drawn
+            },
+        )?;
 
         self.last.total = began.elapsed();
         Ok(Raster {
@@ -772,31 +675,6 @@ impl QuorraRasterizer {
         })
     }
 
-    /// ISO 32000-2 §10.8.3's spot planes, each one more whole render against the same device as
-    /// the black plane is, read back premultiplied for steps b) to d) to multiply in
-    /// (`pdf_render::separation`, ADRs 1317 and 1329) — the same pass the CPU backend runs over
-    /// its own rasters, so the two cannot answer the clause apart (trap 2).
-    ///
-    /// # Errors
-    ///
-    /// As [`Self::render`].
-    fn spot_planes(
-        &mut self,
-        separation: &pdf_render::SpotSeparation,
-        target: TargetSpec,
-    ) -> Result<Vec<Vec<u8>>, QuorraRasterError> {
-        let mut spots = Vec::with_capacity(separation.planes().len());
-        for plane in separation.planes() {
-            let mut plane_cost = FrameCost::default();
-            let drawn = self.render(plane, target, &mut plane_cost);
-            self.last.add(plane_cost);
-            let mut raster = drawn?;
-            premultiply(&mut raster);
-            spots.push(raster);
-        }
-        Ok(spots)
-    }
-
     /// One display list through the device, as straight-alpha RGBA8 with no medium under it —
     /// in one frame, or in tiles where the target is wider or taller than the adapter renders
     /// ([`tiles`], ADR 1472).
@@ -811,28 +689,15 @@ impl QuorraRasterizer {
         target: TargetSpec,
         cost: &mut FrameCost,
     ) -> Result<Vec<u8>, QuorraRasterError> {
-        let limit = self.device.limits().max_target_size;
-        if target.width <= limit && target.height <= limit {
-            return self.render_whole(list, target, cost, None);
-        }
-        tiles::render_in_tiles(self, list, target, cost)
+        self.before_a_frame()?;
+        let drawn = finish::draw(&mut self.drawing(), list, target, cost);
+        self.after_a_frame(drawn)
     }
 
     /// One display list through the device in **one** frame, as straight-alpha RGBA8 with no
     /// medium under it — or, given a `backdrop`, as the opaque bytes of the page on it
-    /// ([`Self::backdrop_on_the_device`]).
-    ///
-    /// Separate from [`Rasterizer::rasterize`] because §11.4.7's four-component page is two
-    /// lists over one page and both take exactly this path — the same device, the same
-    /// caches, the same per-frame releases — and nothing about drawing one of them may
-    /// depend on which of the two it is.
-    ///
-    /// `cost` is filled as the call goes, so that a frame that refuses still reports what it
-    /// uploaded and settled. [`FrameCost::uploads`] is documented as the number that says
-    /// whether the caches are working at all, and this is the one path every gate in this tree
-    /// takes, so a path here with no instrument on it would hide a defect such as a period-two
-    /// atlas repack from every corpus run (`render-lib/doc/notes-atlas-budget.md` section 5).
-    /// ADR 0402.
+    /// ([`Self::backdrop_on_the_device`]) — through [`finish::draw_once`], the frame the window's
+    /// present draws a page that needs finishing through as well (ADR 3701).
     ///
     /// # Errors
     ///
@@ -844,98 +709,39 @@ impl QuorraRasterizer {
         cost: &mut FrameCost,
         backdrop: Option<raster_gpu::Backdrop>,
     ) -> Result<Vec<u8>, QuorraRasterError> {
-        // Before the device is touched at all. This path builds its scene directly rather
-        // than through [`present::FrameSlot::render`], so the two ask separately — a bound
-        // asked in one funnel and not the other is a bound the offscreen lane holds and the
-        // window does not. `pdf_render::group_cost` has the measure and the census.
-        pdf_render::check_group_blit(list, target)?;
+        self.before_a_frame()?;
+        let drawn = finish::draw_once(&mut self.drawing(), list, target, cost, backdrop);
+        self.after_a_frame(drawn)
+    }
 
-        let began = std::time::Instant::now();
-        // The marks that reach the target (ADR 1841), as the window's scene takes them: §10.7.4
-        // paints only a pixel a shape's area meets, so a command left out marked no pixel here.
-        // What the whole list changed on the device was not a pixel of those marks but a lane:
-        // raster's census counts a shape's placements over the scene to decide whether the atlas
-        // is worth writing, and a placement beyond the target made a glyph drawn once on the page
-        // read as drawn twice (ADR 1857). Every list a page is drawn from — its plane of black,
-        // its spot planes, its shapes for §11.7.5.2 — has the page's geometry and loses the same
-        // commands, so the passes stay in step.
-        let culled = list.reaching(target);
-        let drawn = Selection::drawn(list, culled.as_ref());
-        // A single-list rasterisation is a different scene, and this path evicts: an entry the
-        // retained window frame's scene still names could go, leaving that scene holding
-        // released ids. Discarding it first is three lines against a class of reasoning about
-        // an instance used both ways, which nothing in this tree does but nothing forbids.
+    /// What a single-list frame asks first. It evicts, so an entry the retained window frame's
+    /// scene still names could go and leave that scene holding released ids: discarding the
+    /// scene first is three lines against a class of reasoning about an instance used both ways.
+    /// And a refused frame has no counters, so the previous page's residue pair is not this one's.
+    fn before_a_frame(&mut self) -> Result<(), QuorraRasterError> {
         self.slot.discard(&mut self.device)?;
-        // A refused frame has no counters, and the previous page's pair is not this page's.
         self.residue = (0, 0);
-        self.caches.begin_frame();
-        let mut builder = raster_scene::SceneBuilder::new();
-        let mut transient: Vec<ResourceId> = Vec::new();
-        self.functions.clear();
-        let built = scene::Encoder::new(
-            &mut self.device,
-            list,
-            target,
-            &mut self.caches,
-            &mut transient,
-            &mut self.functions,
-        )
-        .commands(&mut builder, drawn.commands());
-        cost.uploads = self
-            .caches
-            .stored()
-            .saturating_add(u32::try_from(transient.len()).unwrap_or(u32::MAX));
-        cost.scene = began.elapsed();
-        // The offscreen lane's half of ADR 0423: `zoom_frame` and the corpus gate draw through
-        // here, so a subdivision only the window could see would be one no gate ever prints.
-        cost.handover = self.caches.handed();
-        cost.outline_segments = self.caches.segments();
+        Ok(())
+    }
 
-        let submitted = std::time::Instant::now();
-        let rendered = built.and_then(|()| {
-            let scene = builder.finish();
-            // The target transform is baked into every command at translation
-            // (`Encoder::placed`), so the viewport itself is identity.
-            let viewport = raster_gpu::Viewport::full(
-                target.width,
-                target.height,
-                raster_scene::Affine::IDENTITY,
-            );
-            let into = backdrop.map_or(
-                raster_gpu::Target::Readback,
-                raster_gpu::Target::ReadbackOnto,
-            );
-            Ok(self.device.render(&scene, &viewport, into)?)
-        });
+    /// A single-list frame's pixels, its residue pair kept for [`Self::last_clip_residue`].
+    fn after_a_frame(
+        &mut self,
+        drawn: Result<(Vec<u8>, (u32, u32)), QuorraRasterError>,
+    ) -> Result<Vec<u8>, QuorraRasterError> {
+        let (data, residue) = drawn?;
+        self.residue = residue;
+        Ok(data)
+    }
 
-        cost.device = submitted.elapsed();
-
-        // Per-frame resources (clips, dashed strokes, meshes, sampled grids) go
-        // back to the budget whether the frame drew or refused — every one of
-        // them, even after a failure — and the frame's own error, if any,
-        // outranks a release problem.
-        let settling = std::time::Instant::now();
-        let mut release_error: Option<raster_gpu::DeviceError> = None;
-        for id in transient.drain(..) {
-            if let Err(error) = self.device.release(id) {
-                release_error.get_or_insert(error);
-            }
+    /// The parts of this backend a single-list frame is drawn through.
+    fn drawing(&mut self) -> finish::Drawing<'_> {
+        finish::Drawing {
+            device: &mut self.device,
+            caches: &mut self.caches,
+            functions: &mut self.functions,
+            phases: &mut self.phases,
         }
-        // Frames drawn and frames refused both settle the caches: a long session
-        // must stay healthy through its refusals (QUORRA_FEEDBACK.md section 2).
-        let evicted = self.caches.evict_settled(&mut self.device);
-        cost.settle = settling.elapsed();
-        evicted?;
-        let frame = rendered?;
-        if let Some(error) = release_error {
-            return Err(error.into());
-        }
-        // Read after the refusals above, because these are a *drawn* frame's own numbers.
-        cost.read(&frame, &mut self.phases);
-        let counters = frame.counters();
-        self.residue = (counters.clip_residue_regions, counters.clip_residue_tiles);
-
-        Ok(frame.into_raster()?.into_pixels())
     }
 }
 

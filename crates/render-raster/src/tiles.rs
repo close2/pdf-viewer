@@ -22,28 +22,27 @@
 //! tile is drawn; how large a target a caller may ask for is that caller's pixel budget
 //! ([`pdf_render::TargetSpec::for_page`]), which the correctness gate sets at 2^28 pixels (ADR 1481).
 
-use pdf_render::{DisplayList, TargetSpec, Transform};
+use pdf_render::{TargetSpec, Transform};
 
-use crate::{FrameCost, QuorraRasterError, QuorraRasterizer};
+use crate::{FrameCost, QuorraRasterError};
 
 /// The smallest tile side considered, so that a device stating a tiny budget is still asked for
 /// tiles worth a frame each.
 const MIN_TILE_SIDE: u32 = 256;
 
-/// `target` through `rasterizer`'s device in tiles no side of which exceeds what the device
+/// `target` drawn by `draw_tile` in tiles no side of which exceeds what a device of `limits`
 /// renders, stitched into one straight-alpha RGBA8 raster of the whole target.
 ///
 /// # Errors
 ///
-/// The first tile's refusal, as [`QuorraRasterizer::render_whole`] gives it, or
+/// The first tile's refusal, as `draw_tile` gives it, or
 /// [`QuorraRasterError::Allocation`] where the stitched raster cannot be held.
 pub(crate) fn render_in_tiles(
-    rasterizer: &mut QuorraRasterizer,
-    list: &DisplayList,
+    limits: raster_gpu::Limits,
     target: TargetSpec,
     cost: &mut FrameCost,
+    mut draw_tile: impl FnMut(TargetSpec, &mut FrameCost) -> Result<Vec<u8>, QuorraRasterError>,
 ) -> Result<Vec<u8>, QuorraRasterError> {
-    let limits = rasterizer.device.limits();
     let side = tile_side(limits.max_target_size, limits.max_frame_bytes);
     let allocation = || QuorraRasterError::Allocation {
         width: target.width,
@@ -77,7 +76,7 @@ pub(crate) fn render_in_tiles(
                     .then(Transform::translate(-device(left), -device(top))),
             };
             let mut tile_cost = FrameCost::default();
-            let drawn = rasterizer.render_whole(list, tile, &mut tile_cost, None);
+            let drawn = draw_tile(tile, &mut tile_cost);
             cost.add(tile_cost);
             copy_tile(&mut stitched, row_bytes, &drawn?, (left, top), width);
             left = left.saturating_add(width);

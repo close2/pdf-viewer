@@ -146,6 +146,13 @@ impl FunctionPaints {
         self.refused.clear();
     }
 
+    /// Takes in another frame's answers, for a scene that drew part of itself on a frame of its
+    /// own (a page `crate::finish` finished, ADR 3701).
+    pub(crate) fn absorb(&mut self, other: Self) {
+        self.evaluated = self.evaluated.saturating_add(other.evaluated);
+        self.refused.extend(other.refused);
+    }
+
     fn refuse(&mut self, ground: String) {
         self.refused.push(ground);
     }

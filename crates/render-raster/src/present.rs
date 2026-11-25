@@ -547,19 +547,24 @@ impl FrameSlot {
                 cost.settle = settling.elapsed();
                 evicted?;
 
-                caches.begin_frame();
-                let mut builder = raster_scene::SceneBuilder::new();
-                let mut transient: Vec<ResourceId> = Vec::new();
                 // Cleared here rather than per frame, because what it describes is the *scene*:
                 // a replayed frame draws the paints this build chose, and forgetting them on the
                 // frame after would make a still page look as though it had stopped using them.
                 functions.clear();
+                // A page the device's composite does not finish — §11.4.7's conversions,
+                // §10.8.3's planes, §10.5's transfer functions — drawn on frames of its own and
+                // finished by the passes `rasterize` runs, before this scene's frame begins on the
+                // same caches (ADR 3701). Its time is the scene's, because it is building it.
+                let finished = finish_pages(device, caches, medium, frame, functions)?;
+                caches.begin_frame();
+                let mut builder = raster_scene::SceneBuilder::new();
+                let mut transient: Vec<ResourceId> = Vec::new();
                 let built = build(
                     device,
                     caches,
                     (medium, cull),
                     &mut builder,
-                    frame,
+                    (frame, &finished),
                     &mut transient,
                     functions,
                 );
@@ -1469,6 +1474,79 @@ fn page_space(medium: Option<Medium>, frame: &PresentFrame<'_>) -> bool {
         && frame.pages.len() == 1
         && frame.raster.is_none()
         && frame.overlays.is_empty()
+        // A finished page is a picture of its view, not geometry a viewport can move (ADR 3701).
+        && !frame
+            .pages
+            .iter()
+            .any(|(list, _)| crate::finish::needs_finishing(list))
+}
+
+/// How the scene draws one page of the frame.
+pub(crate) enum PagePicture {
+    /// From its commands, as every page without a pass of its own is drawn.
+    Commands,
+    /// As the picture [`crate::finish::finished_page`] made of it.
+    Finished(crate::finish::Finished),
+    /// Not at all: the page needed finishing and no pixel of it is in the frame.
+    Outside,
+}
+
+/// The pictures of the frame's pages that [`crate::finish::needs_finishing`], by page — each drawn
+/// at its placement and finished by the passes [`crate::QuorraRasterizer`]'s `rasterize` runs, onto
+/// 𝑊 within the page and transparency beside it — or empty where no page needs one, which is the
+/// whole of what a page without such a pass pays for them (ADR 3701).
+///
+/// ISO 32000-2 §10.5: "In the sequence of steps for processing colours, the PDF processor shall
+/// apply the transfer function after performing any needed conversions between colour spaces."
+/// A window is a device like any other, and a picture of the page before its pass is the file's
+/// colours rather than the ones the device is to receive (review 2248, B01 and B02).
+///
+/// # Errors
+///
+/// Whatever a page's draw refused, which refuses the frame as a scene's translation does.
+fn finish_pages(
+    device: &mut raster_gpu::Device,
+    caches: &mut crate::cache::ResourceCaches,
+    medium: Option<Medium>,
+    frame: &PresentFrame<'_>,
+    functions: &mut FunctionPaints,
+) -> Result<Vec<PagePicture>, QuorraRasterError> {
+    if !frame
+        .pages
+        .iter()
+        .any(|(list, _)| crate::finish::needs_finishing(list))
+    {
+        return Ok(Vec::new());
+    }
+    let medium = medium.unwrap_or(Medium {
+        page: Color::TRANSPARENT,
+        surround: Color::TRANSPARENT,
+    });
+    let mut finished = Vec::with_capacity(frame.pages.len());
+    for (list, target) in frame.pages {
+        if !crate::finish::needs_finishing(list) {
+            finished.push(PagePicture::Commands);
+            continue;
+        }
+        // The frame's own record is of the scene; a finished page's draws each clear theirs, so
+        // they are kept apart and taken in.
+        let mut paints = FunctionPaints::default();
+        let mut phases = Vec::new();
+        let picture = crate::finish::finished_page(
+            &mut crate::finish::Drawing {
+                device: &mut *device,
+                caches: &mut *caches,
+                functions: &mut paints,
+                phases: &mut phases,
+            },
+            list,
+            *target,
+            medium,
+        )?;
+        functions.absorb(paints);
+        finished.push(picture.map_or(PagePicture::Outside, PagePicture::Finished));
+    }
+    Ok(finished)
 }
 
 /// Assembles the frame's scene: medium, page (or its raster stand-in), overlays.
@@ -1496,7 +1574,7 @@ pub(crate) fn build(
     caches: &mut crate::cache::ResourceCaches,
     (medium, cull): (Option<Medium>, bool),
     builder: &mut raster_scene::SceneBuilder,
-    frame: &PresentFrame<'_>,
+    (frame, finished): (&PresentFrame<'_>, &[PagePicture]),
     transient: &mut Vec<ResourceId>,
     functions: &mut FunctionPaints,
 ) -> Result<(bool, Vec<(usize, crate::stroke::KeptMark)>), QuorraRasterError> {
@@ -1522,6 +1600,16 @@ pub(crate) fn build(
     // the one-element case and is what this loop was before ADR 0442; the pages of a column do
     // not overlap, so the order is the arrangement's rather than a compositing decision.
     for (page, (list, target)) in frame.pages.iter().enumerate() {
+        // A page finished on frames of its own ([`finish_pages`]) is its picture, 𝑊 and all, at
+        // its placement — never in page space, so the target's pixels are the frame's.
+        match finished.get(page) {
+            Some(PagePicture::Finished(picture)) => {
+                draw_finished(device, caches, builder, transient, picture)?;
+                continue;
+            }
+            Some(PagePicture::Outside) => continue,
+            Some(PagePicture::Commands) | None => {}
+        }
         // §11.4.7's 𝑊 under *this* page and nowhere else. Drawn as part of the scene rather than
         // imposed afterwards for the reason `QuorraRasterizer::rasterize_frame` states: a window
         // has no compositor behind it, so the bottom of the scene is the medium. Its extent is
@@ -1570,36 +1658,17 @@ pub(crate) fn build(
         marks.extend(encoder.take_marks().into_iter().map(|mark| (page, mark)));
     }
     if let Some(raster) = frame.raster {
-        // Through the same clock as every other upload (`Encoder::handing_over`): a fallback
-        // frame's whole picture crosses here, and leaving the one upload that is not the
-        // encoder's outside the count would make `handover` mean two things.
-        let spec = raster_scene::ImageSpec {
-            width: raster.width,
-            height: raster.height,
-            data: Arc::from(raster.data.as_slice()),
-        };
-        let began = std::time::Instant::now();
-        let uploaded = device.upload_image(&spec);
-        caches.hand_over(began.elapsed());
-        let image = uploaded?;
-        transient.push(image.into());
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "raster dimensions are far below f32's exact integer range"
-        )]
-        let (rw, rh) = (raster.width as f32, raster.height as f32);
-        // The unit square carries the image with its top row at unit y = 1
-        // (§8.9.5), so placing the top row at the window's y = 0 takes a flip.
+        let image = upload(
+            device,
+            caches,
+            transient,
+            raster.width,
+            raster.height,
+            &raster.data,
+        )?;
         builder.image(
             image,
-            raster_scene::Affine {
-                a: rw,
-                b: 0.0,
-                c: 0.0,
-                d: -rh,
-                e: 0.0,
-                f: rh,
-            },
+            crate::finish::unit_square_at(0, 0, raster.width, raster.height),
             1.0,
             raster_scene::ImageFilter::Nearest,
             None,
@@ -1617,6 +1686,60 @@ pub(crate) fn build(
             .commands(builder, list.commands())?;
     }
     Ok((consumed_view, marks))
+}
+
+/// A finished page's picture into the scene at its own rectangle of the frame (ADR 3701).
+fn draw_finished(
+    device: &mut raster_gpu::Device,
+    caches: &mut crate::cache::ResourceCaches,
+    builder: &mut raster_scene::SceneBuilder,
+    transient: &mut Vec<ResourceId>,
+    picture: &crate::finish::Finished,
+) -> Result<(), QuorraRasterError> {
+    let image = upload(
+        device,
+        caches,
+        transient,
+        picture.width,
+        picture.height,
+        &picture.pixels,
+    )?;
+    builder.image(
+        image,
+        crate::finish::unit_square_at(picture.left, picture.top, picture.width, picture.height),
+        1.0,
+        raster_scene::ImageFilter::Nearest,
+        None,
+        raster_scene::BlendMode::Normal,
+        None,
+    )?;
+    Ok(())
+}
+
+/// A picture of the frame's pixels handed to the device for this scene alone.
+///
+/// Through the same clock as every other upload (`Encoder::handing_over`): a fallback frame's
+/// whole picture crosses here, and leaving the one upload that is not the encoder's outside the
+/// count would make `handover` mean two things.
+fn upload(
+    device: &mut raster_gpu::Device,
+    caches: &mut crate::cache::ResourceCaches,
+    transient: &mut Vec<ResourceId>,
+    width: u32,
+    height: u32,
+    pixels: &[u8],
+) -> Result<raster_scene::ImageId, QuorraRasterError> {
+    let spec = raster_scene::ImageSpec {
+        width,
+        height,
+        data: Arc::from(pixels),
+    };
+    let began = std::time::Instant::now();
+    let uploaded = device.upload_image(&spec);
+    caches.hand_over(began.elapsed());
+    let image = uploaded?;
+    transient.push(image.into());
+    Ok(image)
 }
 
 /// One flat rectangle in window pixels, which is what both halves of the medium are.

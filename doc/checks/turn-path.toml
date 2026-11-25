@@ -110,7 +110,7 @@ path = "doc/pdf.js/test/pdfs/personwithdog.pdf"
 page = 1
 commands = 18
 clock_bands = machine
-why = "§8.7.4.5.7 patch meshes: their 32-bit coordinates and 8-bit flags and components are read as bytes (ADR 2332), and the scene walk divides the mesh rows across the pool (ADR 1259). A turn past the ceiling is the processor's clock, at one end of the load or the other: the idle end is taken away by starting every round on warm cores (ADR 1577), and the busy end, the cores the child is not pinned to kept busy at a load average the ceiling admits (ADR 1556), is a second mode judged against HEAD and not banded (ADR 1969)"
+why = "§8.7.4.5.7 patch meshes: their 32-bit coordinates and 8-bit flags and components are read as bytes (ADR 2332), and the scene walk divides the mesh rows across the pool (ADR 1259). A turn past the ceiling is the processor's clock, at one end of the load or the other: the idle end is taken away by starting every round on warm cores (ADR 1577), and the busy end, the cores the child is not pinned to kept busy at a load average the ceiling admits (ADR 1556), is a second mode judged against HEAD and not banded (ADR 1969). Its page group is `DeviceCMYK`, so §11.4.7 makes its composite four components and the window draws the black list beside the page: two device frames, their read-backs and the conversion, over the page's own rectangle (ADRs 3701, 3702, A1071)"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/issue12841_reduced.pdf"
@@ -165,13 +165,10 @@ why = "1 032 commands of text and rules"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/ContentStreamNoCycleType3insideType3.pdf"
-# Ten consecutive runs on a quiet machine (load 0.8 to 2.7, warm cores) read 10.67 to 11.29 ms turn,
-# 10.29 to 10.89 seventh, 11.45 to 11.75 step; the one run at 13.0 to 14.5 came with a load of 3.8 to
-# 6.0 and left with it, the busy end of trap 110 (ADR 1621 section 4), so the band keeps its reason.
 page = 1
-commands = 152
+commands = 12224
 clock_bands = machine
-why = "stroked Type 3 glyphs in a tiling under a residue clip: each glyph's expansion made once (ADR 1445), two chords a piece (ADR 1443), and the exact meet with the residue (ADR 1467) whose mark edges the fan-out builds (ADR 1513)"
+why = "stroked Type 3 glyphs in a tiling under a residue clip, each inner glyph's tiling pattern placed in its glyph's own space (ADR 3653), which is 12 224 commands; the band is what that exact construction costs (A1073). Each glyph's expansion made once (ADR 1445), two chords a piece (ADR 1443), and the exact meet with the residue (ADR 1467) whose mark edges the fan-out builds (ADR 1513)"
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/bug1743245.pdf"

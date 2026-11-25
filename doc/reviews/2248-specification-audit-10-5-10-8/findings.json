@@ -12,7 +12,7 @@
   "code": "crates/render-raster/src/present.rs:454-480 (FrameSlot::render), scene_for (no transfers()); crates/render-raster/src/lib.rs:445 (rasterize_frame, the read-back form of the same present) against lib.rs:714 (rasterize applies resolve_transfers); crates/viewer-device/src/renderer/device.rs:84 (renderer.render(frame, into)); crates/pdf-render/src/reach.rs:385 (the only predicate on the route that names transfers(), and it only declines the cull); crates/render-gpu/src/lib.rs:936 (the comparison backend refuses by name); crates/render-raster/src/lib.rs:700-720's comment and render-gpu's say the shipping backends apply it",
   "change": "Apply the channel on the present route: either resolve_transfers over the window's own rendering of each placed page (its shapes rasterised through the same slot, as rasterize does over its read-back), or refuse a page with transfers() on the present route by name so that viewer-device draws it through the processor (CLAUDE.md's refusal lane), reported. Hold both lanes with this test at every coverage.",
   "execution": "Executed on the RX 580: crates/render-raster/tests/window_frame_10_5_10_8_spec_audit.rs::the_window_frame_applies_a_pages_transfer_function_spec_audit — control (rasterize) cyan passes; rasterize_frame shows [255, 0, 0]. The viewer-device route was read (renderer/device.rs, thread.rs, processor.rs) and has no predicate on transfers().",
-  "status": "open"
+  "status": "fixed (ADR 3701; the window's present finishes such a page through render_raster::finish, as rasterize does)"
  },
  {
   "id": "2248-B02",
@@ -26,7 +26,7 @@
   "code": "crates/render-raster/src/lib.rs:594-660 (rasterize: four_components = list.blending().zip(list.black()), spot_planes, resolve_separation); crates/render-raster/src/present.rs scene_for (no black(), blending() or separation()); crates/viewer-device/src/renderer/device.rs:84",
   "change": "The same decision as B01's, for blending()/black()/separation(): draw the planes beside the page on the present route and resolve them as rasterize does, or refuse such a page there by name so that the processor draws it.",
   "execution": "Executed on the RX 580: crates/render-raster/tests/window_frame_10_5_10_8_spec_audit.rs::the_window_frame_draws_the_simulated_press_s_black_ink_spec_audit — control (rasterize) [35, 31, 32] passes; rasterize_frame [255, 255, 255].",
-  "status": "open"
+  "status": "fixed (ADR 3701; the window's present draws the black list and spot planes through render_raster::finish)"
  },
  {
   "id": "2248-B03",
