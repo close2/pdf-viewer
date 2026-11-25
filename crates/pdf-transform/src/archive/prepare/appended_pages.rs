@@ -1122,7 +1122,7 @@ fn stated_graphics<'a>(
             super::super::actual_text::SITE => super::super::actual_text::removal(document, input)
                 .map(|removed| sites::Sites {
                     at: removed.at.into_keys().collect(),
-                    tables: BTreeSet::new(),
+                    ..sites::Sites::default()
                 }),
             _ => continue,
         };

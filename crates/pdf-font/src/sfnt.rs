@@ -803,26 +803,94 @@ const CHECKSUM_MAGIC: u32 = 0xb1b0_afba;
 /// last stated advance applying to every glyph past the pairs — which is how a monospaced face
 /// stores one advance for a thousand glyphs.
 ///
-/// `None` where `hmtx` ends before the glyph's metric: a table shorter than its two counts make
-/// it states no metric for that glyph, and every caller is a writer or a converter that declines
-/// such a program rather than writing zero in its place (ADR 3621).
-pub(crate) fn horizontal_metric(hmtx: &[u8], pairs: usize, glyph: usize) -> Option<(u16, i16)> {
+/// `None` where `hmtx` ends before the glyph's advance: a table shorter than its two counts make
+/// it states no advance for that glyph, and every caller is a writer or a converter that declines
+/// such a program rather than writing zero in its place (ADR 3621). The bearing alone is `None`
+/// where the table ends after the advances and before that glyph's bearing; a caller holding the
+/// glyph's outline takes it from the outline's box ([`bearing_from_box`], ADR 3642).
+pub(crate) fn horizontal_metric(
+    hmtx: &[u8],
+    pairs: usize,
+    glyph: usize,
+) -> Option<(u16, Option<i16>)> {
     let paired = glyph.min(pairs.saturating_sub(1));
     let advance = be16(hmtx, paired.checked_mul(4)?)?;
-    let bearing = if glyph < pairs {
-        be16(hmtx, glyph.checked_mul(4)?.checked_add(2)?)?
+    let at = if glyph < pairs {
+        glyph.checked_mul(4).and_then(|at| at.checked_add(2))
     } else {
-        let base = pairs.checked_mul(4)?;
-        be16(
-            hmtx,
-            base.checked_add(glyph.checked_sub(pairs)?.checked_mul(2)?)?,
-        )?
+        pairs
+            .checked_mul(4)
+            .and_then(|base| base.checked_add(glyph.checked_sub(pairs)?.checked_mul(2)?))
     };
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "a side bearing is a signed 16-bit field, read here as the two bytes it is"
-    )]
-    Some((advance, bearing as i16))
+    // not a repair: a two-byte slice always converts to two bytes; a bearing past the table's
+    // end is `None`, handed to the caller to decline or to take from the glyph's box (ADR 3642).
+    let bearing = at
+        .and_then(|at| hmtx.get(at..at.checked_add(2)?))
+        .and_then(|bytes| <[u8; 2]>::try_from(bytes).ok())
+        .map(i16::from_be_bytes);
+    Some((advance, bearing))
+}
+
+/// The left side bearing of a TrueType glyph whose `hmtx` omits it, taken from the glyph's own
+/// box: the `xMin` of its `glyf` header, and zero for a glyph with no outline.
+///
+/// ISO/IEC 14496-22's `hmtx` (OpenType's own description of the table, read here as the font
+/// format's definition and not as a source of truth for PDF) says the bearings "may be the same as
+/// the xMin values in the 'glyf' table, though this is not true for all fonts", and of a glyph
+/// with no contours that "\[t\]he left side bearing indicated in the 'hmtx' table for such glyphs
+/// should be zero". Where the table states no bearing, the box is the only statement the program
+/// makes of one; a program restated with it is proved to draw every glyph as before (ADR 3642).
+///
+/// `None` where the glyph's data is too short to hold a header.
+pub(crate) fn bearing_from_box(glyph_data: &[u8]) -> Option<i16> {
+    if glyph_data.is_empty() {
+        return Some(0);
+    }
+    // not a repair: a two-byte slice always converts to two bytes, and a header too short to
+    // hold `xMin` is `None`, which the caller declines.
+    glyph_data
+        .get(2..4)
+        .and_then(|bytes| <[u8; 2]>::try_from(bytes).ok())
+        .map(i16::from_be_bytes)
+}
+
+/// Where `indexToLocFormat` stands in `head` (ISO/IEC 14496-22, `head`).
+const INDEX_TO_LOC_IN_HEAD: usize = 50;
+
+/// Whether `hmtx` ends before the side bearings its two counts make it state, so that a restated
+/// program takes some from the glyphs' boxes and is proved to draw as before (ADR 3642).
+pub(crate) fn omits_bearings(data: &[u8]) -> bool {
+    let stated = || -> Option<bool> {
+        let tables = sfnt_tables(data)?;
+        let (maxp, _) = *tables.get(b"maxp".as_slice())?;
+        let (hhea, _) = *tables.get(b"hhea".as_slice())?;
+        let (_, hmtx_length) = *tables.get(b"hmtx".as_slice())?;
+        let glyphs = usize::from(be16(data, maxp.checked_add(NUM_GLYPHS)?)?);
+        let pairs = usize::from(be16(data, hhea.checked_add(NUMBER_OF_H_METRICS)?)?);
+        let wanted = pairs
+            .checked_mul(4)?
+            .checked_add(glyphs.saturating_sub(pairs).checked_mul(2)?)?;
+        Some(hmtx_length < wanted)
+    };
+    // not a repair: a program whose `maxp`, `hhea` or `hmtx` does not read is one the restating
+    // itself declines, so no proof is asked of it.
+    stated().unwrap_or(false)
+}
+
+/// Where glyph `index`'s data starts and ends in `glyf`, read from `loca` in its long or short
+/// form (ISO/IEC 14496-22, `loca`).
+pub(crate) fn located(loca: &[u8], long: bool, index: usize) -> Option<(usize, usize)> {
+    let entry = |at: usize| -> Option<usize> {
+        if long {
+            // not a repair: a 32-bit offset widened to this machine's index; one that does not
+            // fit is `None`, and the glyph's range with it.
+            usize::try_from(be32(loca, at.checked_mul(4)?)?).ok()
+        } else {
+            usize::from(be16(loca, at.checked_mul(2)?)?).checked_mul(2)
+        }
+    };
+    let (start, end) = (entry(index)?, entry(index.checked_add(1)?)?);
+    (start <= end).then_some((start, end))
 }
 
 /// The program with the advance of each named glyph restated, in the program's own units.
@@ -845,12 +913,25 @@ pub(crate) fn with_advances(data: &[u8], advances: &BTreeMap<u16, u16>) -> Optio
         return None;
     }
     let hmtx = data.get(hmtx_at..hmtx_at.checked_add(hmtx_length)?)?;
+    // A bearing `hmtx` omits is the glyph's own box's (ADR 3642); a program with no `glyf` to
+    // take it from is declined.
+    let table = |tag: &[u8]| {
+        let (at, length) = *tables.get(tag)?;
+        data.get(at..at.checked_add(length)?)
+    };
+    let boxed = |glyph: usize| -> Option<i16> {
+        let long = be16(table(b"head")?, INDEX_TO_LOC_IN_HEAD)? != 0;
+        let (start, end) = located(table(b"loca")?, long, glyph)?;
+        bearing_from_box(table(b"glyf")?.get(start..end)?)
+    };
 
     let mut restated = Vec::with_capacity(glyphs.checked_mul(4)?);
     for glyph in 0..glyphs {
+        // A bearing the table omits is the box's, and the program is proved after (ADR 3642).
+        let (advance, bearing) = horizontal_metric(hmtx, pairs, glyph)?;
+        let bearing = bearing.or_else(|| boxed(glyph))?;
         // not a repair: a glyph this program restated takes its new advance, any other keeps the
         // font's own.
-        let (advance, bearing) = horizontal_metric(hmtx, pairs, glyph)?;
         let advance = u16::try_from(glyph)
             .ok()
             .and_then(|glyph| advances.get(&glyph).copied())
@@ -1134,16 +1215,26 @@ mod horizontal_metric_tests {
     use super::horizontal_metric;
 
     /// ISO/IEC 14496-22's `hmtx`: two long metrics, then one side bearing alone. A glyph past
-    /// the pairs takes the last advance and its own bearing; one past the table's end has no
-    /// metric, which is `None` rather than a zero written in its place (ADR 3621).
+    /// the pairs takes the last advance and its own bearing; a glyph whose advance the table
+    /// does not reach has no metric, which is `None` rather than a zero written in its place (ADR
+    /// 3621), and one whose bearing alone is past the end has `None` for the bearing (ADR 3642).
     #[test]
     fn a_metric_past_the_end_of_hmtx_is_none() {
         let hmtx = [0x01, 0xF4, 0x00, 0x0A, 0x02, 0x58, 0xFF, 0xFE, 0x00, 0x07];
-        assert_eq!(horizontal_metric(&hmtx, 2, 0), Some((500, 10)));
-        assert_eq!(horizontal_metric(&hmtx, 2, 1), Some((600, -2)));
-        assert_eq!(horizontal_metric(&hmtx, 2, 2), Some((600, 7)));
-        assert_eq!(horizontal_metric(&hmtx, 2, 3), None);
-        assert_eq!(horizontal_metric(&hmtx[..6], 2, 1), None);
+        assert_eq!(horizontal_metric(&hmtx, 2, 0), Some((500, Some(10))));
+        assert_eq!(horizontal_metric(&hmtx, 2, 1), Some((600, Some(-2))));
+        assert_eq!(horizontal_metric(&hmtx, 2, 2), Some((600, Some(7))));
+        assert_eq!(
+            horizontal_metric(&hmtx, 2, 3),
+            Some((600, None)),
+            "the advance is the last pair's, and the table ends before the bearing"
+        );
+        assert_eq!(
+            horizontal_metric(&hmtx[..6], 2, 1),
+            Some((600, None)),
+            "the pair's advance is there, its bearing is not"
+        );
+        assert_eq!(horizontal_metric(&hmtx[..4], 2, 1), None, "no advance");
     }
 }
 

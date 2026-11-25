@@ -212,6 +212,22 @@ fn sfnt_as_read(drawn: &[u8]) -> Result<AsRead, NotAsRead> {
     })
 }
 
+/// Whether every glyph of `after` draws point for point, bit for bit, as the same glyph of
+/// `before` does, unhinted in the program's own units through `skrifa` — the outline half of
+/// [`sfnt_as_read`]'s proof, for a program whose metrics were restated (ADR 3642). `Err` names the
+/// first glyph that does not, zero where either program does not open.
+pub(crate) fn sfnt_draws_alike(before: &[u8], after: &[u8]) -> Result<(), u16> {
+    let before = skrifa::FontRef::new(before).map_err(|_| 0_u16)?;
+    let after = skrifa::FontRef::new(after).map_err(|_| 0_u16)?;
+    let glyphs = before.maxp().map_err(|_| 0_u16)?.num_glyphs();
+    if after.maxp().map_err(|_| 0_u16)?.num_glyphs() != glyphs {
+        return Err(0);
+    }
+    (0..glyphs)
+        .find(|glyph| sfnt_points(&before, *glyph) != sfnt_points(&after, *glyph))
+        .map_or(Ok(()), Err)
+}
+
 /// Every point and command of a glyph's outline as its bits, so that two readings compare exactly.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Points(Vec<(u8, u32, u32)>);

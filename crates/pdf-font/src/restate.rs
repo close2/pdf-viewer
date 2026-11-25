@@ -212,6 +212,18 @@ pub fn with_widths(
                     })?;
             }
             read_back(&restated, widths)?;
+            // A bearing `hmtx` omitted was taken from the glyph's box (ADR 3642): the program is
+            // proved to draw every glyph point for point as the original did, ADR 3569's proof.
+            if sfnt::omits_bearings(program)
+                && let Err(glyph) = crate::as_read::sfnt_draws_alike(program, &restated)
+            {
+                return Err(RestateError::NotReadBack {
+                    detail: format!(
+                        "glyph {glyph} does not draw as it did once the side bearings hmtx \
+                         omitted were taken from the glyphs' boxes"
+                    ),
+                });
+            }
             Ok(restated)
         }
     }

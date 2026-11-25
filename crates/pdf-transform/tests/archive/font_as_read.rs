@@ -161,3 +161,34 @@ fn nothing_is_restated_without_the_loss() {
         Decision::Unauthorised { .. }
     ));
 }
+
+/// pdf.js `bug911034`, whose TrueType program's `hmtx` states all 8 320 of its long metrics and
+/// none of the 42 057 side bearings after them, and whose `/Widths` disagree with the program: the
+/// advances are restated, each bearing the table omits is taken from the glyph's own `glyf` box
+/// (ISO/IEC 14496-22's `hmtx`), and the restated program is proved to draw every glyph as the
+/// original did (ADR 3642), so the file converts under `as-shown`.
+#[test]
+fn a_program_whose_hmtx_omits_its_bearings_is_restated_with_the_glyphs_boxes() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let source =
+        std::fs::read(root.join("doc/pdf.js/test/pdfs/bug911034.pdf")).expect("the witness");
+    let text = named("as-shown").expect("a shipped profile").text;
+    let plan = ArchivePlan {
+        authorised: authorised_by("as-shown"),
+        ..plan_from(text, TARGET)
+    };
+    let (report, output) = convert_with_plan(&source, &plan);
+    let output = output.unwrap_or_else(|| {
+        panic!(
+            "{:?}",
+            conversion(&report)
+                .decided
+                .iter()
+                .filter(|decided| matches!(decided.decision, Decision::Refused(_)))
+                .map(|decided| format!("{}: {:?}", decided.requirement, decided.decision))
+                .collect::<Vec<_>>()
+        )
+    });
+    let held = holds(&output, TARGET);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+}

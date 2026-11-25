@@ -3751,11 +3751,11 @@ fresh-packet = true
 
     /// A shape qualifier selects the half of a split requirement the converter answers.
     ///
-    /// `doc/rfc/0007` section 5b.2 and `doc/pdf-a-mitigations.md` section 14's first finding: a
-    /// blend mode stated as an **array** reduces to the name §11.6.3's Table 136 entry has every
-    /// reader take from it, and a bare **name** the standard does not define has no answer at
-    /// all. So an operator who answers the array half has not thereby answered the other, which
-    /// is exactly what the qualifier exists to say (ADR 1211).
+    /// `doc/rfc/0007` section 5b.2 and `doc/pdf-a-mitigations.md` section 14's first finding: an
+    /// annotation whose normal appearance is a subdictionary of states is given the stream its own
+    /// `/AS` selects, and one stating no `/AS` has no answer, since nothing in the file says which
+    /// state the producer meant. So an operator who answers the first half has not thereby
+    /// answered the other, which is exactly what the qualifier exists to say (ADR 1211).
     ///
     /// **Asked with `preserve`**, which neither half carries out, so that the two answers differ
     /// by the thing under test. A `discard` would be carried out at the answered half for a
@@ -3764,7 +3764,7 @@ fresh-packet = true
     #[test]
     fn a_shape_qualifier_selects_the_half_the_converter_answers() {
         let answered = "\
-[site.\"graphics/graphics-state-blend-modes-are-defined\".shape.\"array\"]
+[site.\"annotations/normal-appearance-shape\".shape.\"appearance-state\"]
 remedy = \"preserve\"
 ";
         let config = Configuration::read(answered, TWO_B).expect("a shape qualifier reads");
@@ -3774,12 +3774,12 @@ remedy = \"preserve\"
                 .iter()
                 .map(|row| row.site.as_str())
                 .collect::<Vec<_>>(),
-            vec!["graphics/graphics-state-blend-modes-are-defined"],
+            vec!["annotations/normal-appearance-shape"],
             "the answered half's row applies, and is named because no preserve is built there"
         );
 
         let other = "\
-[site.\"graphics/graphics-state-blend-modes-are-defined\".shape.\"name\"]
+[site.\"annotations/normal-appearance-shape\".shape.\"no-appearance-state\"]
 remedy = \"preserve\"
 ";
         let config = Configuration::read(other, TWO_B).expect("a shape qualifier reads");

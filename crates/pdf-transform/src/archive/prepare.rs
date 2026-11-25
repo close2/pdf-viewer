@@ -574,6 +574,12 @@ pub(super) struct Provenance<'a> {
 }
 
 impl Prepared {
+    /// Whether a `/BM` the blend-mode rows restate is a bare name the standard does not define,
+    /// the loss `content-as-drawn` (`doc/adr/3643`).
+    pub(super) fn bare_blend_modes(&self) -> bool {
+        self.owed.blend_modes.as_ref().is_ok_and(|sites| sites.bare)
+    }
+
     /// Whether the widths the fonts row writes include this viewer's layout of a font outside
     /// §9.6.2.2's fourteen that stated none, the loss `layout-from-this-viewer` (ADR 2898).
     pub(super) fn widths_from_this_viewer(&self) -> bool {
@@ -1516,6 +1522,11 @@ impl Prepared {
                 integer_reals_refused,
             )
         });
+        // The blend-mode rows restate every `/BM` the validator found undefined, the bare name
+        // this reader logs a repair at among them (`doc/adr/3643`); the output's own check holds
+        // the rewrite to having reached each.
+        let blend_modes_restated = wanted(Rewrite::BlendModeNormal)
+            && sites::blend_modes(document, input).is_ok_and(|sites| sites.bare);
         let base_standard = super::base_standard::settled(
             base_standard,
             document,
@@ -1525,6 +1536,7 @@ impl Prepared {
                 defined_resources
                     .as_ref()
                     .is_ok_and(|defined| !defined.at.is_empty()),
+                blend_modes_restated,
             ),
             (&photographed, &taken_off_by_photographs),
         );

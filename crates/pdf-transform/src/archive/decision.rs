@@ -2614,6 +2614,17 @@ fn losing(losses: Losses, rewrite: Rewrite, authorised: Authorisations) -> Decis
     }
 }
 
+/// The blend-mode rows' answer where a `/BM` is a bare name the standard does not define: the
+/// `Normal` this reader draws it as, at the loss `content-as-drawn`, as `CONDITIONAL` says
+/// (`doc/adr/3643`).
+const BARE_BLEND_MODE_AS_DRAWN: Answer =
+    Answer::Loses(Loss::ContentAsDrawn, Rewrite::BlendModeNormal);
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per row whose answer the preparation decides, each a guard and a call; \
+              splitting the match would scatter the one place a row's answer is read off the file"
+)]
 fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) -> Decision {
     match answer {
         // ISO 19005-2 section 6.1.13's page-boundary limit, whose answer the table cannot take:
@@ -2646,6 +2657,10 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
         // of it. `Prepared::obstacle` is where that question is asked, once.
         Answer::Mechanical(Rewrite::RunWrittenAsDrawn) => {
             content_stream_fences::run_written_as_drawn(authorised, prepared)
+        }
+        // A bare `/BM` name is restated as the `Normal` this reader draws (ADR 3643).
+        Answer::Stated(_, Rewrite::BlendModeNormal, _) if prepared.bare_blend_modes() => {
+            answer_of(BARE_BLEND_MODE_AS_DRAWN, authorised, prepared)
         }
         // A font outside §9.6.2.2's fourteen that stated no `/Widths` is given this viewer's
         // layout, the loss `layout-from-this-viewer`, as `CONDITIONAL` says (ADR 2898).

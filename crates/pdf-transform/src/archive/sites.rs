@@ -52,6 +52,10 @@ pub(super) struct Sites {
     /// object of its own, whose entries are therefore graphics states one level down. Filled only
     /// by [`rendering_intents`].
     pub(super) tables: BTreeSet<ObjectId>,
+    /// Whether any of them states a blend mode as a bare name the standard does not define, which
+    /// is restated under the loss `content-as-drawn` (`doc/adr/3643`). Filled only by
+    /// [`blend_modes`].
+    pub(super) bare: bool,
 }
 
 /// Every object the requirements' findings name, and whether any place named no object.
@@ -176,7 +180,11 @@ pub(super) fn rendering_intents(
         at.extend(reach.sites);
         tables = reach.tables;
     }
-    Ok(Sites { at, tables })
+    Ok(Sites {
+        at,
+        tables,
+        bare: false,
+    })
 }
 
 /// The objects that can state a graphics state's `/RI` or an image's `/Intent`, found by walking
@@ -243,14 +251,11 @@ impl GraphicsStateReach {
     }
 }
 
-/// Why a blend mode written as a bare name the standard does not define is not resolved.
-const BARE_BLEND_MODE: &str = "this file sets a blend mode ISO 32000-2 does not define, written \
-     as a bare name. §8.4.1's Table 57 says what a reader takes from an *array* of names and \
-     that answer is written down; for a name on its own it says only that the value shall be one \
-     of the standard modes, with no sentence about one that is not. So writing a mode in its \
-     place would be choosing how these marks composite with what is under them, which \
-     doc/questions/A48 forbids, and removing the entry does not state Normal either, because a \
-     graphics state parameter dictionary sets only what it names";
+/// Why a blend mode that is neither a name nor an array of names, or that the validator found
+/// somewhere this walk does not reach, is not restated.
+const BLEND_MODE_NOT_A_NAME: &str = "this file sets a blend mode that is neither a name nor an \
+     array of names, or the validator found it somewhere this conversion's walk of the objects \
+     does not reach, so there is no name to restate as Normal";
 
 /// The two requirements whose subject is a `/BM` entry.
 const BLEND_MODE_REQUIREMENTS: [&str; 2] = [
@@ -258,38 +263,41 @@ const BLEND_MODE_REQUIREMENTS: [&str; 2] = [
     "graphics/annotation-blend-modes-are-defined",
 ];
 
-/// Every dictionary whose `/BM` array is to be restated as `Normal`.
+/// Every dictionary whose `/BM` is to be restated as `Normal`.
 ///
 /// ISO 19005-2 section 6.2.10, ISO 19005-4 section 6.2.9, and the split
 /// `doc/pdf-a-mitigations.md` section 4.6 makes: the array half has the standard's own answer
-/// behind it and the bare-name half has none, so a document failing in the second shape is
-/// refused rather than half-corrected.
+/// behind it, and the bare-name half has this reader's, which draws such a name as `Normal`
+/// (`doc/adr/3643`); [`Sites::bare`] says the second was found, so the row costs `content-as-drawn`.
 pub(super) fn blend_modes(
     document: &Document,
     input: &pdf_archive::Report,
 ) -> Result<Sites, Because> {
     let (named, in_content) = objects_named(input, &BLEND_MODE_REQUIREMENTS)?;
     if in_content {
-        return Err(Because::NotBuiltYet(BARE_BLEND_MODE));
+        return Err(Because::NotBuiltYet(BLEND_MODE_NOT_A_NAME));
     }
     let mut at = BTreeSet::new();
+    let mut bare = false;
     for id in named {
         let mut shapes = BlendModes::default();
         shapes.of(document, &document.get(id), 0);
-        if shapes.bare {
-            return Err(Because::NotBuiltYet(BARE_BLEND_MODE));
+        if shapes.other {
+            return Err(Because::NotBuiltYet(BLEND_MODE_NOT_A_NAME));
         }
-        if !shapes.array {
+        if !shapes.array && !shapes.bare {
             // The validator recorded a failure this walk does not find, which is a disagreement
             // about where the entry is rather than about what it says. Refusing is the only
             // honest answer: writing nothing and calling the requirement answered would leave
             // `doc/adr/0947`'s third stage to discover it.
-            return Err(Because::NotBuiltYet(BARE_BLEND_MODE));
+            return Err(Because::NotBuiltYet(BLEND_MODE_NOT_A_NAME));
         }
+        bare |= shapes.bare;
         at.insert(id);
     }
     Ok(Sites {
         at,
+        bare,
         ..Sites::default()
     })
 }
@@ -306,6 +314,8 @@ struct BlendModes {
     array: bool,
     /// Whether a bare name the standard does not define is anywhere inside it.
     bare: bool,
+    /// Whether a value that is neither a name nor an array is anywhere inside it.
+    other: bool,
 }
 
 impl BlendModes {
@@ -339,11 +349,12 @@ impl BlendModes {
                         self.array = true;
                     }
                 }
-                other => {
-                    if !is_blend_mode(&other) {
+                Object::Name(name) => {
+                    if !BLEND_MODES.contains(&name.as_bytes()) {
                         self.bare = true;
                     }
                 }
+                _ => self.other = true,
             }
         }
         for (_, item) in dict.iter() {

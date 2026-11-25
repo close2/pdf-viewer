@@ -31,7 +31,7 @@ use std::collections::BTreeMap;
 
 use skrifa::outline::OutlinePen;
 
-use crate::sfnt::{be16, horizontal_metric, sfnt_tables, with_tables};
+use crate::sfnt::{be16, bearing_from_box, horizontal_metric, located, sfnt_tables, with_tables};
 
 /// Why a program could not be given the scaled outlines.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -149,6 +149,11 @@ pub fn sfnt_outlines(program: &[u8], scale: f32) -> Result<Vec<u8>, StretchError
             .push(u32::try_from(scaled_glyf.len()).map_err(|_| StretchError::Unreadable("glyf"))?);
         let (advance, bearing) =
             horizontal_metric(hmtx, pairs, index).ok_or(StretchError::Unreadable("hmtx"))?;
+        // A bearing `hmtx` omits is the glyph's own box's (ADR 3642), and the stretched program
+        // is proved against the original below.
+        let bearing = bearing
+            .or_else(|| bearing_from_box(data))
+            .ok_or(StretchError::Unreadable("hmtx"))?;
         if data.is_empty() {
             metrics.push((
                 advance,
@@ -252,19 +257,6 @@ fn summaries(
     }
     put(&mut new_head, INDEX_TO_LOC, &1u16.to_be_bytes())?;
     Ok((new_head, new_hhea))
-}
-
-/// Where glyph `index`'s data starts and ends in `glyf`.
-fn located(loca: &[u8], long: bool, index: usize) -> Option<(usize, usize)> {
-    let entry = |at: usize| -> Option<usize> {
-        if long {
-            usize::try_from(crate::sfnt::be32(loca, at.checked_mul(4)?)?).ok()
-        } else {
-            usize::from(be16(loca, at.checked_mul(2)?)?).checked_mul(2)
-        }
-    };
-    let (start, end) = (entry(index)?, entry(index.checked_add(1)?)?);
-    (start <= end).then_some((start, end))
 }
 
 /// One glyph rewritten.

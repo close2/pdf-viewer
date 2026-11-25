@@ -609,7 +609,10 @@ impl<'a> Face<'a> {
             while !glyf.len().is_multiple_of(4) {
                 glyf.push(0);
             }
+            // A subset is not proved against its program, so a bearing `hmtx` omits is declined
+            // rather than taken from the glyph's box as a restated program's is (ADR 3642).
             let (advance, bearing) = horizontal_metric(self.hmtx, self.pairs, usize::from(*old))
+                .and_then(|(advance, bearing)| Some((advance, bearing?)))
                 .ok_or(Refusal::Malformed("hmtx"))?;
             hmtx.extend_from_slice(&advance.to_be_bytes());
             hmtx.extend_from_slice(&bearing.to_be_bytes());

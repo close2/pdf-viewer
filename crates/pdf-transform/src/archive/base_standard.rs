@@ -192,9 +192,10 @@ pub(super) fn answer(
 pub(super) fn settled(
     answered: Result<Answered, Because>,
     document: &Document,
-    (drawn, reals, resources_defined): (
+    (drawn, reals, resources_defined, blend_modes_restated): (
         Option<&super::as_drawn::Drawn>,
         Option<&super::integer_reals::Restated>,
+        bool,
         bool,
     ),
     (photographed, taken_off): (&BTreeSet<ObjectId>, &BTreeSet<ObjectId>),
@@ -238,6 +239,9 @@ pub(super) fn settled(
             // the name as a membership dictionary naming no group, which hides nothing, as the
             // reader drew it (`doc/adr/3631`).
             (class.name == DEFINED_BY_THE_RESOURCE_REWRITE && resources_defined)
+                // A bare `/BM` name the standard does not define, restated as the `Normal` this
+                // reader drew it as (`doc/adr/3643`).
+                || (class.name == RESTATED_BY_THE_BLEND_MODE_REWRITE && blend_modes_restated)
                 || (WRITTEN_OUT_BY_THE_RUN_REWRITE.contains(&class.name)
                     && drawn.is_some_and(|drawn| written_by(&drawn.at)))
                 || (class.name == WRITTEN_OUT_AS_REALS
@@ -261,7 +265,13 @@ pub(super) fn written_out_by_a_rewrite(class: &str) -> bool {
     WRITTEN_OUT_BY_THE_RUN_REWRITE.contains(&class)
         || class == WRITTEN_OUT_AS_REALS
         || class == DEFINED_BY_THE_RESOURCE_REWRITE
+        || class == RESTATED_BY_THE_BLEND_MODE_REWRITE
 }
+
+/// The class the blend-mode rows answer by restating a bare `/BM` name the standard does not
+/// define as `Normal` (ISO 32000-2 §11.6.3, `doc/adr/3643`); the output's own check holds the
+/// rewrite to having reached each.
+const RESTATED_BY_THE_BLEND_MODE_REWRITE: &str = "model/blend-mode-unknown";
 
 /// The class the empty-resource rewrite answers by defining the name a `BDC` gives its property
 /// list (`doc/adr/2684`, `doc/adr/3631`); the output's own check holds it to having defined each.
@@ -541,9 +551,10 @@ macro_rules! in_content_operator {
                 " (",
                 $clause,
                 "), so it does not adhere to the base standard, which ISO 19005 section 5.1 \
-                 requires; the operator is written out of the stream only where the profile \
-                 grants content-as-drawn and this reader draws the page the same without it \
-                 (ADR 3558), and here one of those does not hold, so the stream crosses this \
+                 requires; the operator is written out of the stream — or the operands left \
+                 over in front of its own, where they are its only repair (ADR 3641) — only \
+                 where the profile grants content-as-drawn and this reader draws the page the \
+                 same without it (ADR 3558), and here one of those does not hold, so the stream crosses this \
                  verb byte for byte; a profile granting page-as-image photographs the page \
                  instead — doc/pdf-a-conversion-limits.md section 5.2"
             ),

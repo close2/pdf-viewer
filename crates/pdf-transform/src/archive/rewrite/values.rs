@@ -667,7 +667,8 @@ impl Rewriter<'_> {
     }
 
     /// §8.4.1's Table 57 answer, written wherever inside this object the entry was an array of
-    /// names it does not define.
+    /// names it does not define, and this reader's, `Normal`, where it was a bare name the
+    /// standard does not define (`doc/adr/3643`).
     ///
     /// [`Self::restate_rendering_intent`]'s reason for descending, and `/BM` needs no guard of
     /// its own: §8.4.1's Table 57 is the only place the base standard gives the key, and an array
@@ -784,13 +785,17 @@ impl Rewriter<'_> {
             }
             Entry::BlendMode => {
                 dict.get("BM")?;
-                let Object::Array(names) = self.document.get_key(dict, "BM") else {
-                    return None;
+                let undefined = match self.document.get_key(dict, "BM") {
+                    Object::Array(names) => names
+                        .iter()
+                        .all(|name| !sites::is_blend_mode(&self.document.resolve(name))),
+                    // A bare name the standard does not define, which this reader draws as
+                    // `Normal`; `sites::blend_modes` admits one only where the row costs
+                    // `content-as-drawn` (`doc/adr/3643`).
+                    name @ Object::Name(_) => !sites::is_blend_mode(&name),
+                    _ => false,
                 };
-                names
-                    .iter()
-                    .all(|name| !sites::is_blend_mode(&self.document.resolve(name)))
-                    .then(|| ("BM", Object::Name(Name::new(&b"Normal"[..]))))
+                undefined.then(|| ("BM", Object::Name(Name::new(&b"Normal"[..]))))
             }
         }
     }

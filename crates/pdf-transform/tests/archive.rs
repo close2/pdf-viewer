@@ -4482,11 +4482,11 @@ fn a_blend_mode_array_naming_nothing_the_standard_defines_becomes_normal() {
 }
 
 #[test]
-fn a_blend_mode_written_as_a_bare_name_is_refused_because_no_clause_says_what_it_means() {
-    // The other half of the same requirement, and `doc/pdf-a-mitigations.md` section 4.6 is why
-    // it stays refused: Table 57 says what a reader does with an unrecognised name *in an array*
-    // and says nothing at all about one on its own. Writing a mode in its place would decide how
-    // these marks composite with what is under them, which `doc/questions/A48` forbids.
+fn a_blend_mode_written_as_a_bare_name_costs_content_as_drawn() {
+    // The other half of the same requirement: §11.6.3 gives `Normal` only to an array none of
+    // whose names is recognised and says nothing of a bare name, so the `Normal` this reader
+    // draws it as is not the standard's, and writing it down is the loss `content-as-drawn`
+    // (`doc/adr/3643`). A conversion that authorised nothing stops at it.
     let source = Conforming {
         resources: "/ExtGState << /GS0 << /Type /ExtGState /BM /Sepia >> >>".to_owned(),
         ..Conforming::default()
@@ -4496,9 +4496,12 @@ fn a_blend_mode_written_as_a_bare_name_is_refused_because_no_clause_says_what_it
     assert!(
         matches!(
             decision(&report, "graphics/graphics-state-blend-modes-are-defined"),
-            Decision::Refused(Because::NotBuiltYet(_))
+            Decision::Unauthorised {
+                rewrite: Rewrite::BlendModeNormal,
+                losses,
+            } if losses.contains(Loss::ContentAsDrawn)
         ),
-        "the shape with no answer in the standard keeps the refusal"
+        "the bare name's answer is a loss nobody authorised here"
     );
     assert!(output.is_none(), "and no file is written");
 }

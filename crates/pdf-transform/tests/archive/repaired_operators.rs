@@ -297,25 +297,49 @@ fn an_emc_closing_nothing_is_written_out_alone() {
     assert_eq!(text.matches("EMC").count(), 1, "{text}");
 }
 
-/// §7.8.2: an operator given operands in front of its own is run with the last of them, and the
-/// rest dropped. Written out where the page draws the same — a `Tf` no text follows — and left
-/// where it would not, then refused by the class's name under `as-shown` and photographed under
+/// §7.8.2: "all of the operands needed by an operator shall immediately precede that operator",
+/// so an operator given operands in front of its own is run with the last of them and the rest
+/// dropped. Only those are written out, the operator kept with its own, so the page draws the same
+/// whether it draws or not (`doc/adr/3641`): `T02-05-01_008`'s `/F0 36. (…) Tj` keeps its show.
+/// Where the operator also needs another repair it is written out whole, and where that changes
+/// the page it is left, refused by a class's name under `as-shown` and photographed under
 /// `as-if-printed` (`doc/adr/3631`).
 #[test]
-fn operands_left_over_are_written_out_where_the_page_draws_the_same_and_named_where_not() {
+fn operands_left_over_are_written_out_alone_and_the_operator_kept() {
     let target = Target::Two(Level::B);
-    let quiet = a_page_whose_stream_is(b"5 /F1 12 Tf 0 0 10 10 re f");
-    let (report, output) = convert_with_plan(&quiet, &under("as-shown", target));
-    let output = output.unwrap_or_else(|| panic!("{:?}", refusals(&report)));
-    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
-    let written: Vec<&[u8]> = conversion(&report)
-        .runs_written_as_drawn
-        .iter()
-        .map(|written| written.run.as_slice())
-        .collect();
-    assert_eq!(written, [&b"5 /F1 12 Tf"[..]]);
+    let written_out = |report: &Report| -> Vec<Vec<u8>> {
+        conversion(report)
+            .runs_written_as_drawn
+            .iter()
+            .map(|written| written.run.clone())
+            .collect()
+    };
+    for (stream, leftover, kept) in [
+        (
+            &b"5 /F1 12 Tf 0 0 10 10 re f"[..],
+            &b"5"[..],
+            &b"/F1 12 Tf"[..],
+        ),
+        (b"1 2 3 m 10 10 l S", b"1", b"2 3 m"),
+        (b"BT /F1 12 Tf /F1 36. (a) Tj ET", b"/F1 36.", b"(a) Tj"),
+        (b"[1] 0 0 m 10 10 l S", b"[1]", b"0 0 m"),
+    ] {
+        let source = a_page_whose_stream_is(stream);
+        let (report, output) = convert_with_plan(&source, &under("as-shown", target));
+        let output = output.unwrap_or_else(|| panic!("{:?}", refusals(&report)));
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        assert_eq!(written_out(&report), [leftover.to_vec()]);
+        let contents = decoded_contents(&output);
+        let text = String::from_utf8_lossy(&contents);
+        assert!(
+            text.contains(&*String::from_utf8_lossy(kept)),
+            "the operator keeps its own operands: {text}"
+        );
+    }
 
-    let drawing = a_page_whose_stream_is(b"1 2 3 m 10 10 l S");
+    // A show outside a text object with a leftover in front: written out whole it would take the
+    // text off the page, so it is left.
+    let drawing = a_page_whose_stream_is(b"BT /F1 12 Tf ET 1 (a) Tj");
     let (report, output) = convert_with_plan(&drawing, &under("as-shown", target));
     assert!(output.is_none(), "as-shown writes no file");
     let refused = refusals(&report);
@@ -333,4 +357,43 @@ fn operands_left_over_are_written_out_where_the_page_draws_the_same_and_named_wh
         1,
         "the page is photographed"
     );
+}
+
+/// ISO 19005-2 section 6.2.10 and ISO 19005-4 section 6.2.9 require a blend mode ISO 32000-2
+/// defines, and §11.6.3 gives `Normal` only to an array none of whose names is recognised. A bare
+/// name outside Tables 134 and 135 is drawn by this reader as `Normal`, so under a profile granting
+/// `content-as-drawn` it is written as `/Normal`, the producer's name gone and the loss named, and
+/// section 5.1's row does not photograph the page for it (`doc/adr/3643`).
+#[test]
+fn a_bare_blend_mode_name_is_written_as_the_normal_this_reader_draws() {
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >> /ExtGState << /GS0 << /Type /ExtGState /BM /Sepia >> >>"
+            .to_owned(),
+        contents: Some((String::new(), b"/GS0 gs 0 0 10 10 re f".to_vec())),
+        objects: vec![HELVETICA.to_owned()],
+        ..Conforming::part_two()
+    }
+    .build();
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (report, output) = convert_with_plan(&source, &under("as-shown", target));
+        let output = output.unwrap_or_else(|| panic!("{:?}", refusals(&report)));
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        assert!(
+            matches!(
+                decision(&report, "graphics/graphics-state-blend-modes-are-defined"),
+                Decision::Authorised {
+                    rewrite: Rewrite::BlendModeNormal,
+                    losses,
+                } if losses.contains(Loss::ContentAsDrawn)
+            ),
+            "the bare name is restated at the loss content-as-drawn"
+        );
+        assert!(
+            conversion(&report).photographed.is_empty(),
+            "nothing is photographed"
+        );
+        let written = String::from_utf8_lossy(&output).into_owned();
+        assert!(written.contains("/BM /Normal"), "{written}");
+        assert!(!written.contains("Sepia"), "the producer's name is gone");
+    }
 }

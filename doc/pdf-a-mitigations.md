@@ -1355,14 +1355,17 @@ ISO 19005-2 6.2.9.2, ISO 19005-4 6.2.8.2 · all six · **built** as `preserve` (
 #### `graphics/graphics-state-blend-modes-are-defined`
 #### `graphics/annotation-blend-modes-are-defined`
 ISO 19005-2 6.2.10, ISO 19005-4 6.2.9 · all six / part 4 · **array half built in session 957**
-(`Stated`); the bare-name half stays `not-built-yet`
+(`Stated`); the bare-name half **built** at the loss `content-as-drawn` (ADR 3643)
 
 - **Mitigation** — split by shape, as ADR 0955 found. For an **array** of names, §11.6.3's own entry
   says a reader takes the first mode it recognises or `Normal` if it recognises none, so reducing
   the array to that name is `Stated` and **owed, not optional**. For a **bare name** the standard
-  does not define, there is **no mitigation**: writing one in its place chooses how these marks
-  composite with what is under them, which `A48` forbids, and removing the entry does not state
-  `Normal` either, because a graphics state parameter dictionary sets only what it names.
+  does not define, no sentence of the standard says what it means, so no name is `Stated`; but
+  this reader draws it as `Normal` (§11.6.3 gives `Normal` only for the array form), and the
+  owner's stance — where the input is bad, bake in the state the viewer shows, at a stated loss —
+  makes writing `Normal` the loss `content-as-drawn`, the producer's name gone and named in the
+  report (ADR 3643). Removing the entry would not state `Normal`, because a graphics state
+  parameter dictionary sets only what it names.
 - **By target** — the annotation half is part 4 only (kind A candidate; confirmed, part 2 states no
   rule about an annotation's `/BM`).
 - **From a configuration** — nothing for the array half. For the bare-name half a configuration

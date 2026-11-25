@@ -51,6 +51,16 @@
 //! the producer meant, the write states only what the window already drew, and a page it would
 //! change keeps the operator and the refusal by the class's name (or, under `as-if-printed`, its
 //! photograph). The producer's bytes are gone, which is the loss's own word.
+//!
+//! Operands left over in front of an operator's own are the one class where less is written out:
+//! §7.8.2 states
+//!
+//! > all of the operands needed by an operator shall immediately precede that operator.
+//!
+//! so the operator's own are the last of them, and the reader runs it with exactly those and drops
+//! the rest. Where that is the operator's only repair, the leftovers alone are written as one
+//! white-space character and the operator keeps its own operands, which is what the reader ran;
+//! the proof by drawing both files still decides (`doc/adr/3641`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -81,9 +91,10 @@ const NOT_DRAWN_THE_SAME: &str = "writing out the operators this reader repaired
 ///
 /// A `BDC` naming a property list the resources do not hold (§14.6.2) is written out with its
 /// section where its operands are the wrong type, and its name goes with it (`doc/adr/3615`); a
-/// well-typed one keeps it, and the name is defined instead (`doc/adr/2684`). An operator with operands
-/// left over in front of its own is written out with all of them (§7.8.2), and an `EMC` with no
-/// section open is written out alone (Table 352), each only where the page draws the same. A
+/// well-typed one keeps it, and the name is defined instead (`doc/adr/2684`). Operands left over in
+/// front of an operator's own are written out without it where they are its only repair, and with
+/// it where it needs another (§7.8.2, `doc/adr/3641`), and an `EMC` with no section open is written
+/// out alone (Table 352), each only where the page draws the same. A
 /// class the write takes nothing at — a section left open at its stream's end — stays in the
 /// output, whose own check then refuses the write rather than let it be wrong.
 pub(super) const WRITTEN_OUT_WHERE_DRAWN_THE_SAME: [&str; 8] = [
@@ -549,7 +560,31 @@ struct Walk {
     /// out, so that the `EMC` balancing it is written out with it (`doc/adr/3615`). At most
     /// [`MOST_SECTIONS`]; past it a section is not followed and its operator is left.
     sections: Vec<bool>,
+    /// Where each operand since the last operator began in this stream, oldest first, so that the
+    /// operands left over in front of an operator's own can be written out without them
+    /// (`doc/adr/3641`). At most [`MOST_STARTS`]; past it `starts_lost` is set.
+    starts: Vec<usize>,
+    /// Whether more operands stood since the last operator than `starts` keeps, so that an
+    /// operator with operands left over is written out whole rather than without its leftovers.
+    starts_lost: bool,
 }
+
+/// What one operator's place in the stream is to become.
+#[derive(Clone, Copy)]
+enum WrittenOut {
+    /// The operator is left as the producer wrote it.
+    Left,
+    /// The operator is written out with all its operands, from the byte its first operand starts at.
+    Whole(usize),
+    /// Only the operands left over in front of the operator's own are written out: the place from
+    /// the first of them to the first of its own (`doc/adr/3641`).
+    LeftOver(usize, usize),
+}
+
+/// How many operands' starts [`Walk`] keeps before one operator. Far below the interpreter's own
+/// bound on one operator's operands, so that every operand it keeps is one the reader keeps too
+/// and the last of them are the ones it gives the operator.
+const MOST_STARTS: usize = 64;
 
 /// How deep the open sections [`Walk`] follows may nest, so that a hostile stream of `BMC`s costs
 /// a bound rather than memory.
@@ -559,6 +594,7 @@ impl Walk {
     /// The walk at the start of the next stream of the same page's content.
     fn into_the_next_stream(mut self) -> Self {
         self.operands_elsewhere |= self.operands_from.take().is_some();
+        self.starts.clear();
         self
     }
 
@@ -566,6 +602,8 @@ impl Walk {
     fn operands_spent(&mut self) {
         self.operands_from = None;
         self.operands_elsewhere = false;
+        self.starts.clear();
+        self.starts_lost = false;
     }
 
     /// A keyword that is no operator ended the operands before it, as the reader's clearing does.
@@ -575,7 +613,8 @@ impl Walk {
     }
 
     /// One token at the top level of the content that is an operand, or a keyword standing where
-    /// one would: a run the reader draws as a number (`drawn`) is the operand it draws, and any
+    /// one would, `start` being where the operand began (an array's or a dictionary's opening
+    /// bracket for its closing one): a run the reader draws as a number (`drawn`) is the operand it draws, and any
     /// other keyword ends the operands before it, as the survey's walk reads them
     /// (`drawn_as_a_number`).
     fn operand(&mut self, token: &Token<'_>, start: usize, drawn: bool) {
@@ -598,25 +637,41 @@ impl Walk {
         if matches!(token, Token::Keyword(_)) {
             self.operands_from.get_or_insert(start);
         }
+        if self.starts.len() < MOST_STARTS {
+            self.starts.push(start);
+        } else {
+            self.starts_lost = true;
+        }
         self.grammar.operand(operand);
     }
 
     /// An operator keyword at the top level of the content: where the grammar finds one of
     /// [`WRITTEN_OUT_WHERE_DRAWN_THE_SAME`]'s repairs at it and its operands all stand in this
-    /// stream, the place its first operand starts at.
+    /// stream, what of it is written out.
+    ///
+    /// Where the one repair is §7.8.2's operands left over, only those are: the clause's "all of
+    /// the operands needed by an operator shall immediately precede that operator" makes the last
+    /// of them the operator's own, and the reader gives it exactly those and drops the rest, so
+    /// the operator stays with its own operands and draws what it drew (`doc/adr/3641`).
     fn operator(
         &mut self,
         document: &Document,
         resources: &pdf_syntax::object::Dictionary,
         word: &[u8],
         start: usize,
-    ) -> Option<usize> {
+    ) -> WrittenOut {
         let from = self.operands_from.unwrap_or(start);
         let whole_here = !self.operands_elsewhere;
+        let own_from = signature(word)
+            .and_then(|signature| signature.operand_count())
+            .filter(|_| !self.starts_lost)
+            .and_then(|takes| self.starts.len().checked_sub(takes))
+            .and_then(|first_own| self.starts.get(first_own).copied())
+            .unwrap_or(start);
         self.operands_spent();
         let Some(signature) = signature(word) else {
             self.grammar.boundary();
-            return None;
+            return WrittenOut::Left;
         };
         let found = self.grammar.operator(signature);
         if let (b"CS" | b"cs", Some(name)) = (word, self.last_name.take()) {
@@ -624,27 +679,40 @@ impl Walk {
                 .select_space(word == b"CS", space_components(document, resources, &name));
         }
         let mut classes = found.classes().peekable();
+        let only_left_over = found
+            .classes()
+            .all(|class| class.name == pdf_model::repair::OPERANDS_LEFT_OVER.name);
         let written = whole_here
             && classes.peek().is_some()
             && classes.all(|class| WRITTEN_OUT_WHERE_DRAWN_THE_SAME.contains(&class.name));
+        let place = match (written, only_left_over && from < own_from) {
+            (false, _) => WrittenOut::Left,
+            (true, true) => WrittenOut::LeftOver(from, own_from),
+            (true, false) => WrittenOut::Whole(from),
+        };
         match word {
             // Table 352's `BMC` and `BDC` each begin a sequence "terminated by a balancing EMC
             // operator": a section whose opening operator is written out is written out whole,
-            // or the `EMC` left behind would balance nothing (`doc/adr/3615`).
+            // or the `EMC` left behind would balance nothing (`doc/adr/3615`). One that keeps its
+            // operator keeps its `EMC`.
             b"BMC" | b"BDC" => {
                 if self.sections.len() < MOST_SECTIONS {
-                    self.sections.push(written);
-                    return written.then_some(from);
+                    self.sections.push(matches!(place, WrittenOut::Whole(_)));
+                    return place;
                 }
-                None
+                WrittenOut::Left
             }
             // An `EMC` with no section open balances nothing, and the reader ignores it: it is
             // written out alone where the page draws the same.
             b"EMC" => match self.sections.pop() {
-                Some(opened_written) => opened_written.then_some(start),
-                None => written.then_some(from),
+                Some(true) => WrittenOut::Whole(start),
+                Some(false) => match place {
+                    WrittenOut::LeftOver(..) => place,
+                    _ => WrittenOut::Left,
+                },
+                None => place,
             },
-            _ => written.then_some(from),
+            _ => place,
         }
     }
 }
@@ -679,6 +747,9 @@ fn salvaged_runs(
     // The operands since the last operator, and how deep in arrays and dictionaries the lexer is.
     let mut pending = 0_usize;
     let mut depth = 0_usize;
+    // Where the array or dictionary open at the top level began, which is where it starts as
+    // one operand.
+    let mut opened_at = 0_usize;
     loop {
         lexer.skip_whitespace();
         let start = lexer.position();
@@ -703,12 +774,17 @@ fn salvaged_runs(
             walk.operands_from.get_or_insert(start);
         }
         match &token {
-            Token::ArrayOpen | Token::DictOpen => depth = depth.saturating_add(1),
+            Token::ArrayOpen | Token::DictOpen => {
+                if depth == 0 {
+                    opened_at = start;
+                }
+                depth = depth.saturating_add(1);
+            }
             Token::ArrayClose | Token::DictClose => {
                 depth = depth.saturating_sub(1);
                 pending = pending.saturating_add(1);
                 if depth == 0 {
-                    walk.operand(&token, start, false);
+                    walk.operand(&token, opened_at, false);
                 }
             }
             Token::Keyword(word) if is_a_lone_delimiter(word) => {
@@ -731,14 +807,9 @@ fn salvaged_runs(
                     && !matches!(*word, b"true" | b"false" | b"null") =>
             {
                 pending = 0;
-                if let Some(from) = walk.operator(document, resources, word, start)
-                    && operators
-                {
-                    placed(
-                        &mut out,
-                        most,
-                        Place::white_space(from, lexer.position(), true),
-                    )?;
+                let written = walk.operator(document, resources, word, start);
+                if operators {
+                    written_out(&mut out, most, data, written, lexer.position())?;
                 }
                 continue;
             }
@@ -770,6 +841,43 @@ fn salvaged_runs(
         }
     }
     Some((out, left))
+}
+
+/// Whether `byte` is one of ISO 32000-2 §7.2.3's six white-space characters (Table 1).
+const fn is_white_space(byte: u8) -> bool {
+    matches!(byte, 0 | b'\t' | b'\n' | 0x0c | b'\r' | b' ')
+}
+
+/// Adds the place an operator is written out at, `end` being one past the operator's last byte:
+/// the operator with its operands, or the operands left over in front of its own.
+///
+/// A run among the operands written out goes with them, and one among the operator's own stays
+/// after it, so the places stay in order and apart. `None` where `out` already holds `most`.
+fn written_out(
+    out: &mut Vec<Place>,
+    most: usize,
+    data: &[u8],
+    written: WrittenOut,
+    end: usize,
+) -> Option<()> {
+    let (from, to) = match written {
+        WrittenOut::Left => return Some(()),
+        WrittenOut::Whole(from) => (from, end),
+        // The white space before the operator's own first operand stays and parts the place
+        // from it, so the place ends where the last leftover does.
+        WrittenOut::LeftOver(from, to) => (
+            from,
+            data.get(from..to)
+                .and_then(|span| span.iter().rposition(|byte| !is_white_space(*byte)))
+                .and_then(|last| from.checked_add(last)?.checked_add(1))
+                .unwrap_or(to),
+        ),
+    };
+    let at = out.partition_point(|place| place.start < from);
+    let own: Vec<Place> = out.drain(at..).filter(|place| place.start >= to).collect();
+    placed(out, most, Place::white_space(from, to, true))?;
+    out.extend(own);
+    Some(())
 }
 
 /// The number this reader draws for a salvaged run, in ISO 32000-2 §7.3.3's spelling.

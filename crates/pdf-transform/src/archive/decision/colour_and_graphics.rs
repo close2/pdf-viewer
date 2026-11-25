@@ -452,7 +452,8 @@ pub(super) const REMEDIES: &[Remedy] = &[
             RENDERING_INTENT_REINTERPRETS,
         ),
     },
-    // ISO 19005-2 section 6.2.10, ISO 19005-4 section 6.2.9 — the array half of each.
+    // ISO 19005-2 section 6.2.10, ISO 19005-4 section 6.2.9: the array half of each as stated,
+    // and the bare-name half at the loss `content-as-drawn` (`super::super::decide`).
     Remedy {
         requirement: "graphics/graphics-state-blend-modes-are-defined",
         answer: Answer::Stated(None, Rewrite::BlendModeNormal, BLEND_MODE_REINTERPRETS),
@@ -566,6 +567,17 @@ pub(super) const REMEDIES: &[Remedy] = &[
 
 /// This family's rows of [`super::CONDITIONAL`].
 pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
+    // A bare blend mode name the standard does not define is restated as the `Normal` this
+    // reader draws it as, at the loss `content-as-drawn`; an array is the standard's own answer
+    // and loses nothing (`doc/adr/3643`).
+    (
+        "graphics/graphics-state-blend-modes-are-defined",
+        Conditional::PerDocument(Losses::one(Loss::ContentAsDrawn)),
+    ),
+    (
+        "graphics/annotation-blend-modes-are-defined",
+        Conditional::PerDocument(Losses::one(Loss::ContentAsDrawn)),
+    ),
     (
         "graphics/no-transfer-function-in-a-graphics-state",
         Conditional::PerDocument(Losses::one(Loss::TransferFunction)),
@@ -594,11 +606,11 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
 
 /// This family's rows of [`super::SHAPES`].
 pub(super) const SHAPES: &[(&str, &[Shape])] = &[
-    // ISO 19005-2 section 6.2.10, ISO 19005-4 section 6.2.9. §11.6.3's Table 136 entry has a
-    // reader take the first mode of an array that it recognises, or `Normal` if it recognises
-    // none — so an array reduces to a name every reader already used. A bare name the standard
-    // does not define states a compositing function nothing defines, and writing one in its
-    // place chooses how the marks under it are composited.
+    // ISO 19005-2 section 6.2.10, ISO 19005-4 section 6.2.9. §11.6.3 has a reader take the
+    // first mode of an array that it recognises, or `Normal` if it recognises none — so an array
+    // reduces to a name every reader already used, and loses nothing. A bare name the standard
+    // does not define states a compositing function nothing defines; this reader draws it as
+    // `Normal`, and writing that down is the loss `content-as-drawn` (`doc/adr/3643`).
     (
         "graphics/graphics-state-blend-modes-are-defined",
         &[
@@ -608,7 +620,7 @@ pub(super) const SHAPES: &[(&str, &[Shape])] = &[
             },
             Shape {
                 name: "name",
-                answered: false,
+                answered: true,
             },
         ],
     ),
@@ -621,7 +633,7 @@ pub(super) const SHAPES: &[(&str, &[Shape])] = &[
             },
             Shape {
                 name: "name",
-                answered: false,
+                answered: true,
             },
         ],
     ),

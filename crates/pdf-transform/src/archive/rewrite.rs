@@ -526,8 +526,8 @@ pub enum Rewrite {
     /// `doc/adr/0948`'s `Stated` class rather than a choice this converter made. **The same name
     /// as the `ri` operator's operand is not touched**: that is inside a content stream.
     RenderingIntent,
-    /// Every `/BM` that is an array naming no blend mode the base standard defines is restated
-    /// as the name `Normal`.
+    /// Every `/BM` that is an array naming no blend mode the base standard defines, or a bare name
+    /// it does not define, is restated as the name `Normal`.
     ///
     /// ISO 19005-2 section 6.2.10 and ISO 19005-4 section 6.2.9 require a defined mode, and
     /// §8.4.1's Table 57 says what a reader does with such an array:
@@ -537,7 +537,9 @@ pub enum Rewrite {
     ///
     /// An array with no recognised name in it is therefore already `Normal` to every conforming
     /// reader, and writing the name down changes no composite. **A bare name the standard does
-    /// not define is left alone**, because no sentence of the standard says what it means.
+    /// not define** has no sentence of the standard behind it; this reader draws it as `Normal`,
+    /// so it is restated at the loss [`super::Loss::ContentAsDrawn`] where the profile grants
+    /// that (`doc/adr/3643`).
     BlendModeNormal,
     /// Every annotation whose `/AP` `/N` is a subdictionary of states, and which states an `/AS`
     /// naming one of them, has `/N` restated as that one stream.
@@ -1577,7 +1579,8 @@ impl Rewrite {
             }
             Self::BlendModeNormal => {
                 "a BM that is an array naming no blend mode ISO 32000-2 defines is restated as \
-                 Normal, which \u{a7}8.4.1's Table 57 is what a reader takes from such an array"
+                 Normal, which \u{a7}8.4.1's Table 57 is what a reader takes from such an array, \
+                 and a bare name it does not define as the Normal this reader draws it as"
             }
             Self::NormalAppearanceFromState => {
                 "an annotation whose normal appearance is a subdictionary of states is given the \

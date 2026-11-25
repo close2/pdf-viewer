@@ -850,7 +850,7 @@ pub(super) fn restate_metrics(
                     .map_or_else(|| bytes.to_vec(), |twins| twins.program.clone());
                 if !widths.is_empty() {
                     restated = pdf_font::restate::with_widths(&restated, format, &widths)
-                        .map_err(|_| Because::NotBuiltYet(PROGRAM_NOT_RESTATABLE))?;
+                        .map_err(|_| not_restatable(format))?;
                 }
                 if !heights.is_empty() {
                     restated =
@@ -3026,7 +3026,8 @@ const SHARED_PROGRAM_NOT_COPIED: &str = "this font's embedded program is shared 
      dictionary naming its descriptor is not an indirect object, the descriptor does not name \
      the program under FontFile2 or FontFile3, or no object number is free for the copy";
 
-/// Why a program whose advances are stated somewhere unreachable is not restated.
+/// Why a Type 1 or bare CFF program whose advances are stated somewhere unreachable is not
+/// restated.
 const PROGRAM_NOT_RESTATABLE: &str = "this font's embedded program states a glyph's advance \
      somewhere this converter does not rewrite — a Type 1 charstring that does not open with \
      hsbw or sbw over plain numbers or whose stream does not state the lengths of its sections, \
@@ -3034,6 +3035,25 @@ const PROGRAM_NOT_RESTATABLE: &str = "this font's embedded program states a glyp
      pdf_font::restate does not follow. The alternative is restating /Widths to match the \
      program, and doc/pdf-a-conversion-limits.md section 4.9 calls that one never: /Widths is \
      what positions the glyphs, so it is the one change that would move every line of the page";
+
+/// The refusal for a program in `format` whose advances cannot be restated: an sfnt's sentence
+/// is its own (ADR 3642).
+fn not_restatable(format: Format) -> Because {
+    Because::NotBuiltYet(match format {
+        Format::Sfnt => SFNT_NOT_RESTATABLE,
+        _ => PROGRAM_NOT_RESTATABLE,
+    })
+}
+
+/// Why a TrueType or OpenType program whose advances cannot be restated is not restated.
+const SFNT_NOT_RESTATABLE: &str = "this font's embedded TrueType or OpenType program cannot have \
+     its advances restated: its hhea, maxp or hmtx does not state an advance for every glyph it \
+     holds, a glyph whose side bearing hmtx omits has no box in glyf to take it from, the \
+     restated program does not draw every glyph as the original did, or an OpenType program's \
+     CFF charstring states its width inside a subroutine reached in a way pdf_font::restate does \
+     not follow. The alternative is restating /Widths to match the program, and \
+     doc/pdf-a-conversion-limits.md section 4.9 calls that one never: /Widths is what positions \
+     the glyphs, so it is the one change that would move every line of the page";
 
 /// Why a program that will not compress into a stream is not written.
 const PROGRAM_NOT_ENCODED: &str = "the font program this conversion built is longer than a \
