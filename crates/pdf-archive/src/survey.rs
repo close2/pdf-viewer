@@ -1183,6 +1183,9 @@ impl Survey {
 /// The part of the graphics state this walk needs.
 #[derive(Clone, Default)]
 struct State {
+    /// Whether §8.6.8's colour operators are ignored: in an uncoloured tiling pattern's cell,
+    /// after a `d1`, and in every stream either invokes.
+    uncoloured: bool,
     /// The resource name of the current font, from `Tf`.
     font: Option<Vec<u8>>,
     /// The current font where the last to set it was a `gs` whose graphics state states `/Font`
@@ -1452,6 +1455,12 @@ enum Step {
     /// `pdf_model::content::reader::inline_dictionary`, which is the interpreter's own reader of
     /// this construction rather than a second one.
     Dictionary,
+    /// An array's `[` or `]`, which the grammar counts as the interpreter does: a keyword between
+    /// them is no operator (`pdf_model::content::grammar`, ADR 3629).
+    ArrayBracket {
+        /// Whether it is the `[`.
+        opens: bool,
+    },
     /// An operand of a kind no rule here reads.
     Other,
     /// The content stream ended.
@@ -1468,6 +1477,8 @@ fn next_step(reader: &mut ContentReader<'_>) -> Step {
         Some(Token::String(text)) => Step::Text(text),
         Some(Token::Keyword(word)) => keyword_step(word),
         Some(Token::DictOpen) => Step::Dictionary,
+        Some(Token::ArrayOpen) => Step::ArrayBracket { opens: true },
+        Some(Token::ArrayClose) => Step::ArrayBracket { opens: false },
         Some(_) => Step::Other,
     })
 }

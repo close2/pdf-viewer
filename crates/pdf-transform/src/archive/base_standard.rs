@@ -192,9 +192,10 @@ pub(super) fn answer(
 pub(super) fn settled(
     answered: Result<Answered, Because>,
     document: &Document,
-    (drawn, reals): (
+    (drawn, reals, resources_defined): (
         Option<&super::as_drawn::Drawn>,
         Option<&super::integer_reals::Restated>,
+        bool,
     ),
     (photographed, taken_off): (&BTreeSet<ObjectId>, &BTreeSet<ObjectId>),
 ) -> Result<Answered, Because> {
@@ -233,8 +234,12 @@ pub(super) fn settled(
                 operators_written_out = true;
                 return true;
             }
-            (WRITTEN_OUT_BY_THE_RUN_REWRITE.contains(&class.name)
-                && drawn.is_some_and(|drawn| written_by(&drawn.at)))
+            // A `BDC` naming a property list nothing defines, where ADR 2684's rewrite defines
+            // the name as a membership dictionary naming no group, which hides nothing, as the
+            // reader drew it (`doc/adr/3631`).
+            (class.name == DEFINED_BY_THE_RESOURCE_REWRITE && resources_defined)
+                || (WRITTEN_OUT_BY_THE_RUN_REWRITE.contains(&class.name)
+                    && drawn.is_some_and(|drawn| written_by(&drawn.at)))
                 || (class.name == WRITTEN_OUT_AS_REALS
                     && reals.is_some_and(|reals| written_by(&reals.at)))
         });
@@ -253,8 +258,14 @@ pub(super) fn settled(
 /// the page draws the same, which is not known until it is tried, and a page it leaves is
 /// photographed where the profile allows.
 pub(super) fn written_out_by_a_rewrite(class: &str) -> bool {
-    WRITTEN_OUT_BY_THE_RUN_REWRITE.contains(&class) || class == WRITTEN_OUT_AS_REALS
+    WRITTEN_OUT_BY_THE_RUN_REWRITE.contains(&class)
+        || class == WRITTEN_OUT_AS_REALS
+        || class == DEFINED_BY_THE_RESOURCE_REWRITE
 }
+
+/// The class the empty-resource rewrite answers by defining the name a `BDC` gives its property
+/// list (`doc/adr/2684`, `doc/adr/3631`); the output's own check holds it to having defined each.
+const DEFINED_BY_THE_RESOURCE_REWRITE: &str = "model/property-list-unresolved";
 
 /// Whether the input failed section 5.1 on an operator this reader repaired inside a content
 /// stream, of a class `super::as_drawn` writes out where the page draws the same
@@ -578,7 +589,10 @@ const IN_CONTENT_BY_CLASS: &[(&str, &str, &str)] = &[
     ),
     // Answered where the `BDC` naming the list is written out with its section (ADR 3615).
     in_content_operator!("model/property-list-unresolved", "ISO 32000-2 §14.6.2"),
-    // What a stream leaves open, which the checker's grammar reads off the tokens (ADR 3614).
+    // Answered where the operator is written out with every operand before it (ADR 3631).
+    in_content_operator!("model/operands-left-over", "ISO 32000-2 §7.8.2"),
+    // What a stream leaves open, which the checker's grammar reads off the tokens (ADR 3614); an
+    // `EMC` closing nothing is written out alone where the page draws the same (ADR 3631).
     in_content!("model/marked-content-unbalanced", "ISO 32000-2 §14.6.1"),
     in_content!(
         "model/compatibility-sections-unbalanced",

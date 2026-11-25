@@ -2,7 +2,7 @@
 
 use pdf_model::content::grammar::{Grammar, Operand};
 use pdf_model::content::reader::ContentReader;
-use pdf_syntax::Dictionary;
+use pdf_syntax::{Dictionary, Object};
 
 use super::{
     Context, DefaultSpace, DeviceFamily, Extent, MAX_NESTING, Observation, Operands, Operator,
@@ -17,6 +17,8 @@ const fn grammar_operand(step: &Step) -> Option<Operand> {
         Step::Integer(_) | Step::WideInteger(_) | Step::Real(_) => Operand::Number,
         Step::Text(_) => Operand::Text,
         Step::Dictionary => Operand::Dictionary,
+        Step::ArrayBracket { opens: true } => Operand::ArrayOpen,
+        Step::ArrayBracket { opens: false } => Operand::ArrayClose,
         Step::Other => Operand::Other,
         Step::Operator(..) | Step::Unlisted(_) | Step::End => return None,
     })
@@ -81,6 +83,9 @@ impl Walk<'_> {
         // interpret reads off the tokens (ADR 3541). What it finds goes with the stream's lexical
         // repairs, which the caller records at the stream's content site.
         let mut grammar = Grammar::default();
+        if state.uncoloured {
+            grammar.ignore_colour();
+        }
         loop {
             if self.budget == 0 {
                 self.survey.stopped_short = true;
@@ -98,6 +103,7 @@ impl Walk<'_> {
                     | Step::Real(_)
                     | Step::Text(_)
                     | Step::Dictionary
+                    | Step::ArrayBracket { .. }
                     | Step::Other
             ) {
                 operands_read = operands_read.saturating_add(1);
@@ -116,7 +122,7 @@ impl Walk<'_> {
                     self.marks.truncate(base);
                     return;
                 }
-                Step::Other => {}
+                Step::ArrayBracket { .. } | Step::Other => {}
                 Step::Dictionary => {
                     let dict = pdf_model::content::reader::inline_dictionary(reader);
                     self.note_inline_dictionary(&dict, page);
@@ -176,10 +182,15 @@ impl Walk<'_> {
                         ledger.operator(operator.label().as_bytes());
                     }
                     match signature.map(|signature| grammar.operator(signature)) {
-                        Some(Some(class)) => reader.note_repair(class),
-                        Some(None) => {}
+                        Some(found) => {
+                            for class in found.classes() {
+                                reader.note_repair(class);
+                            }
+                        }
                         None => grammar.boundary(),
                     }
+                    // A `d1` makes what this glyph invokes after it uncoloured too (§8.6.8).
+                    state.uncoloured |= grammar.ignores_colour();
                     let context = Context {
                         resources,
                         defaults,
@@ -189,6 +200,19 @@ impl Walk<'_> {
                         record: origin.record,
                         marks_base: base,
                     };
+                    // §14.6.2's named property list, which the grammar asks the resources for
+                    // (ADR 3629): the interpreter reads one it cannot find as stating nothing.
+                    if grammar.names_a_property_list() {
+                        let resolved = names
+                            .last()
+                            .and_then(|name| self.peek("Properties", name, &context))
+                            .is_some_and(|list| {
+                                matches!(self.document.resolve(&list), Object::Dictionary(_))
+                            });
+                        if let Some(class) = grammar.property_list(resolved) {
+                            reader.note_repair(class);
+                        }
+                    }
                     self.place_from(&operator, &state, &context, &mut displaced);
                     self.apply(
                         &operator,
@@ -230,7 +254,7 @@ impl Walk<'_> {
     fn space_components(&self, name: &[u8], context: &Context<'_>) -> Option<usize> {
         if let Some(count) = pdf_model::content::grammar::components(
             self.document,
-            &pdf_syntax::Object::Name(pdf_syntax::Name::new(name.to_vec())),
+            &Object::Name(pdf_syntax::Name::new(name.to_vec())),
         ) {
             return Some(count);
         }

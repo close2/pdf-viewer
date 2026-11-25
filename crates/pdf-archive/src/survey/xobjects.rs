@@ -255,16 +255,27 @@ impl Walk<'_> {
                     complete,
                 );
                 if complete || scanned.image.is_ok() || want >= bound {
-                    Some((scanned.resume, scanned.image.ok(), scanned.repairs))
+                    // Settled by the bound alone: the interpreter reads no further either, and
+                    // logs it (ADR 3629).
+                    let past_the_bound = !complete && scanned.image.is_err();
+                    Some((
+                        scanned.resume,
+                        scanned.image.ok(),
+                        scanned.repairs,
+                        past_the_bound,
+                    ))
                 } else {
                     None
                 }
             };
-            if let Some((resume, image, repairs)) = settled {
+            if let Some((resume, image, repairs, past_the_bound)) = settled {
                 // What reading the image needed goes with the stream's own repairs, to the page's
                 // or form's content site (ADR 3541).
                 for class in repairs {
                     reader.note_repair(class);
+                }
+                if past_the_bound {
+                    reader.note_repair(&pdf_model::repair::CONTENT_PAST_A_BOUND);
                 }
                 reader.skip(resume);
                 if let Some(image) = image {

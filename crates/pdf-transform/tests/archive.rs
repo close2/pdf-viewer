@@ -7368,7 +7368,7 @@ fn a_widget_the_producer_gave_an_appearance_keeps_the_producer_s_bytes() {
     // widget that has one is provided for, the flag may go, and rebuilding the stream would
     // replace a producer's marks with this program's for no requirement at all.
     let appearance = "<< /Type /XObject /Subtype /Form /BBox [0 0 180 30] /Length 5 >>\n\
-                      stream\n1 0 g\nendstream"
+                      stream\n0.5 g\nendstream"
         .to_owned();
     let source =
         a_form_asking_for_appearances("/FT /Tx /V (kept) /AP << /N 9 0 R >>", vec![appearance]);
@@ -7393,7 +7393,7 @@ fn a_widget_the_producer_gave_an_appearance_keeps_the_producer_s_bytes() {
             .decoded_stream_data(normal)
             .expect("its bytes")
             .as_ref(),
-        b"1 0 g",
+        b"0.5 g",
         "the producer's marks cross unchanged"
     );
     assert!(

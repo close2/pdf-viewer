@@ -79,17 +79,22 @@ const NOT_DRAWN_THE_SAME: &str = "writing out the operators this reader repaired
 /// The repair classes an operator is written out for where the page draws the same without it
 /// (`doc/adr/3558`).
 ///
-/// The last is no operator's own: a `BDC` naming a property list the resources do not hold
-/// (§14.6.2) is written out with its section where its operands are the wrong type, and its name
-/// goes with it (`doc/adr/3615`). A `BDC` the grammar finds nothing at keeps it, and the output's
-/// own check refuses the write.
-pub(super) const WRITTEN_OUT_WHERE_DRAWN_THE_SAME: [&str; 6] = [
+/// A `BDC` naming a property list the resources do not hold (§14.6.2) is written out with its
+/// section where its operands are the wrong type, and its name goes with it (`doc/adr/3615`); a
+/// well-typed one keeps it, and the name is defined instead (`doc/adr/2684`). An operator with operands
+/// left over in front of its own is written out with all of them (§7.8.2), and an `EMC` with no
+/// section open is written out alone (Table 352), each only where the page draws the same. A
+/// class the write takes nothing at — a section left open at its stream's end — stays in the
+/// output, whose own check then refuses the write rather than let it be wrong.
+pub(super) const WRITTEN_OUT_WHERE_DRAWN_THE_SAME: [&str; 8] = [
     "model/operator-short-of-operands",
     "model/operand-of-the-wrong-type",
     "model/restore-with-nothing-saved",
     "model/text-operator-outside-a-text-object",
     "model/colour-operands-do-not-fit-the-space",
     "model/property-list-unresolved",
+    "model/operands-left-over",
+    "model/marked-content-unbalanced",
 ];
 
 /// The most pages the proof draws twice; past it the operators are left.
@@ -613,13 +618,15 @@ impl Walk {
             self.grammar.boundary();
             return None;
         };
-        let class = self.grammar.operator(signature);
+        let found = self.grammar.operator(signature);
         if let (b"CS" | b"cs", Some(name)) = (word, self.last_name.take()) {
             self.grammar
                 .select_space(word == b"CS", space_components(document, resources, &name));
         }
+        let mut classes = found.classes().peekable();
         let written = whole_here
-            && class.is_some_and(|class| WRITTEN_OUT_WHERE_DRAWN_THE_SAME.contains(&class.name));
+            && classes.peek().is_some()
+            && classes.all(|class| WRITTEN_OUT_WHERE_DRAWN_THE_SAME.contains(&class.name));
         match word {
             // Table 352's `BMC` and `BDC` each begin a sequence "terminated by a balancing EMC
             // operator": a section whose opening operator is written out is written out whole,
@@ -631,10 +638,12 @@ impl Walk {
                 }
                 None
             }
-            b"EMC" => self
-                .sections
-                .pop()
-                .and_then(|opened_written| opened_written.then_some(start)),
+            // An `EMC` with no section open balances nothing, and the reader ignores it: it is
+            // written out alone where the page draws the same.
+            b"EMC" => match self.sections.pop() {
+                Some(opened_written) => opened_written.then_some(start),
+                None => written.then_some(from),
+            },
             _ => written.then_some(from),
         }
     }

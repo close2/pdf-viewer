@@ -351,8 +351,11 @@ per document
   damage. A stream whose one fault is cut ASCII data is left to the row above. A repair inside a
   content stream (`pdf_syntax::Site::Content`) is answered, in this order: an operator `pdf_model`
   repaired (short of operands, wrong operand type, `Q` with nothing saved, text operator outside a
-  text object, colour operands that do not fit) is written out with its operands where the page
-  draws the same without it, proved by drawing both, at `content-as-drawn` (ADR 3558); under
+  text object, colour operands that do not fit, operands left over in front of its own, a
+  wrong-typed `BDC` with its section, an `EMC` closing nothing) is written out with its operands
+  where the page draws the same without it, proved by drawing both, at `content-as-drawn` (ADR
+  3558, ADR 3615, ADR 3631); a property list nothing defines is defined as a membership dictionary
+  naming no group, losing nothing (ADR 2684, ADR 3631); under
   `as-if-printed` the page holding any other is photographed at `page-as-image` (ADR 3557); a repair
   in an annotation's appearance, and every repair under `as-shown` the first answer leaves, is
   refused by name under the fence, the class and its clause in the sentence (ADR 3560 lists what

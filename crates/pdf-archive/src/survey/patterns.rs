@@ -27,13 +27,21 @@ impl Walk<'_> {
                 let own = self.document.get_key(&stream.dict, "Resources");
                 let stated = own.as_dict().is_some();
                 let resources = own.as_dict().cloned().unwrap_or_default();
+                // A `PaintType` of 2 is §8.7.3.3's uncoloured tiling pattern, whose cell's colour
+                // operators §8.6.8 has ignored, which the grammar is told (ADR 3629).
+                let mut cell = state.clone();
+                cell.uncoloured |= self
+                    .document
+                    .get_key(&stream.dict, "PaintType")
+                    .as_integer()
+                    == Some(2);
                 self.nested(
                     &stream,
                     id,
                     &resources,
                     context.page,
                     context.depth,
-                    state,
+                    &cell,
                     "a tiling pattern",
                     stated,
                     Via::TilingPattern,

@@ -1519,7 +1519,13 @@ impl Prepared {
         let base_standard = super::base_standard::settled(
             base_standard,
             document,
-            (as_drawn.as_ref().ok(), integer_reals.as_ref().ok()),
+            (
+                as_drawn.as_ref().ok(),
+                integer_reals.as_ref().ok(),
+                defined_resources
+                    .as_ref()
+                    .is_ok_and(|defined| !defined.at.is_empty()),
+            ),
             (&photographed, &taken_off_by_photographs),
         );
         let damaged_data_history = base_standard
