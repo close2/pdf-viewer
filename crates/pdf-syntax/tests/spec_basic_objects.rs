@@ -209,3 +209,71 @@ fn a_warm_wrong_generation_reference_is_undefined() {
         "the generation-0 cache entry must not satisfy a generation-1 lookup"
     );
 }
+
+/// ISO 32000-2 §7.3.8.2: `/Length` is "\[t]he number of bytes from the beginning of the line
+/// following the keyword stream to the last byte, just before the keyword endstream". A stream
+/// read where §7.3.8.1 forbids it — as a dictionary's value — and written back as that value
+/// states the count of the bytes written, not the one it was read with (ADR 3690).
+#[test]
+fn a_stream_nested_in_a_value_is_written_with_the_length_of_its_data() {
+    let source = b"<< /Inner << /Length 3 >>\nstream\nabcdefgh\nendstream >>";
+    let mut parser = Parser::new(source);
+    let read = parser.parse_object();
+    assert!(
+        parser
+            .repairs()
+            .iter()
+            .any(|repair| repair.class.name == "syntax/stream-not-indirect"),
+        "{:?}",
+        parser.repairs()
+    );
+    let Ok(outer) = read else {
+        panic!("the dictionary reads: {read:?}");
+    };
+    let mut written = Vec::new();
+    write::object(&outer, &mut written);
+    let text = String::from_utf8_lossy(&written);
+    assert!(text.contains("/Length 8"), "{text}");
+    assert!(!text.contains("/Length 3"), "{text}");
+}
+
+/// ISO 32000-2 §7.3.10's object header under Errata Collection issue #379's grammar
+/// (`PDF-ObjectNumber.ebnf`, `PDF-GenerationNumber.ebnf`): an object number has no sign and no
+/// leading zero, and a generation number is `0` or has none either. A header outside it is read
+/// and logged (ADR 3689); the same numbers spelled in the grammar are not.
+#[test]
+fn an_object_header_outside_the_amended_grammar_is_read_and_logged() {
+    for (source, logged) in [
+        (&b"+7 0 obj\nnull\nendobj"[..], true),
+        (b"07 0 obj\nnull\nendobj", true),
+        (b"7 00 obj\nnull\nendobj", true),
+        (b"0 0 obj\nnull\nendobj", true),
+        (b"7 0 obj\nnull\nendobj", false),
+        (b"70 10 obj\nnull\nendobj", false),
+    ] {
+        let mut parser = Parser::new(source);
+        let read = parser.parse_indirect_object();
+        assert!(read.is_ok(), "{read:?}");
+        let found = parser
+            .repairs()
+            .iter()
+            .any(|repair| repair.class.name == "syntax/object-number-spelling");
+        assert_eq!(found, logged, "{}", String::from_utf8_lossy(source));
+    }
+}
+
+/// References in the grammar, with numbers of more than one digit, read without a repair.
+#[test]
+fn references_spelled_in_the_amended_grammar_read_without_a_repair() {
+    let mut parser = Parser::new(b"[10 0 R 1 20 R 305 65535 R]");
+    let read = parser.parse_object();
+    assert_eq!(
+        read.ok(),
+        Some(Object::Array(vec![
+            Object::Reference(ObjectId::new(10, 0)),
+            Object::Reference(ObjectId::new(1, 20)),
+            Object::Reference(ObjectId::new(305, 65535)),
+        ]))
+    );
+    assert!(parser.repairs().is_empty(), "{:?}", parser.repairs());
+}

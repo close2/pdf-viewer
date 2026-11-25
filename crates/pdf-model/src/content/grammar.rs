@@ -673,6 +673,7 @@ pub static COVERAGE: &[(&RepairClass, Reading)] = &[
     (&repair::INLINE_IMAGE_DATA_EXTENT, Reading::Reader),
     (&pdf_syntax::repair::DELIMITER_UNMATCHED, Reading::Reader),
     (&pdf_syntax::repair::NAME_ESCAPE_INCOMPLETE, Reading::Reader),
+    (&pdf_syntax::repair::NAME_HOLDS_NULL, Reading::Reader),
     (&pdf_syntax::repair::STRING_UNTERMINATED, Reading::Reader),
     (
         &pdf_syntax::repair::HEXADECIMAL_STRING_UNTERMINATED,

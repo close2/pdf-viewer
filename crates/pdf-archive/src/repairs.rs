@@ -61,6 +61,7 @@ pub static MAPPING: &[Mapped] = &[
     // The lexer.
     base("syntax/delimiter-unmatched"),
     base("syntax/name-escape-incomplete"),
+    base("syntax/name-holds-null"),
     base("syntax/string-unterminated"),
     base("syntax/hexadecimal-string-unterminated"),
     // Section 6.1.6's row re-lexes every hexadecimal string from the bytes and reports a stray
@@ -76,10 +77,12 @@ pub static MAPPING: &[Mapped] = &[
     // length from the bytes themselves and find these three on their own, so the log adds only
     // section 5.1 for them.
     base("syntax/reference-out-of-range"),
+    base("syntax/object-number-spelling"),
     base("syntax/duplicate-key"),
     base("syntax/key-not-a-name"),
     base("syntax/stream-keyword-line-ending"),
     base("syntax/stream-extent-from-endstream"),
+    base("syntax/stream-not-indirect"),
     base("syntax/endstream-missing"),
     rows(
         "syntax/endobj-missing",
@@ -162,6 +165,10 @@ pub static MAPPING: &[Mapped] = &[
     base("model/inline-image-key-twice"),
     base("model/inline-image-colour-space-unresolved"),
     base("model/inline-image-data-extent"),
+    // An image's depth read at 8 and a soft mask not applied: recorded where an image is decoded,
+    // so a conversion meets them only where it draws a page (ADR 3691).
+    base("model/image-depth-absent"),
+    base("model/soft-mask-undecodable"),
     base("model/operand-of-the-wrong-type"),
     base("model/operator-short-of-operands"),
     base("model/restore-with-nothing-saved"),
@@ -239,6 +246,7 @@ pub static MAPPING: &[Mapped] = &[
     // A CMap stream's `/WMode` read as the nearer mode: the file's departure, and no row of this
     // part states a rule for it.
     base("font/wmode-unusable"),
+    base("font/descriptor-style-unusable"),
     no_row("font/to-unicode-past-a-bound", A_BOUND_OF_THIS_READER),
 ];
 

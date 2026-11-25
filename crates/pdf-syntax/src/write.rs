@@ -111,7 +111,16 @@ pub fn object(value: &Object, out: &mut Vec<u8>) {
         }
         Object::Dictionary(dict) => dictionary(dict, out),
         Object::Stream(stream) => {
-            dictionary(&stream.dict, out);
+            // §7.3.8.2's `/Length` is the count of the bytes between the keywords, and this
+            // writer is what puts them there, so it states the count of the bytes it writes —
+            // for a stream nested in another value too, which `incremental_update` and
+            // `serialize` do not reach as an object of their own (ADR 3690).
+            let mut dict = stream.dict.clone();
+            dict.insert(
+                Name::new(&b"Length"[..]),
+                Object::Integer(i64::try_from(stream.data.len()).unwrap_or(i64::MAX)),
+            );
+            dictionary(&dict, out);
             out.extend_from_slice(b"\nstream\n");
             out.extend_from_slice(&stream.data);
             out.extend_from_slice(b"\nendstream");

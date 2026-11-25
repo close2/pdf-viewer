@@ -26,7 +26,7 @@
   "code": "crates/pdf-syntax/src/parser.rs:475-487 (parse_dictionary_or_stream, reached from parse_object_from at every depth); crates/pdf-syntax/src/write.rs:96-118 (object() recurses into arrays and dictionaries and writes a nested Stream inline); crates/pdf-syntax/src/serialize.rs:868-872",
   "change": "Read the stream keyword as a stream only at an indirect object's top level (or log a named repair class where a nested one is kept), and have the writers hoist or refuse a nested stream rather than write it inline.",
   "execution": "FAIL (expected): crates/pdf-syntax/tests/objects_7_3_spec_audit.rs::a_stream_written_as_a_direct_value_is_not_read_in_silence_spec_audit \u2014 round 2243: read Object::Stream with no repairs; its control (an indirect stream reads without a repair) passes.",
-  "status": "open"
+  "status": "fixed (ADR 3689, ADR 3690; the parser logs syntax/stream-not-indirect for a stream written as an array element or a dictionary value, and write::object states a written stream's /Length as the bytes it writes; objects_7_3_spec_audit::a_stream_written_as_a_direct_value_is_not_read_in_silence_spec_audit passes)"
  },
  {
   "id": "2243-B03",
@@ -39,7 +39,7 @@
   "code": "crates/pdf-syntax/src/lexer.rs:614-643 (read_name: a decoded #00 is pushed like any other byte; only an incomplete escape is noted, NAME_ESCAPE_INCOMPLETE)",
   "change": "Log a named repair class (or refuse the token) when an escape decodes to 00h, and say in read_name's comment which reading the reader takes.",
   "execution": "FAIL (expected): crates/pdf-syntax/tests/objects_7_3_spec_audit.rs::a_null_written_into_a_name_by_its_escape_is_not_read_in_silence_spec_audit \u2014 round 2243: Name([65, 0, 66]) with no repairs; its control (/A#20B reads 'A B' without a repair) passes.",
-  "status": "open"
+  "status": "fixed (ADR 3689; the lexer logs syntax/name-holds-null where a #00 escape writes character code 0 into a name; objects_7_3_spec_audit::a_null_written_into_a_name_by_its_escape_is_not_read_in_silence_spec_audit passes)"
  },
  {
   "id": "2243-B04",
@@ -52,7 +52,7 @@
   "code": "crates/pdf-syntax/src/parser.rs:279-307 (integer_or_reference takes Token::Integer values, which the lexer has already stripped of their sign and leading zeros, so the written form is gone before the reference is built)",
   "change": "Check the two integer tokens' spelling against the amended grammar where a reference (and an object header) is built, and log a named repair class where it differs.",
   "execution": "FAIL (expected): crates/pdf-syntax/tests/objects_7_3_spec_audit.rs::an_object_identifier_outside_the_amended_grammar_is_not_read_in_silence_spec_audit \u2014 round 2243: [+1 0 R] read as Reference(1 0) with no repairs; its control ([1 0 R]) passes.",
-  "status": "open"
+  "status": "fixed (ADR 3689; the parser logs syntax/object-number-spelling for a reference or an object header outside issue #379's grammar; objects_7_3_spec_audit::an_object_identifier_outside_the_amended_grammar_is_not_read_in_silence_spec_audit passes)"
  },
  {
   "id": "2243-B05",

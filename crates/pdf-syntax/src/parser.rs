@@ -284,11 +284,19 @@ impl<'a> Parser<'a> {
         let mut out_of_range = false;
 
         if let Some(Token::Integer(generation)) = self.lexer.next_token()
-            && let Some(Token::Keyword(word)) = self.lexer.next_token()
-            && word == b"R"
+            && let Some(Token::Keyword(b"R")) = self.lexer.next_token()
         {
             if let (Ok(number), Ok(generation)) = (u32::try_from(first), u16::try_from(generation))
             {
+                // Errata Collection issue #379's grammar for the two numbers admits no
+                // sign, no leading zero and no object number 0. The lexer marks where an
+                // integer written with a sign or a leading zero ended, so a reference is
+                // outside the grammar where that mark falls on one of its two numbers —
+                // one comparison, which every reference an open reads pays (ADR 3689).
+                let marked = self.lexer.signed_or_padded_end();
+                if number == 0 || (rewind..self.lexer.position()).contains(&marked) {
+                    self.spelled_outside_the_grammar(rewind);
+                }
                 return Object::Reference(ObjectId::new(number, generation));
             }
             out_of_range = true;
@@ -304,6 +312,16 @@ impl<'a> Parser<'a> {
 
         self.lexer.seek(rewind);
         Object::Integer(first)
+    }
+
+    /// Logs an object identifier written outside Errata Collection issue #379's grammar.
+    ///
+    /// Out of line and cold, so that the reference path every open runs carries a call it does not
+    /// take rather than the log's push (ADR 3689).
+    #[cold]
+    #[inline(never)]
+    fn spelled_outside_the_grammar(&mut self, at: usize) {
+        self.lexer.note(&repair::OBJECT_NUMBER_SPELLING, at);
     }
 
     fn parse_array(&mut self) -> SyntaxResult<Object> {
@@ -479,6 +497,16 @@ impl<'a> Parser<'a> {
         let rewind = self.lexer.position();
         let mark = self.lexer.mark();
         if self.lexer.next_token() == Some(Token::Keyword(b"stream")) {
+            // ISO 32000-2 §7.3.8.1:
+            //
+            // > All streams shall be indirect objects (see 7.3.10, "Indirect objects") and the
+            // > stream dictionary shall be a direct object.
+            //
+            // A stream met inside an array or a dictionary is read as the value it is written as,
+            // since its data is all there, and the reading is logged (ADR 3689).
+            if self.depth > 0 {
+                self.lexer.note(&repair::STREAM_NOT_INDIRECT, rewind);
+            }
             return self.parse_stream_data(dict);
         }
         self.lexer.restore(mark);
@@ -674,6 +702,7 @@ impl<'a> Parser<'a> {
                 expected: "an indirect object header",
             });
         };
+        let number_end = self.lexer.position();
         let Some(Token::Integer(generation)) = self.lexer.next_token() else {
             return Err(SyntaxError::Unexpected {
                 at,
@@ -681,12 +710,19 @@ impl<'a> Parser<'a> {
                 expected: "an indirect object header",
             });
         };
+        let generation_end = self.lexer.position();
         if self.lexer.next_token() != Some(Token::Keyword(b"obj")) {
             return Err(SyntaxError::Unexpected {
                 at,
                 found: "missing 'obj'".to_owned(),
                 expected: "an indirect object header",
             });
+        }
+        // Errata Collection issue #379's grammar for the two numbers: no sign, no leading zero
+        // and no object number 0; the lexer marks where an integer with either ended (ADR 3689).
+        let marked = self.lexer.signed_or_padded_end();
+        if number == 0 || (number_end..=generation_end).contains(&marked) {
+            self.lexer.note(&repair::OBJECT_NUMBER_SPELLING, at);
         }
 
         Ok(ObjectId::new(

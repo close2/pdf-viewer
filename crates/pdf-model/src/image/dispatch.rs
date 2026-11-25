@@ -10,13 +10,16 @@
 use std::sync::Arc;
 
 use pdf_render::{Image, SampleAlpha};
-use pdf_syntax::{Dictionary, Document, FilterRefusal, ImageStream, Object, Stream, StreamRefusal};
+use pdf_syntax::{
+    Dictionary, Document, FilterRefusal, ImageStream, Object, Site, Stream, StreamRefusal,
+};
 use rayon::iter::IndexedParallelIterator as _;
 use rayon::iter::ParallelIterator as _;
 use rayon::slice::ParallelSlice as _;
 use rayon::slice::ParallelSliceMut as _;
 
 use crate::colour::Conversion;
+use crate::repair;
 
 use super::cache::MaskCache;
 use super::ccitt::{ccitt_bilevel, ccitt_shortfall, decode_ccitt};
@@ -516,13 +519,14 @@ fn samples_of(
             let bits = if painting.is_mask {
                 1
             } else {
-                u32::try_from(
-                    document
-                        .get_key(dict, "BitsPerComponent")
-                        .as_integer()
-                        .unwrap_or(8),
-                )
-                .unwrap_or(8)
+                let stated = document
+                    .get_key(dict, "BitsPerComponent")
+                    .as_integer()
+                    .and_then(|bits| u32::try_from(bits).ok());
+                if stated.is_none() {
+                    document.record_repair(&repair::IMAGE_DEPTH_ABSENT, Site::WholeFile);
+                }
+                stated.unwrap_or(8)
             };
             let space = if painting.is_mask {
                 ColourSpace::Mask

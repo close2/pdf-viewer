@@ -109,6 +109,10 @@ classes! {
     ENCODING_NAME_UNKNOWN = "font/encoding-name-unknown", "ISO 32000-2 §9.6.5.1",
         "an /Encoding or /BaseEncoding naming none of the predefined encodings was read as no \
          base encoding, the program's own standing in its place";
+    /// A font descriptor's `/FontWeight` or `/FontStretch` stated as no value Table 120 admits.
+    DESCRIPTOR_STYLE_UNUSABLE = "font/descriptor-style-unusable", "ISO 32000-2 §9.8.1",
+        "a /FontWeight outside 1 to 1000 or a /FontStretch Table 120 does not name was read as \
+         absent where a substitute face was chosen";
     /// An embedded `CMap`'s `/WMode` of another type, or neither 0 nor 1.
     WMODE_UNUSABLE = "font/wmode-unusable", "ISO 32000-2 §9.7.5.3",
         "a CMap stream's /WMode that is not the integer 0 or 1 was read as the nearer of the two, \

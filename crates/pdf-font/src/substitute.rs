@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
-use pdf_syntax::{Dictionary, Document};
+use pdf_syntax::{Dictionary, Document, Object, Site};
 
 mod native_name;
 
@@ -211,8 +211,27 @@ impl Style {
         let panose = descriptor.and_then(|d| panose(document, d));
 
         let named = weight_named(&folded).or_else(|| names_a_standard_font(&folded).then_some(400));
+        let stated_weight = number("FontWeight").and_then(weight_stated);
+        let stretch = descriptor.and_then(|d| {
+            document
+                .get_key(d, "FontStretch")
+                .as_name()
+                .and_then(|name| width_stated(name.as_bytes()))
+        });
+        let stated = |key: &str| {
+            descriptor.is_some_and(|d| !matches!(document.get_key(d, key), Object::Null))
+        };
+        if (stated_weight.is_none() && stated("FontWeight"))
+            || (stretch.is_none() && stated("FontStretch"))
+        {
+            // Table 120's `/FontWeight` (1 to 1000 under Errata Collection 3) or `/FontStretch`
+            // (one of its nine names), stated as no value the table admits, is read as absent.
+            document.record_repair(&crate::repair::DESCRIPTOR_STYLE_UNUSABLE, Site::WholeFile);
+        }
+        // not a repair: where nothing the file states gives a weight — an entry stated unusably is
+        // logged above — the face is ranked at the normal 400, the documented end of this order.
         let mut weight = named
-            .or_else(|| number("FontWeight").and_then(weight_stated))
+            .or(stated_weight)
             .or_else(|| {
                 panose
                     .and_then(crate::panose::Panose::is_bold)
@@ -229,12 +248,8 @@ impl Style {
             || number("ItalicAngle").is_some_and(|angle| angle != 0.0)
             || descriptor.is_some_and(|d| flag(document, d, Flags::ITALIC));
 
-        let stretch = descriptor.and_then(|d| {
-            document
-                .get_key(d, "FontStretch")
-                .as_name()
-                .and_then(|name| width_stated(name.as_bytes()))
-        });
+        // not a repair: where neither `/FontStretch` nor the name states a width — an entry stated
+        // unusably is logged above — the face is ranked at the normal width.
         let width = stretch
             .or_else(|| width_named(&folded))
             .unwrap_or(Self::NORMAL_WIDTH);
@@ -484,6 +499,8 @@ fn weight_stated(value: f64) -> Option<u16> {
         reason = "checked to lie in 1..=1000 on the line above, so the hundreds are 0..=10"
     )]
     let hundreds = (value / 100.0).round() as u16;
+    // not a repair: a weight inside 1 to 1000 is the file's, read as the nearest of the nine
+    // classes, and the classes end at 100 and 900.
     Some(hundreds.clamp(1, 9).saturating_mul(100))
 }
 

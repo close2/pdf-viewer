@@ -81,9 +81,7 @@ const RECORDERS: [&str; 4] = ["record_repair", "note_repair", "noted(", "record_
 /// Each file's sites not yet accounted for, which may only fall (path under `crates/`, count).
 const HELD: &[(&str, usize)] = &[
     ("pdf-model/src/appearance.rs", 1),
-    ("pdf-font/src/substitute.rs", 3),
     ("pdf-model/src/geospatial/system.rs", 6),
-    ("pdf-model/src/image/soft_mask.rs", 8),
     ("pdf-font/src/restate.rs", 9),
     ("pdf-model/src/rich_text/markup.rs", 6),
     ("pdf-model/src/jpeg2000.rs", 6),
@@ -110,7 +108,7 @@ const HELD: &[(&str, usize)] = &[
     ("pdf-model/src/view/script_sites.rs", 4),
     ("pdf-model/src/optional_content.rs", 4),
     ("pdf-model/src/measurement.rs", 4),
-    ("pdf-model/src/image/dispatch.rs", 4),
+    ("pdf-model/src/image/dispatch.rs", 2),
     ("pdf-model/src/image/combine.rs", 4),
     ("pdf-model/src/geospatial/projection.rs", 4),
     ("pdf-model/src/content/image.rs", 4),

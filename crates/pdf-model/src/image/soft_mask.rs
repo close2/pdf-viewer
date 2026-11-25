@@ -4,10 +4,12 @@
 use std::sync::Arc;
 
 use pdf_render::Image;
-use pdf_syntax::{Dictionary, Document, ImageStream, Object, Stream};
+use pdf_syntax::{Dictionary, Document, ImageStream, Object, Site, Stream};
 
 use crate::colour::Conversion;
+use crate::repair;
 
+use super::ImageError;
 use super::combine::{
     MaskSamples, alpha_on_grid, combine_on_the_finer_grid, opacity_multiplied_in_place,
 };
@@ -106,6 +108,8 @@ pub(super) fn soft_mask_entry(
     let Some(mask) = smask.as_stream() else {
         return SoftMaskEntry::Absent;
     };
+    // not a repair: a grid the mask does not state reads as 0 here, which only sizes the
+    // combination and words a report; the mask's own decode refuses it and logs that.
     let dimension =
         |dict: &Dictionary, key| crate::integer_entry::dimension(document, dict, key).unwrap_or(0);
     let (mask_width, mask_height) = (
@@ -322,6 +326,9 @@ fn matte_colour(
     // Table 143: with a `/Matte` the mask's `/Width` "shall be the same as the Width value of
     // the parent image", and `/Height` likewise. The inversion is per sample and pairs the two
     // grids by position, so a file that states two grids has stated no pairing at all.
+    // not a repair: a grid that does not read compares as 0, which no decodable image has, so
+    // an unstated grid on one side is reported here as unpaired and one on both is refused by
+    // the decodes themselves.
     let dimension =
         |from: &Dictionary, key| crate::integer_entry::dimension(document, from, key).unwrap_or(0);
     if (
@@ -445,8 +452,25 @@ fn mask_plane(document: &Document, mask: &Stream) -> Option<MaskPlane> {
         // §11.6.5.2's mask is read for its one channel of opacity, not for colour.
         &Conversion::device(),
     )
+    .inspect_err(|error| undecodable(document, error))
+    // Logged by `undecodable` as `SOFT_MASK_UNDECODABLE` before the error is dropped.
     .ok()
     .map(MaskPlane::of_decoded)
+}
+
+/// Logs a soft mask whose data did not decode, which leaves its image drawn without it
+/// (ISO 32000-2 §11.6.5.2, ADR 3691).
+///
+/// The site is the whole file, as for `syntax/stream-data-damaged`: the decoder is handed the
+/// mask without its object. A mask over this reader's sample bound, or one whose decoder could
+/// not be reached, is not the file's departure, and is not logged as one.
+fn undecodable(document: &Document, error: &ImageError) {
+    if !matches!(
+        error,
+        ImageError::TooLarge { .. } | ImageError::DecoderUnreachable { .. }
+    ) {
+        document.record_repair(&repair::SOFT_MASK_UNDECODABLE, Site::WholeFile);
+    }
 }
 
 /// What [`mask_plane`]'s two direct routes share: a mask [`decode_parts`] would send through no
@@ -476,16 +500,12 @@ fn grey_mask(document: &Document, mask: &Stream) -> Option<(u32, u32, ImageStrea
     if u64::from(width).saturating_mul(u64::from(height)) > MAX_SAMPLES {
         return None;
     }
-    let bits = u32::try_from(
-        document
-            .get_key(dict, "BitsPerComponent")
-            .as_integer()
-            .unwrap_or(8),
-    )
-    .unwrap_or(8);
-    if bits != 8 {
+    // A depth stated as anything but 8 declines this fast path; the general path reads it.
+    let stated = document.get_key(dict, "BitsPerComponent").as_integer();
+    if stated.is_some_and(|bits| bits != 8) {
         return None;
     }
+    let bits = 8;
     // not a repair: a failed read declines this fast path and the general path reads the entry; no
     // value is substituted.
     let space = mask_colour_space(document, dict).ok()?;
@@ -493,6 +513,11 @@ fn grey_mask(document: &Document, mask: &Stream) -> Option<(u32, u32, ImageStrea
         return None;
     }
     let source = document.image_stream(mask)?;
+    if stated.is_none() && !matches!(source.codec.as_deref(), Some(b"JPXDecode")) {
+        // Table 87 requires the entry "except for image masks and images that use the JPXDecode
+        // filter"; read at 8, as the general route reads it (`dispatch`), and logged.
+        document.record_repair(&repair::IMAGE_DEPTH_ABSENT, Site::WholeFile);
+    }
     let decode = Decode::read(document, dict, &space, bits);
     let conversion = Conversion::device();
     let samples = Samples {
@@ -670,6 +695,8 @@ pub fn unapplied_soft_mask(
 ///
 /// [`decode_parts`]: super::decode_parts
 pub(super) fn stated_grid(document: &Document, dict: &Dictionary) -> (u32, u32) {
+    // not a repair: a grid the dictionary does not state reads as 0, which the image's own
+    // decode refuses and reports; this pair only sizes the mask's combination and its report.
     let dimension = |key| crate::integer_entry::dimension(document, dict, key).unwrap_or(0);
     (dimension("Width"), dimension("Height"))
 }
@@ -713,6 +740,8 @@ fn eligible_for_the_device_scale(document: &Document, mask_dict: &Dictionary) ->
     ) {
         return false;
     }
+    // not a repair: this only chooses a route; the route that reads the samples logs an absent
+    // depth where it reads one (`device_scaled_soft_mask`), and a codec states its own.
     matches!(
         document
             .get_key(mask_dict, "BitsPerComponent")
@@ -771,15 +800,16 @@ pub(super) fn device_scaled_soft_mask(
     if image_codec(document, mask_dict).is_some() {
         return decoded_grey_plane(document, mask);
     }
-    let bits = u32::try_from(
-        document
-            .get_key(mask_dict, "BitsPerComponent")
-            .as_integer()
-            .unwrap_or(8),
-    )
-    // not a repair: the entry reached this route through `eligible_for_the_device_scale`, which
-    // admits only a depth of 1, 2, 4, 8 or 16, so the conversion to u32 cannot fail.
-    .ok()?;
+    let stated = document
+        .get_key(mask_dict, "BitsPerComponent")
+        .as_integer()
+        .and_then(|bits| u32::try_from(bits).ok());
+    if stated.is_none() {
+        // Table 87 requires the entry where no codec states the depth, and none does here; read
+        // at 8, as the general route reads it (`dispatch`), and logged.
+        document.record_repair(&repair::IMAGE_DEPTH_ABSENT, Site::WholeFile);
+    }
+    let bits = stated.unwrap_or(8);
     // `eligible_for_the_device_scale` established that the space is `DeviceGray`, which is the
     // one this reads a byte out of.
     let space = ColourSpace::Gray;

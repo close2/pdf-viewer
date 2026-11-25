@@ -209,6 +209,10 @@ pub struct Lexer<'a> {
     /// The run behind the last token where it spelled an integer `i64` cannot hold; see
     /// [`Self::integer_out_of_range`].
     wide_integer: Option<&'a [u8]>,
+    /// Where the last integer token spelled with a sign or a leading zero ended. Written only
+    /// for such a token, so that every other token pays nothing for it; read by the parser for
+    /// §7.3.10's spelling of a reference (ADR 3689).
+    signed_or_padded_end: usize,
     /// The repairs lexing has needed over this lexer's life; see [`Self::repairs`].
     repairs: Vec<Repair>,
 }
@@ -235,6 +239,7 @@ impl<'a> Lexer<'a> {
             },
             salvage: None,
             wide_integer: None,
+            signed_or_padded_end: 0,
             repairs: Vec::new(),
         }
     }
@@ -258,6 +263,7 @@ impl<'a> Lexer<'a> {
             },
             salvage: None,
             wide_integer: None,
+            signed_or_padded_end: 0,
             repairs: Vec::new(),
         }
     }
@@ -290,6 +296,15 @@ impl<'a> Lexer<'a> {
     #[must_use]
     pub const fn integer_out_of_range(&self) -> Option<&'a [u8]> {
         self.wide_integer
+    }
+
+    /// Where the last integer token this lexer read that was written with a sign or a leading
+    /// zero (`+1`, `-0`, `01`, `00`) ended, or 0 where none was. Errata Collection issue #379's
+    /// grammar for an object or generation number admits neither, so a reference whose numbers
+    /// end here is spelled outside it.
+    #[must_use]
+    pub(crate) const fn signed_or_padded_end(&self) -> usize {
+        self.signed_or_padded_end
     }
 
     /// The repairs lexing has needed so far, each at its offset into this lexer's input (ADR
@@ -486,8 +501,14 @@ impl<'a> Lexer<'a> {
     #[inline(always)]
     fn token_here(&mut self) -> Option<Token<'a>> {
         let byte = self.peek()?;
-        if matches!(byte, b'+' | b'-' | b'.' | b'0'..=b'9') {
-            if let Some(token) = self.fixed_format_token() {
+        // A number opening on a digit 1 to 9 is split from the rest of its first bytes so that
+        // only a sign, a PERIOD or a `0` pays the test §7.3.10's spelling needs (ADR 3689).
+        if matches!(byte, b'1'..=b'9') {
+            if let Some(token) = self.fixed_format_token::<false>() {
+                return Some(token);
+            }
+        } else if matches!(byte, b'+' | b'-' | b'.' | b'0') {
+            if let Some(token) = self.fixed_format_token::<true>() {
                 return Some(token);
             }
         } else if is_regular(byte) {
@@ -590,8 +611,12 @@ impl<'a> Lexer<'a> {
     /// otherwise: [`fixed_format_number`] read off the cursor, standing only where the byte it
     /// stopped at also ends the token. [`Self::read_number`] explains the condition, and both
     /// [`Self::next_token`] and it ask this one statement of it.
+    ///
+    /// `MAY_BE_SIGNED_OR_PADDED` is false where the caller has seen the first byte is a digit 1
+    /// to 9, which no sign and no leading zero can be; otherwise an integer opening on a sign or
+    /// on a `0` followed by more is marked for [`Self::signed_or_padded_end`].
     #[inline]
-    fn fixed_format_token(&mut self) -> Option<Token<'a>> {
+    fn fixed_format_token<const MAY_BE_SIGNED_OR_PADDED: bool>(&mut self) -> Option<Token<'a>> {
         // not a repair: a range of the input by this reader's own cursor, not a value the file
         // states.
         let rest = self.input.get(self.position..).unwrap_or_default();
@@ -601,12 +626,26 @@ impl<'a> Lexer<'a> {
         }
         self.position = self.position.saturating_add(taken);
         Some(match value {
-            Fixed::Integer(value) => Token::Integer(value),
+            Fixed::Integer(value) => {
+                // A sign or a `0` in front of more digits: the only first bytes below `1` an
+                // integer's run can have. Tested here, on bytes already read, so that a
+                // reference pays one comparison rather than a re-reading (ADR 3689).
+                if MAY_BE_SIGNED_OR_PADDED
+                    && taken > 1
+                    && rest.first().is_some_and(|first| *first < b'1')
+                {
+                    self.signed_or_padded_end = self.position;
+                }
+                Token::Integer(value)
+            }
             Fixed::Real(value) => Token::Real(value),
         })
     }
 
     /// Reads a name body, resolving `#xx` escapes.
+    ///
+    /// An escape that expands to character code 0, which ISO 32000-2 §7.3.5 excludes from a name,
+    /// is read as that byte and logged as `syntax/name-holds-null` (ADR 3689).
     ///
     /// A malformed escape — `#` not followed by two hex digits — is kept literally. Real
     /// files contain them, and dropping the `#` would silently change the name into a
@@ -620,27 +659,44 @@ impl<'a> Lexer<'a> {
             self.position = self.position.saturating_add(1);
 
             if byte == b'#' {
-                let high = self.peek().and_then(hex_value);
-                let low = self
-                    .input
-                    .get(self.position.saturating_add(1))
-                    .copied()
-                    .and_then(hex_value);
-                if let (Some(high), Some(low)) = (high, low) {
-                    out.push(high.saturating_mul(16).saturating_add(low));
-                    self.position = self.position.saturating_add(2);
-                    continue;
-                }
-                self.note(
-                    &repair::NAME_ESCAPE_INCOMPLETE,
-                    self.position.saturating_sub(1),
-                );
-                out.push(b'#');
+                self.read_name_escape(&mut out);
             } else {
                 out.push(byte);
             }
         }
         out
+    }
+
+    /// Reads one `#xx` escape of a name, the cursor past the NUMBER SIGN, onto `out`.
+    ///
+    /// Out of line and cold: escapes are rare, and the loop every name runs keeps only the
+    /// test for the NUMBER SIGN. Written inline, the `#00` test below cost every name read —
+    /// 0.2 % of the instructions an open of WTPDF executes, callgrind (ADR 3689).
+    ///
+    /// ISO 32000-2 §7.3.5 excludes "null (character code 0)" from a name. An escape writing one
+    /// is read as that byte and logged as `syntax/name-holds-null`; dropping the byte would make
+    /// the name another valid one. A malformed escape is kept literally, for the same reason.
+    #[cold]
+    #[inline(never)]
+    fn read_name_escape(&mut self, out: &mut Vec<u8>) {
+        let at = self.position.saturating_sub(1);
+        let high = self.peek().and_then(hex_value);
+        let low = self
+            .input
+            .get(self.position.saturating_add(1))
+            .copied()
+            .and_then(hex_value);
+        let Some((high, low)) = high.zip(low) else {
+            self.note(&repair::NAME_ESCAPE_INCOMPLETE, at);
+            out.push(b'#');
+            return;
+        };
+        let byte = high.saturating_mul(16).saturating_add(low);
+        if byte == 0 {
+            self.note(&repair::NAME_HOLDS_NULL, at);
+        }
+        out.push(byte);
+        self.position = self.position.saturating_add(2);
     }
 
     /// Reads a literal string, having consumed the opening parenthesis.
@@ -835,12 +891,15 @@ impl<'a> Lexer<'a> {
         // answer is thrown away and the slower path below owns the run exactly as it always
         // did. A delimiter or white space, or the end of the input, means the run is over
         // and the parse stands.
-        if let Some(token) = self.fixed_format_token() {
+        if let Some(token) = self.fixed_format_token::<true>() {
             return token;
         }
 
         let run_at = self.position;
         let raw = self.read_regular_run();
+        if raw.len() > 1 && raw.first().is_some_and(|first| *first < b'1') {
+            self.signed_or_padded_end = self.position;
+        }
 
         // §7.3.3 states both numeric forms in terms of digits. An integer:
         //

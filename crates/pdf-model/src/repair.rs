@@ -117,6 +117,17 @@ classes! {
         "inline image data whose stated or computed length does not end at EI was read to the \
          EI found";
 
+    // ---- images and their soft masks, §8.9.5.1 and §11.6.5.2 ---------------------------------
+
+    /// An image whose depth no codec states and whose `/BitsPerComponent` is not an integer.
+    IMAGE_DEPTH_ABSENT = "model/image-depth-absent", "ISO 32000-2 §8.9.5.1",
+        "an image or soft mask with no /BitsPerComponent that is a non-negative integer, which \
+         Table 87 requires where no codec states the depth, was read at 8 bits";
+    /// A soft mask whose data does not decode.
+    SOFT_MASK_UNDECODABLE = "model/soft-mask-undecodable", "ISO 32000-2 §11.6.5.2",
+        "a soft mask whose data did not decode was not applied, and its image was drawn without \
+         it";
+
     // ---- the interpreter's operands, §7.8.2, §8.4.2, §8.6.8, §9.4.1 -------------------------
 
     /// An operator given an operand of a type its table does not state.

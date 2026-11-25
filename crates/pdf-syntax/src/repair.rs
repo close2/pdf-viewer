@@ -205,6 +205,10 @@ classes! {
     /// A `#` in a name not followed by two hexadecimal digits.
     NAME_ESCAPE_INCOMPLETE = "syntax/name-escape-incomplete", "ISO 32000-2 §7.3.5",
         "a NUMBER SIGN in a name not followed by two hexadecimal digits was read as itself";
+    /// A `#00` escape, which writes the one byte a name may not hold.
+    NAME_HOLDS_NULL = "syntax/name-holds-null", "ISO 32000-2 §7.3.5",
+        "a name whose NUMBER SIGN escape writes character code 0, which a name may not hold, was \
+         read with that byte in it";
     /// A literal string whose parentheses never balance.
     STRING_UNTERMINATED = "syntax/string-unterminated", "ISO 32000-2 §7.3.4.2",
         "a literal string with no closing parenthesis was read to the end of the data";
@@ -233,6 +237,10 @@ classes! {
     REFERENCE_OUT_OF_RANGE = "syntax/reference-out-of-range", "ISO 32000-2 §7.3.10",
         "an indirect reference whose object or generation number is out of range was read as \
          separate integers";
+    /// `N G R` or `N G obj` whose number is written with a sign or a leading zero.
+    OBJECT_NUMBER_SPELLING = "syntax/object-number-spelling", "ISO 32000-2 §7.3.10",
+        "an object or generation number written with a sign or a leading zero, outside the \
+         grammar Errata Collection issue #379 states, was read as its value";
     /// A dictionary key written twice.
     DUPLICATE_KEY = "syntax/duplicate-key", "ISO 32000-2 §7.3.7",
         "a key written twice in one dictionary was read once, at its first entry";
@@ -246,6 +254,10 @@ classes! {
     /// A stream whose stated `/Length` does not end it.
     STREAM_EXTENT_FROM_ENDSTREAM = "syntax/stream-extent-from-endstream", "ISO 32000-2 §7.3.8.2",
         "a stream whose /Length is absent, wrong or not an integer was read to its endstream";
+    /// A stream written as the value of an array element or a dictionary entry.
+    STREAM_NOT_INDIRECT = "syntax/stream-not-indirect", "ISO 32000-2 §7.3.8.1",
+        "a stream written directly as an array element or a dictionary entry's value, where it \
+         shall be an indirect object, was read as that value";
     /// A stream with no `endstream` keyword.
     ENDSTREAM_MISSING = "syntax/endstream-missing", "ISO 32000-2 §7.3.8.1",
         "a stream with no endstream keyword was read without one";

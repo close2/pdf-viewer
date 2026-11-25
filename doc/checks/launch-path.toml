@@ -452,7 +452,9 @@ read_kib = 86 .. 92
 read_calls = 23 .. 27
 # What this program's own object executes (ADR 2666): 2201.3 thousand in four children of HEAD on
 # 2026-11-03, this file's rule — the observed range widened by one per cent, rounded outwards.
-open_kinstructions = 2179 .. 2224
+# Moved for ADR 3689: 2186.9 to 2178.6 thousand from 9ad7f2f1, a name's `#xx` escapes read out of
+# the loop every name runs, this file's rule around the second figure.
+open_kinstructions = 2156 .. 2201
 # What the program's sequence to page one's render request executes in this program's own object
 # (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000 window
 # less the panel its `/PageMode` opens (300 pixels), rayon's pool at one thread. 10840.2 thousand in
@@ -563,7 +565,9 @@ read_calls = 23 .. 27
 # Moved for ADR 3262: 1752.2 to 1761.7 thousand from bf59984d, the tree the band was taken on, to
 # this one (the object-stream reader and the open's audit checks), this file's rule around the
 # second figure.
-open_kinstructions = 1744 .. 1780
+# Moved for ADR 3689: 1763.5 to 1726.5 thousand from 9ad7f2f1, a name's `#xx` escapes read out of
+# the loop every name runs, this file's rule around the second figure.
+open_kinstructions = 1709 .. 1744
 # What the program's sequence to page one's render request executes in this program's own object
 # (ADR 2944): the open, page one interpreted, and the first `Resize` at `quorra`'s 800 x 1000
 # window, rayon's pool at one thread. 63482.1 to 63482.2 thousand in four children of HEAD built by
