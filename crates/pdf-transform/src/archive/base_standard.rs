@@ -590,9 +590,19 @@ const IN_CONTENT_BY_CLASS: &[(&str, &str, &str)] = &[
     in_content_operator!("model/operand-of-the-wrong-type", "ISO 32000-2 §7.8.2"),
     in_content_operator!("model/operator-short-of-operands", "ISO 32000-2 §7.8.2"),
     in_content_operator!("model/restore-with-nothing-saved", "ISO 32000-2 §8.4.2"),
-    in_content_operator!(
+    // Answered where a text object is added around the operators, starting with the matrices this
+    // reader drew them by (ADR 3661).
+    (
         "model/text-operator-outside-a-text-object",
-        "ISO 32000-2 §9.4.1"
+        "ISO 32000-2 §9.4.1",
+        "a content stream of this file needed the repair model/text-operator-outside-a-text-object \
+         (ISO 32000-2 §9.4.1), so it does not adhere to the base standard, which ISO 19005 section \
+         5.1 requires; a text object is added around the operators this reader ran outside one, \
+         starting with the text matrix it drew them by, only where the profile grants \
+         content-as-drawn, the walk can state that matrix (ADR 3661), and this reader draws the \
+         page the same with it (ADR 3558); here one of those does not hold, so the stream crosses \
+         this verb byte for byte; a profile granting page-as-image photographs the page instead \
+         — doc/pdf-a-conversion-limits.md section 5.2",
     ),
     in_content_operator!(
         "model/colour-operands-do-not-fit-the-space",

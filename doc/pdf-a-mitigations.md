@@ -350,11 +350,16 @@ per document
   the damage are the loss; the report and `xmpMM:History` name each stream, the stage and the
   damage. A stream whose one fault is cut ASCII data is left to the row above. A repair inside a
   content stream (`pdf_syntax::Site::Content`) is answered, in this order: an operator `pdf_model`
-  repaired (short of operands, wrong operand type, `Q` with nothing saved, text operator outside a
-  text object, colour operands that do not fit, operands left over in front of its own, a
-  wrong-typed `BDC` with its section, an `EMC` closing nothing) is written out with its operands
-  where the page draws the same without it, proved by drawing both, at `content-as-drawn` (ADR
-  3558, ADR 3615, ADR 3631); a property list nothing defines is defined as a membership dictionary
+  repaired (short of operands, wrong operand type, `Q` with nothing saved, colour operands that do
+  not fit, operands left over in front of its own, a wrong-typed `BDC` with its section, an `EMC`
+  closing nothing) is written out with its operands where the page draws the same without it,
+  proved by drawing both, at `content-as-drawn` (ADR 3558, ADR 3615, ADR 3631); a text-positioning
+  or text-showing operator outside a text object is enclosed in a `BT … ET` added around its run,
+  opening with a `Tm` stating the matrix this reader drew it by where that is not the identity,
+  closed before the first operator §9.4.1 keeps out of a text object (or by the producer's own
+  stray `ET`), under the same proof and loss, and refused by name where the walk cannot state the
+  matrix (ADR 3661); where the source's cross-reference table was rebuilt by scanning, the proof's
+  second file is written whole rather than appended (ADR 3662); a property list nothing defines is defined as a membership dictionary
   naming no group, losing nothing (ADR 2684, ADR 3631); under
   `as-if-printed` the page holding any other is photographed at `page-as-image` (ADR 3557); a repair
   in an annotation's appearance, and every repair under `as-shown` the first answer leaves, is

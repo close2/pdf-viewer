@@ -43,7 +43,8 @@
 //! ISO 19005-2 and ISO 19005-4 section 5.1 refuse a content stream this reader had to repair to
 //! read, and five of `pdf_model`'s classes are an operator's: one short of its operands or given
 //! one of the wrong type (§7.8.2), a `Q` with nothing saved (§8.4.2), a text operator outside a
-//! text object (§9.4.1), and colour operands that do not fit the space (§8.6.8). Where the
+//! text object (§9.4.1, answered as the next section says where it can be), and colour operands
+//! that do not fit the space (§8.6.8). Where the
 //! profile granted `content-as-drawn`, each such operator is written as one white-space
 //! character, its operands with it — §7.8.2 makes them the operator's own, and the reader clears
 //! them when it runs it — **and only where drawing the page both ways gives the same display list
@@ -61,6 +62,28 @@
 //! the rest. Where that is the operator's only repair, the leftovers alone are written as one
 //! white-space character and the operator keeps its own operands, which is what the reader ran;
 //! the proof by drawing both files still decides (`doc/adr/3641`).
+//!
+//! # A text operator this reader drew outside a text object
+//!
+//! ISO 32000-2 §9.4.2 and §9.4.3 each say their operators "shall only appear within text
+//! objects", and Table 105 has `BT` begin one "initializing the text matrix, Tm, and the text line
+//! matrix, Tlm, to the identity matrix". This reader runs a positioning or showing operator that
+//! stands outside one on the matrices it holds there — the identity at the start of the content
+//! and after each `ET`, which discards them (ADR 3353) — so writing it out would take its text off
+//! the page. Instead a text object is added around each run of them: a `BT` in front of the first,
+//! with a `Tm` stating the matrix this reader held where that is not the identity and the operator
+//! reads it, and an `ET` after the last, before the first operator §9.4.1 keeps out of a text
+//! object:
+//!
+//! > The other operators that may appear in a text object are those related to the general
+//! > graphics state, colour, and marked-content, as shown in "Figure 9 -Graphics objects".
+//!
+//! An `ET` of the producer's that this reader ignored, standing outside any text object, closes
+//! the one added. Where the walk cannot state the matrix — a glyph's width moved the text matrix
+//! past the line matrix, or a `Td` composed one — no object is added and the class keeps its
+//! refusal. The proof by drawing both files decides as for an operator written out, and the loss
+//! is `content-as-drawn`: no byte of the producer's is removed, but which matrix the text is drawn
+//! by outside a text object is this reader's reading, not the standard's (`doc/adr/3661`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -69,7 +92,7 @@ use pdf_archive::survey::{Survey, UnlistedOperator};
 use pdf_model::Pages;
 use pdf_model::content::grammar::{Grammar, Operand, components, signature};
 use pdf_model::content::reader::draws_the_salvage;
-use pdf_syntax::object::{Object, ObjectId};
+use pdf_syntax::object::{Name, Object, ObjectId};
 use pdf_syntax::{Document, Lexer, Token};
 
 use super::decision::Because;
@@ -176,11 +199,74 @@ pub(super) struct Drawn {
     pub(super) delimiter_left: bool,
     /// How many lone delimiters were written as white space.
     delimiters_written: usize,
-    /// The streams an operator this reader repaired was written out of (`doc/adr/3558`).
+    /// The streams an operator this reader repaired was written out of (`doc/adr/3558`), or a
+    /// text object was added to (`doc/adr/3661`).
     pub(super) written_out: BTreeSet<ObjectId>,
+    /// How many text objects were added around operators this reader ran outside one
+    /// (`doc/adr/3661`).
+    pub(super) text_objects_added: usize,
 }
 
 impl Drawn {
+    /// The stream `id`'s decoded `data` with each of `places` written in, every run among them
+    /// recorded with the pages `read_on` names for it.
+    fn rewritten(
+        &mut self,
+        id: ObjectId,
+        data: &[u8],
+        places: Vec<Place>,
+        read_on: &BTreeMap<&[u8], BTreeSet<usize>>,
+    ) -> Vec<u8> {
+        let mut written = Vec::with_capacity(data.len());
+        let mut from = 0;
+        for place in places {
+            written.extend_from_slice(data.get(from..place.start).unwrap_or_default());
+            if place.text_object {
+                self.text_object_added(id, &place.number, &mut written);
+                from = place.end;
+                continue;
+            }
+            // A lone delimiter's place is written as the white space §7.2.3 already read it as,
+            // so the tokens either side of it stay apart.
+            if place.number.is_empty() {
+                written.push(b' ');
+                if place.operator {
+                    self.written_out.insert(id);
+                } else {
+                    self.delimiters_written = self.delimiters_written.saturating_add(1);
+                }
+            } else {
+                written.extend_from_slice(&place.number);
+            }
+            from = place.end;
+            let run = data
+                .get(place.start..place.end)
+                .unwrap_or_default()
+                .to_vec();
+            self.runs.push(WrittenRun {
+                pages: read_on
+                    .get(run.as_slice())
+                    .map_or_default(|pages| pages.iter().copied().collect()),
+                object: id,
+                run,
+                number: place.number,
+            });
+        }
+        written.extend_from_slice(data.get(from..).unwrap_or_default());
+        written
+    }
+
+    /// Writes the `BT` or `ET` added around operators this reader ran outside a text object into
+    /// the stream `id`. It replaces nothing, and the page is held to drawing the same as for an
+    /// operator written out (`doc/adr/3661`).
+    fn text_object_added(&mut self, id: ObjectId, added: &[u8], written: &mut Vec<u8>) {
+        written.extend_from_slice(added);
+        self.written_out.insert(id);
+        if added.starts_with(OPENS) {
+            self.text_objects_added = self.text_objects_added.saturating_add(1);
+        }
+    }
+
     /// Whether every content stream of the page or form `holder` is one this write rewrote and an
     /// operator was written out of one of them (`doc/adr/3558`).
     pub(super) fn wrote_out_of(&self, document: &Document, holder: ObjectId) -> bool {
@@ -332,37 +418,7 @@ fn write_places(
         if hexadecimal.is_some_and(|completed| completed.at.contains_key(&id)) {
             return Err(Because::NotBuiltYet(ALSO_A_HEXADECIMAL_REPAIR));
         }
-        let mut written = Vec::with_capacity(data.len());
-        let mut from = 0;
-        for place in places {
-            written.extend_from_slice(data.get(from..place.start).unwrap_or_default());
-            // A lone delimiter's place is written as the white space §7.2.3 already read it as,
-            // so the tokens either side of it stay apart.
-            if place.number.is_empty() {
-                written.push(b' ');
-                if place.operator {
-                    out.written_out.insert(id);
-                } else {
-                    out.delimiters_written = out.delimiters_written.saturating_add(1);
-                }
-            } else {
-                written.extend_from_slice(&place.number);
-            }
-            from = place.end;
-            let run = data
-                .get(place.start..place.end)
-                .unwrap_or_default()
-                .to_vec();
-            out.runs.push(WrittenRun {
-                pages: read_on
-                    .get(run.as_slice())
-                    .map_or_default(|pages| pages.iter().copied().collect()),
-                object: id,
-                run,
-                number: place.number,
-            });
-        }
-        written.extend_from_slice(data.get(from..).unwrap_or_default());
+        let written = out.rewritten(id, &data, places, &read_on);
         let replacement = hexadecimal::repaired(stream, &written)
             .ok_or(Because::NotBuiltYet(STREAM_WILL_NOT_RE_ENCODE))?;
         out.at.insert(id, replacement);
@@ -380,7 +436,9 @@ fn write_places(
 }
 
 /// **The proof that writing the operators out changes nothing drawn** (`doc/adr/3558`): the
-/// streams written are appended to the source as ISO 32000-2 §7.5.6's incremental update, and
+/// streams written are appended to the source as ISO 32000-2 §7.5.6's incremental update — or,
+/// where the source's table was rebuilt by scanning, written with every other object into one new
+/// file ([`whole_file`], `doc/adr/3662`) — and
 /// every page that draws one of `written_out` is drawn from both files; the write stands where
 /// each page's display list and text are the same. The pages' annotations are drawn too, since an
 /// appearance stream is one of the streams this write reaches.
@@ -393,10 +451,17 @@ fn drawn_the_same(
     if pages.is_empty() || pages.len() > MOST_PAGES_PROVED {
         return false;
     }
-    let Ok(bytes) = pdf_syntax::write::incremental_update(document, at) else {
-        return false;
+    // A file whose cross-reference table was rebuilt by scanning has no section an update could
+    // chain to, so the second file is written whole from the objects this reader read
+    // (`doc/adr/3662`).
+    let bytes = if document.was_recovered() {
+        whole_file(document, at)
+    } else {
+        pdf_syntax::write::incremental_update(document, at).ok()
     };
-    let Ok(after) = Document::open_with_limits(bytes, document.limits()) else {
+    let Some(after) =
+        bytes.and_then(|bytes| Document::open_with_limits(bytes, document.limits()).ok())
+    else {
         return false;
     };
     let (before_pages, after_pages) = (Pages::new(document), Pages::new(&after));
@@ -409,6 +474,72 @@ fn drawn_the_same(
         let is = pdf_model::content::interpret(&after, &written);
         was.display_list == is.display_list && was.text == is.text
     })
+}
+
+/// The most bytes [`whole_file`] writes; past it the proof is not made and the operators are left.
+const MOST_BYTES_WRITTEN_WHOLE: usize = 1 << 28;
+
+/// The source written as one new file for [`drawn_the_same`], every object this reader reads in it
+/// under its own identifier and each of `at` in its object's place, where the source's
+/// cross-reference table was rebuilt by scanning (`doc/adr/3662`).
+///
+/// It is the proof's file and never an output: a stream is written with the `/Length` of the data
+/// this reader read, and the trailer states `/Root` and `/Info` as the source's does. `None` for an
+/// encrypted source, whose objects this would write decrypted under no `/Encrypt`, and past
+/// [`MOST_BYTES_WRITTEN_WHOLE`].
+fn whole_file(document: &Document, at: &BTreeMap<ObjectId, Object>) -> Option<Vec<u8>> {
+    if document.is_encrypted() {
+        return None;
+    }
+    let mut out = b"%PDF-2.0\n%\xe2\xe3\xcf\xd3\n".to_vec();
+    let mut entries = Vec::new();
+    for number in document.xref().object_numbers() {
+        let id = document.defined_id(number);
+        let mut object = at.get(&id).cloned().unwrap_or_else(|| document.get(id));
+        if let Object::Stream(stream) = &mut object {
+            let length = i64::try_from(stream.data.len()).ok()?;
+            std::sync::Arc::make_mut(stream)
+                .dict
+                .insert(Name::new(&b"Length"[..]), Object::Integer(length));
+        }
+        entries.push((id, out.len()));
+        // Writing into a `String` cannot fail, so the `write!` result is discarded deliberately.
+        let mut header = String::new();
+        let _ = writeln!(header, "{} {} obj", id.number, id.generation);
+        out.extend_from_slice(header.as_bytes());
+        pdf_syntax::write::object(&object, &mut out);
+        out.extend_from_slice(b"\nendobj\n");
+        if out.len() > MOST_BYTES_WRITTEN_WHOLE {
+            return None;
+        }
+    }
+    let table = out.len();
+    let mut xref = String::from("xref\n0 1\n0000000000 65535 f\r\n");
+    for (id, offset) in &entries {
+        let _ = write!(
+            xref,
+            "{} 1\n{offset:010} {:05} n\r\n",
+            id.number, id.generation
+        );
+    }
+    out.extend_from_slice(xref.as_bytes());
+    let mut trailer = pdf_syntax::object::Dictionary::new();
+    let size = entries.iter().map(|(id, _)| id.number).max().unwrap_or(0);
+    trailer.insert(
+        Name::new(&b"Size"[..]),
+        Object::Integer(i64::from(size).saturating_add(1)),
+    );
+    for key in ["Root", "Info"] {
+        if let Some(value) = document.trailer().get(key) {
+            trailer.insert(Name::new(key.as_bytes()), value.clone());
+        }
+    }
+    out.extend_from_slice(b"trailer\n");
+    pdf_syntax::write::object(&Object::Dictionary(trailer), &mut out);
+    let mut tail = String::new();
+    let _ = write!(tail, "\nstartxref\n{table}\n%%EOF\n");
+    out.extend_from_slice(tail.as_bytes());
+    Some(out)
 }
 
 /// What `xmpMM:History` says of the runs written: the requirement, the count and the loss, then
@@ -448,6 +579,14 @@ pub(super) fn history(drawn: &Drawn, citation: &str) -> String {
             out,
             ", and {} more",
             drawn.runs.len().saturating_sub(MOST_NAMED)
+        );
+    }
+    if drawn.text_objects_added > 0 {
+        let _ = write!(
+            out,
+            "; {} text object(s) were added, BT and ET around text operators this reader drew \
+             outside one, with the text matrix it drew them by (ISO 32000-2 §9.4.1, doc/adr/3661)",
+            drawn.text_objects_added
         );
     }
     out
@@ -526,6 +665,10 @@ struct Place {
     /// Whether the place is an operator a repair was logged at, with its operands
     /// (`doc/adr/3558`).
     operator: bool,
+    /// Whether the place is the `BT` or the `ET` this write adds around operators this reader ran
+    /// outside a text object (`doc/adr/3661`): `start` and `end` are the same byte, nothing of the
+    /// producer's is replaced, and `number` holds the bytes added.
+    text_object: bool,
 }
 
 impl Place {
@@ -537,6 +680,29 @@ impl Place {
             end,
             number: Vec::new(),
             operator,
+            text_object: false,
+        }
+    }
+
+    /// A run this reader draws as `number`, written in its place.
+    const fn number(start: usize, end: usize, number: Vec<u8>) -> Self {
+        Self {
+            start,
+            end,
+            number,
+            operator: false,
+            text_object: false,
+        }
+    }
+
+    /// The bytes `added` at `at`, opening or closing a text object (`doc/adr/3661`).
+    const fn text_object(at: usize, added: Vec<u8>) -> Self {
+        Self {
+            start: at,
+            end: at,
+            number: added,
+            operator: false,
+            text_object: true,
         }
     }
 }
@@ -567,6 +733,136 @@ struct Walk {
     /// Whether more operands stood since the last operator than `starts` keeps, so that an
     /// operator with operands left over is written out whole rather than without its leftovers.
     starts_lost: bool,
+    /// Whether this reader is inside a text object: after a `BT`, until the `ET` that ends it.
+    in_text: bool,
+    /// The text matrices this reader holds, as far as the walk can state them (`doc/adr/3661`).
+    matrices: Matrices,
+    /// Where the text object this write adds around operators this reader ran outside one is to
+    /// end, one past the last of them, while one is open (`doc/adr/3661`).
+    added_text_object: Option<usize>,
+}
+
+/// What the walk knows of this reader's text matrix Tm and text line matrix Tlm (ISO 32000-2
+/// §9.4.2), so that a text object added around operators it ran outside one can start where they
+/// were drawn (`doc/adr/3661`).
+#[derive(Default, Clone)]
+enum Matrices {
+    /// Both are the identity: the start of the content, or after an `ET` that ended a text
+    /// object, which this reader resets them to (ADR 3353) and a `BT` sets them to.
+    #[default]
+    Identity,
+    /// Both are the matrix a `Tm` set: its six numbers, each respelled as §7.3.3 spells it.
+    Stated(Vec<u8>),
+    /// A glyph was shown since the text line matrix was set, so the text matrix has moved past it
+    /// by the glyphs' widths, which the walk does not measure; the line matrix is the one held.
+    Shown(Box<Self>),
+    /// A move the walk does not compute: `Td`, `TD`, `T*`, `'`, `"`, or a `Tm` this reader may
+    /// not have run as written.
+    Moved,
+}
+
+impl Matrices {
+    /// What a `BT` added in front of `word` must state for the page to draw the same: nothing
+    /// where `word` sets both matrices itself or this reader holds the identity `BT` sets, a `Tm`
+    /// where it holds a matrix a `Tm` stated, and `None` where `word` reads a matrix the walk
+    /// cannot state.
+    fn opening(&self, word: &[u8]) -> Option<Vec<u8>> {
+        let line = |held: &Self| match held {
+            Self::Identity => Some(OPENS.to_vec()),
+            Self::Stated(matrix) => {
+                let mut bytes = OPENS.to_vec();
+                bytes.extend_from_slice(matrix);
+                bytes.extend_from_slice(b" Tm ");
+                Some(bytes)
+            }
+            Self::Shown(_) | Self::Moved => None,
+        };
+        match (word, self) {
+            (b"Tm", _) => Some(OPENS.to_vec()),
+            // Table 106 and Table 107: these read the line matrix alone and set the text matrix
+            // from it.
+            (b"Td" | b"TD" | b"T*" | b"'" | b"\"", Self::Shown(held)) => line(held),
+            _ => line(self),
+        }
+    }
+
+    /// The matrices after `word` ran, `stated` being a `Tm`'s six operands where this reader ran
+    /// it as written.
+    fn after(&mut self, word: &[u8], stated: Option<Vec<u8>>) {
+        *self = match word {
+            b"Tm" => stated.map_or(Self::Moved, Self::Stated),
+            b"Td" | b"TD" | b"T*" | b"'" | b"\"" => Self::Moved,
+            b"Tj" | b"TJ" => match std::mem::take(self) {
+                Self::Moved => Self::Moved,
+                shown @ Self::Shown(_) => shown,
+                held => Self::Shown(Box::new(held)),
+            },
+            _ => return,
+        };
+    }
+}
+
+/// The bytes that open a text object this write adds (`doc/adr/3661`).
+const OPENS: &[u8] = b" BT ";
+
+/// The bytes that close one.
+const CLOSES: &[u8] = b" ET ";
+
+/// Whether ISO 32000-2 §9.4.1 lets `word` stand inside a text object, so that one added around
+/// operators this reader ran outside one may hold it: the text state, text-positioning and
+/// text-showing operators, and "those related to the general graphics state, colour, and
+/// marked-content". A marked-content operator that opens or closes a sequence ends the added
+/// object instead, so that no sequence crosses its edge.
+fn stands_in_a_text_object(word: &[u8]) -> bool {
+    matches!(
+        word,
+        b"Tc"
+            | b"Tw"
+            | b"Tz"
+            | b"TL"
+            | b"Tf"
+            | b"Tr"
+            | b"Ts"
+            | b"Td"
+            | b"TD"
+            | b"Tm"
+            | b"T*"
+            | b"Tj"
+            | b"TJ"
+            | b"'"
+            | b"\""
+            | b"w"
+            | b"J"
+            | b"j"
+            | b"M"
+            | b"d"
+            | b"ri"
+            | b"i"
+            | b"gs"
+            | b"CS"
+            | b"cs"
+            | b"SC"
+            | b"SCN"
+            | b"sc"
+            | b"scn"
+            | b"G"
+            | b"g"
+            | b"RG"
+            | b"rg"
+            | b"K"
+            | b"k"
+            | b"MP"
+            | b"DP"
+    )
+}
+
+/// Whether `word` is one of the text-positioning or text-showing operators §9.4.2 and §9.4.3 say
+/// "shall only appear within text objects".
+fn only_in_a_text_object(word: &[u8]) -> bool {
+    matches!(
+        word,
+        b"Td" | b"TD" | b"Tm" | b"T*" | b"Tj" | b"TJ" | b"'" | b"\""
+    )
 }
 
 /// What one operator's place in the stream is to become.
@@ -645,21 +941,28 @@ impl Walk {
         self.grammar.operand(operand);
     }
 
-    /// An operator keyword at the top level of the content: where the grammar finds one of
-    /// [`WRITTEN_OUT_WHERE_DRAWN_THE_SAME`]'s repairs at it and its operands all stand in this
-    /// stream, what of it is written out.
+    /// An operator keyword at the top level of the content, `start` its first byte and `end` one
+    /// past its last: where the grammar finds one of [`WRITTEN_OUT_WHERE_DRAWN_THE_SAME`]'s
+    /// repairs at it and its operands all stand in this stream, what of it is written out, and the
+    /// `BT` or `ET` this write adds in front of it.
     ///
     /// Where the one repair is §7.8.2's operands left over, only those are: the clause's "all of
     /// the operands needed by an operator shall immediately precede that operator" makes the last
     /// of them the operator's own, and the reader gives it exactly those and drops the rest, so
     /// the operator stays with its own operands and draws what it drew (`doc/adr/3641`).
+    ///
+    /// A text-positioning or text-showing operator this reader ran outside a text object is not
+    /// written out where a text object can be added around it that starts with the matrices it
+    /// was drawn by (`Matrices::opening`): the added object runs to the last such operator before
+    /// one §9.4.1 keeps out of a text object (`doc/adr/3661`).
     fn operator(
         &mut self,
         document: &Document,
         resources: &pdf_syntax::object::Dictionary,
+        data: &[u8],
         word: &[u8],
-        start: usize,
-    ) -> WrittenOut {
+        (start, end): (usize, usize),
+    ) -> (WrittenOut, Option<Place>) {
         let from = self.operands_from.unwrap_or(start);
         let whole_here = !self.operands_elsewhere;
         let own_from = signature(word)
@@ -669,18 +972,28 @@ impl Walk {
             .and_then(|first_own| self.starts.get(first_own).copied())
             .unwrap_or(start);
         self.operands_spent();
+        let added = self.text_object_at(word, from, whole_here, end);
+        let in_the_added_object =
+            !self.in_text && only_in_a_text_object(word) && self.added_text_object.is_some();
         let Some(signature) = signature(word) else {
             self.grammar.boundary();
-            return WrittenOut::Left;
+            return (WrittenOut::Left, added);
         };
         let found = self.grammar.operator(signature);
         if let (b"CS" | b"cs", Some(name)) = (word, self.last_name.take()) {
             self.grammar
                 .select_space(word == b"CS", space_components(document, resources, &name));
         }
-        let mut classes = found.classes().peekable();
+        // The added text object answers §9.4.1's class at this operator (`doc/adr/3661`).
+        let answered = |class: &&'static pdf_syntax::RepairClass| {
+            !(in_the_added_object
+                && class.name == pdf_model::repair::TEXT_OPERATOR_OUTSIDE_A_TEXT_OBJECT.name)
+        };
+        self.text_matrices_after(word, found, data, own_from, start);
+        let mut classes = found.classes().filter(answered).peekable();
         let only_left_over = found
             .classes()
+            .filter(answered)
             .all(|class| class.name == pdf_model::repair::OPERANDS_LEFT_OVER.name);
         let written = whole_here
             && classes.peek().is_some()
@@ -690,7 +1003,7 @@ impl Walk {
             (true, true) => WrittenOut::LeftOver(from, own_from),
             (true, false) => WrittenOut::Whole(from),
         };
-        match word {
+        let place = match word {
             // Table 352's `BMC` and `BDC` each begin a sequence "terminated by a balancing EMC
             // operator": a section whose opening operator is written out is written out whole,
             // or the `EMC` left behind would balance nothing (`doc/adr/3615`). One that keeps its
@@ -698,9 +1011,10 @@ impl Walk {
             b"BMC" | b"BDC" => {
                 if self.sections.len() < MOST_SECTIONS {
                     self.sections.push(matches!(place, WrittenOut::Whole(_)));
-                    return place;
+                    place
+                } else {
+                    WrittenOut::Left
                 }
-                WrittenOut::Left
             }
             // An `EMC` with no section open balances nothing, and the reader ignores it: it is
             // written out alone where the page draws the same.
@@ -713,8 +1027,122 @@ impl Walk {
                 None => place,
             },
             _ => place,
+        };
+        (place, added)
+    }
+
+    /// The `BT` or `ET` this write adds in front of `word`, whose operands begin at `from`
+    /// (`doc/adr/3661`).
+    ///
+    /// A text-positioning or text-showing operator this reader ran outside a text object opens
+    /// one where none is open, its operands all stand in this stream, and the matrices it reads
+    /// are ones the walk can state; it then runs to `end`. An operator §9.4.1 keeps out of a text
+    /// object closes the one open, and a `BT` does too; an `ET` that this reader ran outside a
+    /// text object, and so ignored, closes it with no `ET` added, its own ending the object.
+    fn text_object_at(
+        &mut self,
+        word: &[u8],
+        from: usize,
+        whole_here: bool,
+        end: usize,
+    ) -> Option<Place> {
+        if !self.in_text && only_in_a_text_object(word) {
+            let opened = match self.added_text_object {
+                Some(_) => None,
+                None => self
+                    .matrices
+                    .opening(word)
+                    .filter(|_| whole_here)
+                    .map(|added| Place::text_object(from, added)),
+            };
+            if opened.is_some() || self.added_text_object.is_some() {
+                self.added_text_object = Some(end);
+            }
+            return opened;
+        }
+        if stands_in_a_text_object(word) {
+            return None;
+        }
+        if word == b"ET" && !self.in_text {
+            self.added_text_object = None;
+            return None;
+        }
+        self.end_added_text_object()
+    }
+
+    /// An inline image ends the operands before it, and §9.4.1 keeps it out of a text object, so
+    /// the one this write added ends in front of it: the `ET` closing it, where one is open.
+    fn inline_image(&mut self) -> Option<Place> {
+        self.grammar.boundary();
+        self.operands_spent();
+        self.end_added_text_object()
+    }
+
+    /// The `ET` closing the text object this write added, where one is open: at a `BT`, an
+    /// operator §9.4.1 keeps out of a text object, an inline image, or the end of the stream.
+    fn end_added_text_object(&mut self) -> Option<Place> {
+        self.added_text_object
+            .take()
+            .map(|at| Place::text_object(at, CLOSES.to_vec()))
+    }
+
+    /// Follows `word` through this reader's text object and its matrices (Table 105, Table 106):
+    /// a `BT` begins an object at the identity, an `ET` ending one discards its matrices to the
+    /// identity (ADR 3353), and a stray `ET` acts on nothing. A `Tm` this reader ran as written
+    /// states its six numbers, respelled as §7.3.3 spells them; the operands are the last six
+    /// before `start`, from `own_from`.
+    fn text_matrices_after(
+        &mut self,
+        word: &[u8],
+        found: pdf_model::content::grammar::Found,
+        data: &[u8],
+        own_from: usize,
+        start: usize,
+    ) {
+        match word {
+            b"BT" => {
+                self.in_text = true;
+                self.matrices = Matrices::Identity;
+            }
+            b"ET" if self.in_text => {
+                self.in_text = false;
+                self.matrices = Matrices::Identity;
+            }
+            b"Tm" => {
+                let as_written = found.classes().all(|class| {
+                    class.name == pdf_model::repair::TEXT_OPERATOR_OUTSIDE_A_TEXT_OBJECT.name
+                        || class.name == pdf_model::repair::OPERANDS_LEFT_OVER.name
+                });
+                let stated = as_written
+                    .then(|| six_numbers(data.get(own_from..start).unwrap_or_default()))
+                    .flatten();
+                self.matrices.after(word, stated);
+            }
+            _ => self.matrices.after(word, None),
         }
     }
+}
+
+/// A `Tm`'s six operands, each respelled by `pdf_syntax::write::object` as §7.3.3 spells it and
+/// reads back to the same value, or `None` where `span` is not six numbers the lexer reads whole.
+fn six_numbers(span: &[u8]) -> Option<Vec<u8>> {
+    let mut lexer = Lexer::new(span);
+    let mut out = Vec::new();
+    for _ in 0..6 {
+        lexer.skip_whitespace();
+        let value = match lexer.next_token()? {
+            Token::Integer(value) => Object::Integer(value),
+            Token::Real(value) => Object::Real(value),
+            _ => return None,
+        };
+        if lexer.salvaged().is_some() {
+            return None;
+        }
+        out.push(b' ');
+        pdf_syntax::write::object(&value, &mut out);
+    }
+    lexer.skip_whitespace();
+    lexer.next_token().is_none().then_some(out)
 }
 
 /// Every run in one decoded content stream that this reader draws as a number.
@@ -733,6 +1161,8 @@ impl Walk {
 /// Where `operators` is set, an operator `pdf_model`'s grammar (ADR 3542) finds one of
 /// [`WRITTEN_OUT_WHERE_DRAWN_THE_SAME`]'s repairs at is a place too, from its first operand to its
 /// own last byte; whether the page draws the same without it is [`drawn_the_same`]'s question.
+/// So is each `BT` and `ET` added around text operators this reader ran outside a text object,
+/// a place of no bytes with the bytes added (`doc/adr/3661`).
 fn salvaged_runs(
     document: &Document,
     data: &[u8],
@@ -761,8 +1191,7 @@ fn salvaged_runs(
                 pdf_model::inline_image::scan(document, data, lexer.position(), resources, true);
             lexer.seek(scan.resume);
             pending = 0;
-            walk.grammar.boundary();
-            walk.operands_spent();
+            added(&mut out, most, walk.inline_image().filter(|_| operators))?;
             continue;
         }
         if depth == 0
@@ -807,8 +1236,10 @@ fn salvaged_runs(
                     && !matches!(*word, b"true" | b"false" | b"null") =>
             {
                 pending = 0;
-                let written = walk.operator(document, resources, word, start);
+                let (written, text_object) =
+                    walk.operator(document, resources, data, word, (start, lexer.position()));
                 if operators {
+                    added(&mut out, most, text_object)?;
                     written_out(&mut out, most, data, written, lexer.position())?;
                 }
                 continue;
@@ -828,18 +1259,16 @@ fn salvaged_runs(
             && let Some(number) = number_drawn(&token)
         {
             let end = lexer.position();
-            placed(
-                &mut out,
-                most,
-                Place {
-                    start,
-                    end,
-                    number,
-                    operator: false,
-                },
-            )?;
+            placed(&mut out, most, Place::number(start, end, number))?;
         }
     }
+    // A text object added runs no further than its stream: the next stream of a `/Contents`
+    // array opens its own where it needs one.
+    added(
+        &mut out,
+        most,
+        walk.end_added_text_object().filter(|_| operators),
+    )?;
     Some((out, left))
 }
 
@@ -873,7 +1302,9 @@ fn written_out(
                 .unwrap_or(to),
         ),
     };
-    let at = out.partition_point(|place| place.start < from);
+    // A `BT` added at `from` stays in front of the place (`doc/adr/3661`).
+    let at = out
+        .partition_point(|place| place.start < from || (place.start == from && place.end == from));
     let own: Vec<Place> = out.drain(at..).filter(|place| place.start >= to).collect();
     placed(out, most, Place::white_space(from, to, true))?;
     out.extend(own);
@@ -896,6 +1327,22 @@ fn number_drawn(token: &Token<'_>) -> Option<Vec<u8>> {
     Some(number)
 }
 
+/// Adds the `BT` or `ET` a text object is opened or closed by (`doc/adr/3661`) in its place
+/// among `out`'s, in front of any that starts where it stands: an `ET` is found only once the
+/// operator ending the object is, after places between the two were added. `None` where `out`
+/// already holds `most`; nothing is added for `None`.
+fn added(out: &mut Vec<Place>, most: usize, place: Option<Place>) -> Option<()> {
+    let Some(place) = place else {
+        return Some(());
+    };
+    if out.len() == most {
+        return None;
+    }
+    let at = out.partition_point(|other| other.start < place.start);
+    out.insert(at, place);
+    Some(())
+}
+
 /// Adds `place` to `out`, or `None` where `out` already holds `most`.
 fn placed(out: &mut Vec<Place>, most: usize, place: Place) -> Option<()> {
     if out.len() == most {
@@ -912,7 +1359,7 @@ fn space_components(
     resources: &pdf_syntax::object::Dictionary,
     name: &[u8],
 ) -> Option<usize> {
-    let named = Object::Name(pdf_syntax::Name::new(name.to_vec()));
+    let named = Object::Name(Name::new(name.to_vec()));
     components(document, &named).or_else(|| {
         let spaces = document.get_key(resources, "ColorSpace");
         let entry = spaces

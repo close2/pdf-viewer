@@ -5,7 +5,8 @@
 //! The expected values come from ISO 32000-2: §8.4.2 ("Occurrences of the q and Q operators shall
 //! be balanced"), so a `Q` with nothing saved restores nothing and the page draws the same without
 //! it; §9.4.1, whose text-showing operators belong inside `BT … ET`, so one outside that this reader
-//! still draws is a mark the page would lose; and §7.7.3.3's Table 31, which requires `/MediaBox`
+//! still draws is enclosed in a text object that starts with the matrices it was drawn by
+//! (`doc/adr/3661`); and §7.7.3.3's Table 31, which requires `/MediaBox`
 //! and gives it no default, so the box a page with none is drawn on is this reader's
 //! (`Page::DEFAULT_MEDIA_BOX`, ADR 0389) and is what the output states.
 use super::*;
@@ -90,11 +91,102 @@ fn a_restore_with_nothing_saved_is_written_out_where_the_page_draws_the_same() {
     }
 }
 
+/// The first page's content stream, decoded, as text with each run of white space one space, so
+/// that what is asserted is the tokens and their order.
+fn contents_text(output: &[u8]) -> String {
+    String::from_utf8_lossy(&decoded_contents(output))
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Converts `source` under `as-shown` to `target` and returns the output and the losses section
+/// 5.1's row was answered with.
+fn as_shown(source: &[u8], target: Target) -> (Vec<u8>, Losses) {
+    let (report, output) = convert_with_plan(source, &under("as-shown", target));
+    let Decision::Authorised { losses, .. } = decision(&report, BASE_STANDARD) else {
+        panic!("{:?}", decision(&report, BASE_STANDARD));
+    };
+    assert!(
+        conversion(&report).photographed.is_empty(),
+        "the elegant remedy comes before the photograph"
+    );
+    let output = output.expect("as-shown writes a file");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    (output, losses)
+}
+
 #[test]
-fn a_text_operator_the_page_draws_outside_a_text_object_keeps_its_refusal_or_is_photographed() {
-    // `Td` and `Tj` with no `BT` before them: this reader draws the text where its text state
-    // leaves it, so writing them out would take a mark off the page, and the proof refuses it.
+fn text_operators_drawn_outside_a_text_object_are_enclosed_in_one_where_the_page_draws_the_same() {
+    // `Td` and `Tj` with no `BT` before them: this reader draws them by the identity matrices a
+    // `BT` sets (ADR 3353), so a `BT` in front of them and an `ET` after draw the same page
+    // (ADR 3661). Nothing of the producer's is removed, and the loss is `content-as-drawn`, the
+    // reading being this reader's.
     let source = a_page_whose_stream_is(b"/F1 12 Tf 10 100 Td (Hello) Tj");
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (output, losses) = as_shown(&source, target);
+        assert!(
+            losses.iter().eq([Loss::ContentAsDrawn]),
+            "{}",
+            losses.words()
+        );
+        let text = contents_text(&output);
+        assert!(
+            text.contains("/F1 12 Tf BT 10 100 Td (Hello) Tj ET"),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn a_text_object_added_ends_before_an_operator_a_text_object_may_not_hold_and_another_begins() {
+    // pdf.js's `issue10388_reduced` in small: two runs of text operators outside any `BT … ET`
+    // with a saved state between them. §9.4.1 admits no `q` inside a text object, so each run
+    // gets its own, and each starts with its own `Tm`, which sets both matrices.
+    let source = a_page_whose_stream_is(
+        b"/F1 1 Tf 9 0 0 9 36 48 Tm [(A)] TJ q 1 0 0 1 46 46 cm Q 9 0 0 9 51 48 Tm [(B)] TJ",
+    );
+    let (output, _) = as_shown(&source, Target::Two(Level::B));
+    let text = contents_text(&output);
+    assert!(
+        text.contains("BT 9 0 0 9 36 48 Tm [(A)] TJ ET q 1 0 0 1 46 46 cm Q BT 9 0 0 9 51 48 Tm"),
+        "{text}"
+    );
+    assert_eq!(text.matches("BT").count(), 2, "{text}");
+    assert_eq!(text.matches("ET").count(), 2, "{text}");
+}
+
+#[test]
+fn a_text_object_added_after_a_matrix_was_stated_states_it_again() {
+    // The second `Td` reads the line matrix the `Tm` set before the `q`, so the text object added
+    // around it opens with that `Tm`, the numbers respelled as §7.3.3 spells them.
+    let source =
+        a_page_whose_stream_is(b"/F1 12 Tf 1 0 0 1 10 100.0 Tm (A) Tj q Q 0 -20 Td (B) Tj");
+    let (output, _) = as_shown(&source, Target::Two(Level::B));
+    let text = contents_text(&output);
+    assert!(
+        text.contains("Q BT 1 0 0 1 10 100 Tm 0 -20 Td (B) Tj ET"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_producers_stray_et_closes_the_text_object_added() {
+    // `T02-05-01_001`'s shape: the `BT` is missing and the `ET` is there. This reader ignores
+    // the stray `ET`; once the `BT` is added it ends the object, and no second `ET` is written.
+    let source = a_page_whose_stream_is(b"/F1 12 Tf (Hello) Tj ET");
+    let (output, _) = as_shown(&source, Target::Two(Level::B));
+    let text = contents_text(&output);
+    assert!(text.contains("BT (Hello) Tj ET"), "{text}");
+    assert_eq!(text.matches("ET").count(), 1, "{text}");
+}
+
+#[test]
+fn a_text_operator_whose_matrix_the_walk_cannot_state_keeps_its_refusal_or_is_photographed() {
+    // After `(A) Tj` the text matrix stands past the line matrix by the glyph's width, which the
+    // walk does not measure; the `Tj` after the `q … Q` is drawn there, so no text object can be
+    // added that starts where it was drawn, and `as-shown` refuses by the class's name.
+    let source = a_page_whose_stream_is(b"/F1 12 Tf 10 100 Td (A) Tj q Q (B) Tj");
     let target = Target::Four(Flavour::Plain);
     let (report, output) = convert_with_plan(&source, &under("as-shown", target));
     assert!(output.is_none(), "as-shown writes no file");
@@ -102,7 +194,7 @@ fn a_text_operator_the_page_draws_outside_a_text_object_keeps_its_refusal_or_is_
     assert!(
         refused.iter().any(|sentence| sentence
             .contains("model/text-operator-outside-a-text-object")
-            && sentence.contains("ADR 3558")),
+            && sentence.contains("ADR 3661")),
         "refused by the class's name: {refused:?}"
     );
     let (report, output) = convert_with_plan(&source, &under("as-if-printed", target));
@@ -112,8 +204,29 @@ fn a_text_operator_the_page_draws_outside_a_text_object_keeps_its_refusal_or_is_
         panic!("{:?}", decision(&report, BASE_STANDARD));
     };
     assert!(losses.contains(Loss::PageAsImage), "{}", losses.words());
-    assert!(!losses.contains(Loss::ContentAsDrawn), "{}", losses.words());
     assert_eq!(conversion(&report).photographed.len(), 1);
+}
+
+#[test]
+fn a_file_whose_cross_reference_table_was_rebuilt_is_proved_drawn_the_same_by_a_whole_file() {
+    // §7.5.6's update chains to the section before it, and a table rebuilt by scanning has none,
+    // so the proof's second file is written whole from the objects this reader read (ADR 3662).
+    // `startxref` naming an offset that holds no table is the defect.
+    let mut source = a_page_whose_stream_is(b"/F1 12 Tf 10 100 Td (Hello) Tj");
+    let at = source
+        .windows(b"startxref".len())
+        .rposition(|window| window == b"startxref")
+        .expect("the fixture ends with startxref");
+    source.truncate(at);
+    source.extend_from_slice(b"startxref\n1\n%%EOF\n");
+    assert!(
+        Document::open_with_limits(source.clone(), Limits::DEFAULT)
+            .expect("it opens")
+            .was_recovered(),
+        "the fixture's table is rebuilt"
+    );
+    let (output, _) = as_shown(&source, Target::Two(Level::B));
+    assert!(contents_text(&output).contains("BT 10 100 Td (Hello) Tj ET"));
 }
 
 #[test]
@@ -337,26 +450,20 @@ fn operands_left_over_are_written_out_alone_and_the_operator_kept() {
         );
     }
 
-    // A show outside a text object with a leftover in front: written out whole it would take the
-    // text off the page, so it is left.
+    // A show outside a text object with a leftover in front: the leftover is written out alone,
+    // and a text object is added around the show, which this reader drew by the identity
+    // matrices `ET` left (`doc/adr/3641`, `doc/adr/3661`).
     let drawing = a_page_whose_stream_is(b"BT /F1 12 Tf ET 1 (a) Tj");
     let (report, output) = convert_with_plan(&drawing, &under("as-shown", target));
-    assert!(output.is_none(), "as-shown writes no file");
-    let refused = refusals(&report);
-    assert!(
-        refused
-            .iter()
-            .any(|sentence| sentence.contains("model/operands-left-over")),
-        "refused by the class's name: {refused:?}"
-    );
-    let (report, output) = convert_with_plan(&drawing, &under("as-if-printed", target));
     let output = output.unwrap_or_else(|| panic!("{:?}", refusals(&report)));
     assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
-    assert_eq!(
-        conversion(&report).photographed.len(),
-        1,
-        "the page is photographed"
+    assert_eq!(written_out(&report), [b"1".to_vec()]);
+    assert!(
+        conversion(&report).photographed.is_empty(),
+        "the page is not photographed"
     );
+    let text = contents_text(&output);
+    assert!(text.ends_with("ET BT (a) Tj ET"), "{text}");
 }
 
 /// ISO 19005-2 section 6.2.10 and ISO 19005-4 section 6.2.9 require a blend mode ISO 32000-2
