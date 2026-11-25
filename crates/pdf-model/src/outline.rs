@@ -67,6 +67,17 @@ pub struct Item {
     /// A *text string*, so §7.9.2.2's three encodings apply and `pdf_syntax::text_string`
     /// decodes it — the same route a page label's prefix and a field's value take.
     pub title: String,
+    /// The languages §7.9.2.2.2's escape sequences state inside [`Self::title`], each with the
+    /// byte offset in the decoded title from which it governs; empty where the title states
+    /// none, and then the title is in [`Outline::language`].
+    ///
+    /// > Escape sequences may appear anywhere in a Unicode text string to indicate the language
+    /// > in which subsequent text shall be written.
+    ///
+    /// The decoding removes the sequences, so they are kept here rather than lost with them: an
+    /// escape overrides the catalog's `/Lang` from where it stands (§14.9.2.1's hierarchy puts
+    /// the escape innermost), and a panel row says which language its title is in (ADR 3633).
+    pub title_languages: Vec<(usize, String)>,
     /// Where the item goes: its `/Dest`, or the destination of a go-to action in its `/A` —
     /// `/SD` where it names one, `/D` otherwise (Table 202).
     ///
@@ -277,12 +288,17 @@ fn read_item(
 ) -> Item {
     let count = document.get_key(dict, "Count").as_integer();
     let flags = document.get_key(dict, "F").as_integer().unwrap_or(0);
+    let (title, title_languages) = match document.get_key(dict, "Title") {
+        Object::String(bytes) => (
+            pdf_syntax::text_string(&bytes),
+            pdf_syntax::text_string_languages(&bytes),
+        ),
+        _ => (String::new(), Vec::new()),
+    };
     Item {
         id,
-        title: match document.get_key(dict, "Title") {
-            Object::String(bytes) => pdf_syntax::text_string(&bytes),
-            _ => String::new(),
-        },
+        title,
+        title_languages,
         destination: destination(document, dict),
         open: count.is_some_and(|count| count > 0),
         // Table 152 numbers its bits "from low-order to high-order bits, with the lowest-order
@@ -483,5 +499,28 @@ mod tests {
             "the last item on page one, not the first"
         );
         assert_eq!(outline.section_at(&doc, &pages, 1), Some("Section 2.1"));
+    }
+
+    /// §7.9.2.2.2: a title's escape sequences are removed from what is shown and kept, each with
+    /// the offset from which its language governs — the first at the start, the second after
+    /// "Kapitel 1" — while [`Outline::language`] stays the catalog's.
+    #[test]
+    fn a_titles_language_escapes_are_kept_beside_it() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R /Lang (fr) >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /Outlines /First 5 0 R /Last 5 0 R >>",
+            "<< /Title <EFBBBF1B64651B4B61706974656C20311B656E1B20496E74726F> /Parent 4 0 R >>",
+        ]);
+        let pages = Pages::new(&doc);
+        let outline = Outline::read(&doc, &pages);
+        let item = outline.items.first().expect("the one item");
+        assert_eq!(item.title, "Kapitel 1 Intro");
+        assert_eq!(
+            item.title_languages,
+            [(0, "de".to_owned()), (9, "en".to_owned())]
+        );
+        assert_eq!(outline.language.as_deref(), Some("fr"));
     }
 }

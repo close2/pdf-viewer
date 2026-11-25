@@ -137,15 +137,18 @@ pub struct PanelRow {
     /// for the row. [`Picture`] says *how large* it is and *where it comes from*; the clause
     /// states no artwork for any of them, so each toolkit draws its own (ADRs 1215, 1251).
     pub picture: Option<Picture>,
-    /// The language [`Self::label`] is in, where the document states one: a BCP 47 tag, for the
-    /// toolkit's accessible item.
+    /// The languages [`Self::label`] is in, for the toolkit's accessible item: each a byte
+    /// offset into the label and the BCP 47 tag that governs from there to the next run, the
+    /// first at offset 0 wherever a language is known.
     ///
     /// ISO 32000-2 §14.9.2.1 makes the catalog's `/Lang` the language of text strings outside
     /// the content streams too, "for example, entries in metadata, outline entries and names for
     /// optional content groups" — so an outline's and a layer panel's rows carry it, and a screen
     /// reader speaks a German document's outline in German whatever the desktop's language is.
-    /// `None` on every other panel's rows, and where the document states no language.
-    pub language: Option<String>,
+    /// A §7.9.2.2.2 escape inside the title or name overrides it from where it stands
+    /// (`pdf_model::structure::language_runs`, ADR 3633). Empty on every other panel's rows, and
+    /// where neither the text nor the document states a language.
+    pub languages: Vec<(usize, String)>,
     /// The rows underneath it.
     pub children: Vec<PanelRow>,
 }
@@ -324,7 +327,7 @@ impl PanelRow {
             style: None,
             cells: Vec::new(),
             picture: None,
-            language: None,
+            languages: Vec::new(),
             children: Vec::new(),
         }
     }
@@ -370,7 +373,7 @@ fn row_of_item(item: &Item, language: Option<&str>) -> PanelRow {
         }),
         cells: Vec::new(),
         picture: None,
-        language: language.map(str::to_owned),
+        languages: pdf_model::structure::language_runs(language, item.title_languages.clone()),
         children: item
             .children
             .iter()
@@ -392,7 +395,7 @@ fn eight_bits(component: f32) -> u8 {
     bits
 }
 
-/// §8.11.4.3's `/Order`, as rows.
+/// §8.11.4.3's `/Order`, as rows, each in the languages §14.9.2.1 and §7.9.2.2.2 give its name.
 ///
 /// The clause's two shapes stay two shapes: a group is a row with a switch, and a collection with
 /// a leading string is a heading with children and no switch.
@@ -407,6 +410,7 @@ fn row_of_layer(layer: &Layer) -> PanelRow {
         Layer::Group {
             group,
             name,
+            languages,
             on,
             locked,
         } => PanelRow {
@@ -428,10 +432,14 @@ fn row_of_layer(layer: &Layer) -> PanelRow {
             style: None,
             cells: Vec::new(),
             picture: None,
-            language: None,
+            languages: languages.clone(),
             children: Vec::new(),
         },
-        Layer::Collection { label, children } => PanelRow {
+        Layer::Collection {
+            label,
+            languages,
+            children,
+        } => PanelRow {
             label: label.clone().unwrap_or_default(),
             detail: None,
             expanded: true,
@@ -441,7 +449,7 @@ fn row_of_layer(layer: &Layer) -> PanelRow {
             style: None,
             cells: Vec::new(),
             picture: None,
-            language: None,
+            languages: languages.clone(),
             children: children.iter().map(row_of_layer).collect(),
         },
     }
@@ -485,7 +493,7 @@ pub fn attachment_rows(attachments: &[Attachment]) -> Vec<PanelRow> {
             // `/Collection` gets: the same files, unarranged.
             cells: Vec::new(),
             picture: None,
-            language: None,
+            languages: Vec::new(),
             children: Vec::new(),
         })
         .collect()
@@ -838,7 +846,7 @@ fn index_folders(folder: &pdf_model::collection::Folder, shape: &Shape, out: &mu
         // drawn under it either, so what it does is nothing until a person chooses it.
         action: RowAction::Inert,
         picture: shape.picture(Icon::Folder, false),
-        language: None,
+        languages: Vec::new(),
         ..PanelRow::item(folder.name.clone())
     });
     for child in &folder.children {
@@ -1174,7 +1182,7 @@ fn files_where(
                     name: attachment.name.clone(),
                 },
                 picture: shape.picture(icon_of(attachment), previewed),
-                language: None,
+                languages: Vec::new(),
                 cells,
                 ..PanelRow::item(
                     attachment
@@ -1273,7 +1281,7 @@ fn folder_row(
         // children.
         action: RowAction::Inert,
         picture: shape.picture(Icon::Folder, false),
-        language: None,
+        languages: Vec::new(),
         children,
         ..PanelRow::item(folder.name.clone())
     }

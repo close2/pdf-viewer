@@ -123,6 +123,7 @@ fn an_arabic_outline_title_reaches_pango_as_stored() {
         items: vec![pdf_model::outline::Item {
             id: pdf_syntax::ObjectId::new(5, 0),
             title: stored.to_owned(),
+            title_languages: Vec::new(),
             destination: None,
             open: false,
             italic: false,

@@ -122,6 +122,7 @@ fn encode_outline_item(writer: &mut Writer, item: &OutlineItem) {
     let OutlineItem {
         id,
         title,
+        title_languages,
         destination,
         open,
         italic,
@@ -130,6 +131,7 @@ fn encode_outline_item(writer: &mut Writer, item: &OutlineItem) {
         children,
     } = item;
     writer.object(*id).str(title);
+    encode_languages(writer, title_languages);
     encode_option_destination(writer, *destination);
     writer
         .bool(*open)
@@ -148,6 +150,7 @@ fn decode_outline_item(reader: &mut Reader<'_>, at: usize) -> Result<OutlineItem
     Ok(OutlineItem {
         id: reader.object(what)?,
         title: reader.string("an outline item's title")?,
+        title_languages: decode_languages(reader, "an outline item's title languages")?,
         destination: decode_option_destination(reader)?,
         open: reader.bool("an outline item's open flag")?,
         italic: reader.bool("an outline item's italic flag")?,
@@ -275,6 +278,24 @@ pub(super) fn encode_layers(writer: &mut Writer, layers: &[Layer]) {
     }
 }
 
+/// The languages a text is in, as runs: each a byte offset into the text and a BCP 47 tag
+/// (§14.9.2.1 and §7.9.2.2.2, `pdf_model::structure::language_runs`).
+fn encode_languages(writer: &mut Writer, languages: &[(usize, String)]) {
+    writer.usize(languages.len());
+    for (offset, tag) in languages {
+        writer.usize(*offset).str(tag);
+    }
+}
+
+fn decode_languages(
+    reader: &mut Reader<'_>,
+    what: &'static str,
+) -> Result<Vec<(usize, String)>, ProtocolError> {
+    reader.list(what, |reader| {
+        Ok((reader.usize(what)?, reader.string(what)?))
+    })
+}
+
 /// Reads §8.11.4.3's `/Order`.
 pub(super) fn decode_layers(reader: &mut Reader<'_>) -> Result<Vec<Layer>, ProtocolError> {
     reader.list("a layer order", |reader| decode_layer(reader, 0))
@@ -285,17 +306,23 @@ fn encode_layer(writer: &mut Writer, layer: &Layer) {
         Layer::Group {
             group,
             name,
+            languages,
             on,
             locked,
         } => {
             writer.u8(0).object(*group);
-            writer.option_str(name.as_deref()).bool(*on).bool(*locked);
+            writer.option_str(name.as_deref());
+            encode_languages(writer, languages);
+            writer.bool(*on).bool(*locked);
         }
-        Layer::Collection { label, children } => {
-            writer
-                .u8(1)
-                .option_str(label.as_deref())
-                .usize(children.len());
+        Layer::Collection {
+            label,
+            languages,
+            children,
+        } => {
+            writer.u8(1).option_str(label.as_deref());
+            encode_languages(writer, languages);
+            writer.usize(children.len());
             for child in children {
                 encode_layer(writer, child);
             }
@@ -310,11 +337,13 @@ fn decode_layer(reader: &mut Reader<'_>, at: usize) -> Result<Layer, ProtocolErr
         0 => Layer::Group {
             group: reader.object("an optional content group")?,
             name: reader.option_string("a group's name")?,
+            languages: decode_languages(reader, "a group's name languages")?,
             on: reader.bool("a group's state")?,
             locked: reader.bool("a group's lock")?,
         },
         1 => Layer::Collection {
             label: reader.option_string("a layer collection's label")?,
+            languages: decode_languages(reader, "a layer collection's label languages")?,
             children: reader.list(what, |reader| decode_layer(reader, at.saturating_add(1)))?,
         },
         value => return Err(unrecognised(what, value)),

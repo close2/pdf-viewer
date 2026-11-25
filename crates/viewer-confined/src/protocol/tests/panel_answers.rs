@@ -44,6 +44,7 @@ fn a_populated_outline() -> pdf_model::outline::Outline {
     let leaf = Item {
         id: ObjectId::new(9, 2),
         title: "a leaf".to_owned(),
+        title_languages: Vec::new(),
         destination: Some(Destination {
             target: Target::Number(11),
             view: View::FitR {
@@ -61,6 +62,7 @@ fn a_populated_outline() -> pdf_model::outline::Outline {
             Item {
                 id: ObjectId::new(4, 0),
                 title: "a section".to_owned(),
+                title_languages: vec![(0, "en".to_owned()), (2, "de".to_owned())],
                 destination: Some(Destination {
                     target: Target::Object(ObjectId::new(5, 0)),
                     view: View::Xyz {
@@ -78,6 +80,7 @@ fn a_populated_outline() -> pdf_model::outline::Outline {
             Item {
                 id: ObjectId::new(6, 0),
                 title: "an item with no destination".to_owned(),
+                title_languages: Vec::new(),
                 destination: None,
                 open: false,
                 italic: false,
@@ -269,9 +272,11 @@ fn every_panel_answer_round_trips() {
     let layers = vec![
         Layer::Collection {
             label: Some("a heading".to_owned()),
+            languages: vec![(0, "fr".to_owned())],
             children: vec![Layer::Group {
                 group: ObjectId::new(12, 0),
                 name: Some("a layer".to_owned()),
+                languages: vec![(0, "de-AT".to_owned()), (2, "en".to_owned())],
                 on: false,
                 locked: true,
             }],
@@ -279,6 +284,7 @@ fn every_panel_answer_round_trips() {
         Layer::Group {
             group: ObjectId::new(13, 1),
             name: None,
+            languages: Vec::new(),
             on: true,
             locked: false,
         },

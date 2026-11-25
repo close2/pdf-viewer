@@ -1700,35 +1700,32 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
     if absent.is_empty() {
         // Every floor below counts the whole population, `RATCHETED_SPECIFICATIONS` included, so
         // a tagged text that joins `doc/` raises it the way every `doc/*.pdf` does (ADR 1075: the
-        // bound sits beside the population it admits; trap 43). Ten of the floors below moved on
-        // 2026-10-14, when `doc/PDF20_AN001-BPC.edited.pdf` — an edited copy of the tagged
-        // technical note, five pages — joined the owner's `doc/`; each is the population that run read. The two header floors count a
-        // cell once rather than once per page it is reached from (ADR 1151).
-        // 114 since `doc/PDF20_AN001-BPC.edited.pdf` joined the owner's `doc/` on 2026-10-14 — an
-        // edited copy of the tagged technical note, so one more document with structure (trap 43).
+        // bound sits beside the population it admits; trap 43). Each is the population the run
+        // read with `ITU-T-H.264-202606.pdf` — tagged, 854 pages, every one answering — and the
+        // untagged `ISO-IEC-14496-12-2012.pdf` among the specifications (ADR 3634). The two
+        // header floors count a cell once rather than once per page it is reached from (ADR 1151).
         gate_ratchet::floor(
             "documents with structure, whole population",
             census.with_structure,
-            114,
+            115,
         );
-        // 2659 since `doc/PDF20_AN001-BPC.edited.pdf` (five pages) joined the owner's `doc/` on 2026-10-14.
         gate_ratchet::floor(
             "pages that answer at all, whole population",
             census.answered_pages,
-            2659,
+            3513,
         );
-        gate_ratchet::floor("elements reached, whole population", census.nodes, 248_172);
+        gate_ratchet::floor("elements reached, whole population", census.nodes, 348_582);
         gate_ratchet::floor(
             "§14.9.3's /Alt carried, whole population",
             census.substituted,
-            673,
+            682,
         );
-        gate_ratchet::floor("elements placed, whole population", census.placed, 14_035);
+        gate_ratchet::floor("elements placed, whole population", census.placed, 19_037);
         // ADR 2334: the same two elements of `issue17147.pdf`, counted here in the whole population.
         gate_ratchet::floor(
             "elements placed by their own marks, whole population",
             census.derived,
-            211_412,
+            302_837,
         );
         // ADR 2977: a header scoped to the other axis is stepped over by §14.8.4.8.3's search
         // (Errata Collection 3 Issue #200) rather than ending it, so the eligible headers beyond
@@ -1737,18 +1734,18 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         gate_ratchet::floor(
             "cells with headers, whole population",
             census.header_cells,
-            24_095,
+            27_824,
         );
         gate_ratchet::floor(
             "header associations, whole population",
             census.header_associations,
-            34_874,
+            40_703,
         );
         gate_ratchet::floor("§12.7.5's controls, whole population", census.controls, 272);
         gate_ratchet::floor(
             "elements that are annotations, whole population",
             census.annotations,
-            13_037,
+            18_024,
         );
         // ADR 1490: the readback's word gaps measured in text space, A/B on one build, gave 269
         // more elements a line of their own text, 260 more lines and 5 more characters. ADR 1515:
@@ -1758,18 +1755,18 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         gate_ratchet::floor(
             "elements a caret reaches, whole population",
             census.with_lines,
-            135_497,
+            189_341,
         );
         // ADR 3013's lines in `/K` order: 138 more over the population, the same characters; and
         // ADR 2976's structure element `/ActualText` placed once, at its first content item:
         // `Well-Tagged-PDF-WTPDF-1.0.pdf`, which states the entry 1 101 times, most of them a single
         // space, reads 56 fewer lines and 92 fewer characters. A/B'd per document against 7471eeff;
         // no other document's characters moved.
-        gate_ratchet::floor("lines, whole population", census.lines, 223_573);
+        gate_ratchet::floor("lines, whole population", census.lines, 314_342);
         // ADR 2086: a code whose span is the span of the line's last character is that character,
         // so §14.9.4's replacement is spoken once rather than once per code it covers — 126 fewer
         // characters over the population, the same lines and elements. ADR 2976, above: 92 fewer.
-        gate_ratchet::floor("characters, whole population", census.characters, 5_700_393);
+        gate_ratchet::floor("characters, whole population", census.characters, 8_701_438);
         // `issue21579.pdf` and `encrypted-attachment.pdf` open with the passwords
         // `corpus_passwords.rs` publishes (ADRs 1377 and 1534), so each one's untagged page is in
         // this population as it is in the tracked one.
@@ -1785,7 +1782,7 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         gate_ratchet::floor(
             "untagged pages answering honestly, whole population",
             census.untagged_honest,
-            901,
+            902,
         );
         // ADR 1369's two counts, new with it, over the whole population.
         gate_ratchet::floor(
@@ -1853,6 +1850,7 @@ const RATCHETED_SPECIFICATIONS: &[&str] = &[
     "ISO-14289-2-2024-sponsored.pdf",
     "ISO-15076-1-2010.pdf",
     "ISO-16684-1-2012.pdf",
+    "ISO-IEC-14496-12-2012.pdf",
     "ISO-IEC-15444-1-2016.pdf",
     "ISO-IEC-15444-1-2019.pdf",
     "ISO-TS-32004-2024_sponsored.pdf",
@@ -1862,6 +1860,7 @@ const RATCHETED_SPECIFICATIONS: &[&str] = &[
     "ISO_TS_32001-2022_sponsored_EC3.pdf",
     "ISO_TS_32002-2022_sponsored_EC3.pdf",
     "ISO_TS_32003-2023_sponsored.pdf",
+    "ITU-T-H.264-202606.pdf",
     "PDF-Declarations.pdf",
     "PDF20_AN001-BPC.pdf",
     "PDF20_AN002-AF.pdf",

@@ -410,17 +410,26 @@ fn layers(open: &Open) -> Vec<Layer> {
                 .collect()
         }),
     };
-    build_layers(open, content, content.presentation(), shown.as_ref())
+    let language = pdf_model::structure::document_language(&open.document);
+    build_layers(
+        open,
+        content,
+        content.presentation(),
+        language.as_deref(),
+        shown.as_ref(),
+    )
 }
 
 /// One level of `/Order`, and its children.
 ///
-/// `shown` is `None` where every group is displayed, and the set a page references where
-/// `/ListMode` is `VisiblePages`.
+/// `language` is the catalog's `/Lang`, which §14.9.2.1 gives "names for optional content
+/// groups" wherever an escape does not override it. `shown` is `None` where every group is
+/// displayed, and the set a page references where `/ListMode` is `VisiblePages`.
 fn build_layers(
     open: &Open,
     content: &OptionalContent,
     entries: &[Presented],
+    language: Option<&str>,
     shown: Option<&BTreeSet<ObjectId>>,
 ) -> Vec<Layer> {
     entries
@@ -430,9 +439,21 @@ fn build_layers(
                 if shown.is_some_and(|shown| !shown.contains(group)) {
                     return None;
                 }
+                let name = content.name(&open.document, *group);
+                // A group stating no `/Name` has no text the document wrote, so no language
+                // either: the panel names it by its object instead.
+                let languages = if name.is_some() {
+                    pdf_model::structure::language_runs(
+                        language,
+                        content.name_languages(&open.document, *group),
+                    )
+                } else {
+                    Vec::new()
+                };
                 Some(Layer::Group {
                     group: *group,
-                    name: content.name(&open.document, *group),
+                    name,
+                    languages,
                     // A group `/Order` names but `/OCGs` does not is not a group this document
                     // configured, and Table 99 does not say what it is. It reads as on, which is
                     // what content governed by no group is.
@@ -440,13 +461,22 @@ fn build_layers(
                     locked: content.is_locked(*group),
                 })
             }
-            Presented::Collection { label, children } => {
-                let children = build_layers(open, content, children, shown);
+            Presented::Collection {
+                label,
+                label_languages,
+                children,
+            } => {
+                let children = build_layers(open, content, children, language, shown);
                 if shown.is_some() && children.is_empty() {
                     return None;
                 }
                 Some(Layer::Collection {
                     label: label.clone(),
+                    languages: if label.is_some() {
+                        pdf_model::structure::language_runs(language, label_languages.clone())
+                    } else {
+                        Vec::new()
+                    },
                     children,
                 })
             }

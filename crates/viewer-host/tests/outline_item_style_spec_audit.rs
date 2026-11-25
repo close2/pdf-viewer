@@ -17,6 +17,7 @@ fn item(italic: bool, bold: bool, colour: [f32; 3]) -> Outline {
         items: vec![Item {
             id: ObjectId::new(10, 0),
             title: "Chapter".to_owned(),
+            title_languages: Vec::new(),
             destination: None,
             open: false,
             italic,

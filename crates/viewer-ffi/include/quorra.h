@@ -1716,6 +1716,11 @@ int32_t quorra_panel_action(const quorra_panel *panel, size_t row, uint32_t *kin
 /* The /EmbeddedFiles key quorra_extract takes, for a QUORRA_ROW_EXTRACT row. */
 int32_t quorra_panel_name(const quorra_panel *panel, size_t row, char *out, size_t cap,
                         size_t *needed);
+/* One run of the languages a row's label is in: the byte it starts at into `start` (may be
+ * NULL) and its BCP 47 tag, in the same idiom. A layer row's runs are §14.9.2.1's catalog /Lang
+ * and each §7.9.2.2.2 escape in the group's name; QUORRA_OUT_OF_RANGE past the last run. */
+int32_t quorra_panel_language_run(const quorra_panel *panel, size_t row, size_t run, size_t *start,
+                                char *out, size_t cap, size_t *needed);
 
 /* ------------------------------------------------------------------------------------------- */
 /* §12.3.3's outline, flattened: a tree is the one shape a C ABI cannot hand over as itself.       */
@@ -1731,6 +1736,10 @@ int32_t quorra_outline_title(const quorra_outline *outline, size_t row, char *ou
  * the document states none, in the same idiom. */
 int32_t quorra_outline_language(const quorra_outline *outline, size_t row, char *out, size_t cap,
                               size_t *needed);
+/* One run of the languages the title is in, as quorra_panel_language_run reads a panel row's:
+ * the catalog's /Lang from the start and each §7.9.2.2.2 escape from where it stands. */
+int32_t quorra_outline_language_run(const quorra_outline *outline, size_t row, size_t run,
+                                  size_t *start, char *out, size_t cap, size_t *needed);
 /* `depth` is zero at the top level; `expanded` is the sign of §12.3.3's /Count. */
 int32_t quorra_outline_depth(const quorra_outline *outline, size_t row, uint32_t *depth,
                            bool *expanded);

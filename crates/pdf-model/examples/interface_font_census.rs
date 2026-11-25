@@ -151,7 +151,9 @@ fn strings_of(document: &Document) -> [Vec<String>; 7] {
                 pdf_model::optional_content::Presented::Group(group) => {
                     strings[1].extend(content.name(document, *group));
                 }
-                pdf_model::optional_content::Presented::Collection { label, children } => {
+                pdf_model::optional_content::Presented::Collection {
+                    label, children, ..
+                } => {
                     strings[1].extend(label.clone());
                     stack.extend(children.iter().rev());
                 }

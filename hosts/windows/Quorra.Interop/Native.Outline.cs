@@ -40,6 +40,17 @@ internal static unsafe partial class Native
 
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_outline_language_run(
+        nint outline,
+        nuint row,
+        nuint run,
+        nuint* start,
+        byte* @out,
+        nuint cap,
+        nuint* needed);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static partial int quorra_outline_depth(
         nint outline,
         nuint row,

@@ -67,7 +67,9 @@ fn print_layers(layers: &[viewer_core::Layer], indent: usize) {
                 if *locked { " (locked)" } else { "" },
                 indent = indent
             ),
-            viewer_core::Layer::Collection { label, children } => {
+            viewer_core::Layer::Collection {
+                label, children, ..
+            } => {
                 println!(
                     "    {:indent$}{}",
                     "",

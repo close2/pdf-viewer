@@ -3396,3 +3396,31 @@ fn a_remembered_ancestor_answers_what_the_walk_reads() {
         Some((Some(id(3)), b"outer".to_vec()))
     );
 }
+
+/// §7.9.2.2.2 over §14.9.2.1: the catalog's language opens a text string's runs unless an
+/// escape opens it, and a later escape begins a run of its own.
+#[test]
+fn a_text_strings_escapes_override_the_documents_language_from_where_they_stand() {
+    let escapes = |list: &[(usize, &str)]| -> Vec<(usize, String)> {
+        list.iter()
+            .map(|(offset, tag)| (*offset, (*tag).to_owned()))
+            .collect()
+    };
+    assert_eq!(
+        super::language_runs(Some("fr"), Vec::new()),
+        escapes(&[(0, "fr")])
+    );
+    assert_eq!(
+        super::language_runs(Some("fr"), escapes(&[(0, "de")])),
+        escapes(&[(0, "de")])
+    );
+    assert_eq!(
+        super::language_runs(Some("fr"), escapes(&[(4, "en")])),
+        escapes(&[(0, "fr"), (4, "en")])
+    );
+    assert_eq!(
+        super::language_runs(None, escapes(&[(4, "en")])),
+        escapes(&[(4, "en")])
+    );
+    assert_eq!(super::language_runs(None, Vec::new()), escapes(&[]));
+}

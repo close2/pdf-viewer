@@ -1662,11 +1662,13 @@ mod tests {
             [
                 Presented::Collection {
                     label: Some("Frog Anatomy".to_owned()),
+                    label_languages: Vec::new(),
                     children: vec![Presented::Group(id(3)), Presented::Group(id(4))],
                 },
                 Presented::Group(id(5)),
                 Presented::Collection {
                     label: None,
+                    label_languages: Vec::new(),
                     children: vec![Presented::Group(id(3))],
                 },
             ]

@@ -61,4 +61,15 @@ internal static unsafe partial class Native
         byte* @out,
         nuint cap,
         nuint* needed);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static partial int quorra_panel_language_run(
+        nint panel,
+        nuint row,
+        nuint run,
+        nuint* start,
+        byte* @out,
+        nuint cap,
+        nuint* needed);
 }

@@ -46,8 +46,8 @@ struct Row {
     object: (u32, u16),
     /// Table 151's `/C` and Table 152's flags.
     style: OutlineStyle,
-    /// The language the title is in, §14.9.2.1's: [`PanelRow::language`].
-    language: Option<String>,
+    /// The languages the title is in, as runs: [`PanelRow::languages`].
+    languages: Vec<(usize, String)>,
 }
 
 /// How an outline row's text is drawn: Table 151's `/C` and Table 152's two flags.
@@ -95,9 +95,10 @@ impl Outline {
             .ok_or(Status::OutOfRange)
     }
 
-    /// The BCP 47 tag of the language one row's title is in — ISO 32000-2 §14.9.2.1 makes the
-    /// catalog's `/Lang` the language of "outline entries" — or the empty string where the
-    /// document states none.
+    /// The BCP 47 tag of the language one row's title opens in — ISO 32000-2 §14.9.2.1 makes the
+    /// catalog's `/Lang` the language of "outline entries", and a §7.9.2.2.2 escape at the
+    /// title's start overrides it — or the empty string where neither states one.
+    /// [`Self::language_run`] reads an escape later in the title.
     ///
     /// # Errors
     ///
@@ -105,8 +106,22 @@ impl Outline {
     pub fn language(&self, row: usize) -> Result<&str, Status> {
         self.rows
             .get(row)
-            .map(|row| row.language.as_deref().unwrap_or_default())
+            .map(|row| opening_language(&row.languages))
             .ok_or(Status::OutOfRange)
+    }
+
+    /// One of the runs of language a row's title is in: the byte of the title it starts at, and
+    /// its BCP 47 tag — the catalog's `/Lang` (§14.9.2.1) and each §7.9.2.2.2 escape inside the
+    /// title from where it stands (`pdf_model::structure::language_runs`).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such row, or the row has fewer runs.
+    pub fn language_run(&self, row: usize, run: usize) -> Result<(usize, &str), Status> {
+        language_run(
+            &self.rows.get(row).ok_or(Status::OutOfRange)?.languages,
+            run,
+        )
     }
 
     /// How far in the row is, zero at the top level.
@@ -194,6 +209,9 @@ struct PanelEntry {
     locked: bool,
     /// The `/EmbeddedFiles` key `quorra_extract` takes, for [`RowKind::Extract`].
     name: String,
+    /// The languages the label is in, as runs: [`PanelRow::languages`], which a layer panel's
+    /// rows fill (§14.9.2.1's "names for optional content groups").
+    languages: Vec<(usize, String)>,
 }
 
 impl Panel {
@@ -298,6 +316,35 @@ impl Panel {
             .map(|row| row.name.as_str())
             .ok_or(Status::OutOfRange)
     }
+
+    /// One of the runs of language a row's label is in, as [`Outline::language_run`] reads an
+    /// outline row's: the byte of the label it starts at, and its BCP 47 tag.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such row, or the row has fewer runs.
+    pub fn language_run(&self, row: usize, run: usize) -> Result<(usize, &str), Status> {
+        language_run(
+            &self.rows.get(row).ok_or(Status::OutOfRange)?.languages,
+            run,
+        )
+    }
+}
+
+/// The language a text opens in: the run that starts at its first byte, or `""` where none does.
+fn opening_language(languages: &[(usize, String)]) -> &str {
+    match languages.first() {
+        Some((0, tag)) => tag,
+        _ => "",
+    }
+}
+
+/// One run of [`PanelRow::languages`], or [`Status::OutOfRange`] past the last.
+fn language_run(languages: &[(usize, String)], run: usize) -> Result<(usize, &str), Status> {
+    languages
+        .get(run)
+        .map(|(start, tag)| (*start, tag.as_str()))
+        .ok_or(Status::OutOfRange)
 }
 
 /// Walks the tree depth first, recording each row's depth and what acting on it does.
@@ -331,6 +378,7 @@ fn push_panel(rows: &[PanelRow], depth: u32, into: &mut Vec<PanelEntry>) {
             on,
             locked,
             name,
+            languages: row.languages.clone(),
         });
         push_panel(&row.children, depth.saturating_add(1), into);
     }
@@ -361,7 +409,7 @@ fn push_rows(rows: &[PanelRow], depth: u32, into: &mut Vec<Row>) {
                 italic: row.style.is_some_and(|style| style.italic),
                 bold: row.style.is_some_and(|style| style.bold),
             },
-            language: row.language.clone(),
+            languages: row.languages.clone(),
         });
         push_rows(&row.children, depth.saturating_add(1), into);
     }
@@ -382,6 +430,7 @@ mod tests {
             items: vec![Item {
                 id: ObjectId::new(10, 0),
                 title: "Chapter".to_owned(),
+                title_languages: Vec::new(),
                 destination: None,
                 open: false,
                 italic: true,
@@ -400,5 +449,44 @@ mod tests {
                 bold: false,
             })
         );
+    }
+
+    /// §14.9.2.1 and §7.9.2.2.2: a layer row's runs of language reach `quorra_panel_language_run`
+    /// one by one, and the read past the last answers out of range; an outline row's opening run
+    /// is what `quorra_outline_language` answers.
+    #[test]
+    fn a_rows_runs_of_language_reach_the_abi() {
+        use crate::status::Status;
+        let panel = super::Panel::of_layers(&[viewer_core::Layer::Group {
+            group: ObjectId::new(7, 0),
+            name: Some("Plan Walls".to_owned()),
+            languages: vec![(0, "de-DE".to_owned()), (5, "en".to_owned())],
+            on: true,
+            locked: false,
+        }]);
+        assert_eq!(panel.language_run(0, 0), Ok((0, "de-DE")));
+        assert_eq!(panel.language_run(0, 1), Ok((5, "en")));
+        assert_eq!(panel.language_run(0, 2), Err(Status::OutOfRange));
+        assert_eq!(panel.language_run(1, 0), Err(Status::OutOfRange));
+
+        let items = Items {
+            items: vec![Item {
+                id: ObjectId::new(10, 0),
+                title: "Kapitel Intro".to_owned(),
+                title_languages: vec![(8, "en".to_owned())],
+                destination: None,
+                open: false,
+                italic: false,
+                bold: false,
+                colour: [0.0; 3],
+                children: Vec::new(),
+            }],
+            stated_count: None,
+            language: Some("de".to_owned()),
+        };
+        let outline = Outline::of(&items);
+        assert_eq!(outline.language(0), Ok("de"));
+        assert_eq!(outline.language_run(0, 1), Ok((8, "en")));
+        assert_eq!(outline.language_run(0, 2), Err(Status::OutOfRange));
     }
 }

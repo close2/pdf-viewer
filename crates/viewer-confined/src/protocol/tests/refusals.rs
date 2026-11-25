@@ -48,11 +48,12 @@ fn a_collection_value_outside_table_47_is_refused_by_name() {
 fn a_tree_nested_past_the_bound_is_refused_rather_than_followed() {
     let mut bytes = vec![answer_kind::LAYERS];
     // One layer collection inside another, over and over: a count of one, the collection
-    // discriminant, and no label.
+    // discriminant, no label, and no runs of language.
     bytes.extend_from_slice(&1u64.to_be_bytes());
     for _ in 0..(panels::MAX_TREE_DEPTH + 2) {
         bytes.push(1);
         bytes.push(0);
+        bytes.extend_from_slice(&0u64.to_be_bytes());
         bytes.extend_from_slice(&1u64.to_be_bytes());
     }
     let error = decode_answer(&bytes).unwrap_err();

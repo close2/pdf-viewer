@@ -54,7 +54,7 @@
   "code": "crates/viewer-host/src/panel.rs:86 (PanelRow), :338 (outline_rows), :380 (layer_rows)",
   "change": "Carry the document's language (and a title's own §7.9.2.2.2 escape) to the panel or each row, and have each toolkit set it on the accessible item.",
   "execution": "FAIL (expected): crates/viewer-host/tests/outline_language_spec_audit.rs::an_outline_row_carries_the_documents_language_spec_audit — round 2229; its control (a different title gives a different row) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2229-B05",

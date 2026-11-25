@@ -1227,6 +1227,9 @@ pub enum Layer {
         /// > The name of the optional content group, suitable for presentation in an
         /// > interactive PDF processor's user interface.
         name: Option<String>,
+        /// The languages [`Layer::Group::name`] is in — [`Layer::languages`] says how they are
+        /// read.
+        languages: Vec<(usize, String)>,
         /// Whether the group is currently on.
         on: bool,
         /// Table 99's `/Locked`. ISO 32000-2 §8.11.4.3:
@@ -1242,7 +1245,33 @@ pub enum Layer {
     Collection {
         /// The non-selectable heading, where the array opens with one.
         label: Option<String>,
+        /// The languages [`Layer::Collection::label`] is in — [`Layer::languages`] says how they
+        /// are read.
+        languages: Vec<(usize, String)>,
         /// What the collection holds.
         children: Vec<Layer>,
     },
+}
+
+impl Layer {
+    /// The languages the entry's text is in: each a byte offset into the name or label and the
+    /// BCP 47 tag that governs from there to the next, the first at offset 0 wherever any
+    /// language is known; empty where the entry has no name or label, or where neither the text
+    /// nor the document states a language.
+    ///
+    /// ISO 32000-2 §14.9.2.1 makes the catalog's `/Lang` the language of text strings outside
+    /// the content streams too, naming "names for optional content groups" among them, and
+    /// §7.9.2.2.2's escape sequences inside the string override it from where they stand:
+    ///
+    /// > Escape sequences may appear anywhere in a Unicode text string to indicate the language
+    /// > in which subsequent text shall be written.
+    ///
+    /// So the run at offset 0 is the escape that opens the text where one does, the catalog's
+    /// `/Lang` otherwise, and every later escape begins a run of its own (ADR 3633).
+    #[must_use]
+    pub fn languages(&self) -> &[(usize, String)] {
+        match self {
+            Self::Group { languages, .. } | Self::Collection { languages, .. } => languages,
+        }
+    }
 }

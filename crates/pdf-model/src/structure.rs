@@ -3803,6 +3803,35 @@ pub fn document_language(document: &Document) -> Option<String> {
     text_entry(document, &catalog, "Lang").filter(|tag| well_formed_language_tag(tag))
 }
 
+/// The languages a text string outside the content streams is in, as runs: each a byte offset
+/// into the decoded text and the tag that governs from there to the next, the first at offset 0
+/// wherever any language is known.
+///
+/// `prevailing` is the language around the string — for an outline title or an optional content
+/// group's name, [`document_language`], which ISO 32000-2 §14.9.2.1 extends to "outline entries
+/// and names for optional content groups" — and `escapes` is what
+/// `pdf_syntax::text_string_languages` read from the string itself. §7.9.2.2.2 puts the escape
+/// over everything around it:
+///
+/// > Escape sequences may appear anywhere in a Unicode text string to indicate the language in
+/// > which subsequent text shall be written.
+///
+/// so an escape at offset 0 replaces `prevailing` for the whole of its run, and a later one
+/// begins a run of its own (ADR 3633).
+#[must_use]
+pub fn language_runs(
+    prevailing: Option<&str>,
+    escapes: Vec<(usize, String)>,
+) -> Vec<(usize, String)> {
+    let opens_with_escape = escapes.first().is_some_and(|(offset, _)| *offset == 0);
+    match prevailing {
+        Some(language) if !opens_with_escape => std::iter::once((0, language.to_owned()))
+            .chain(escapes)
+            .collect(),
+        _ => escapes,
+    }
+}
+
 /// Whether `tag` is BCP 47's `Language-Tag` — the well-formedness half of "valid".
 ///
 /// §14.9.2.2 defines what a language identifier is:

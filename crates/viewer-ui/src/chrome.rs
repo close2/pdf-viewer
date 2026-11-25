@@ -2102,6 +2102,7 @@ fn layer_rows(layers: &[Layer], depth: usize, out: &mut Vec<Row>) {
                 name,
                 on,
                 locked,
+                ..
             } => {
                 let mut row = Row::plain(
                     depth,
@@ -2117,7 +2118,9 @@ fn layer_rows(layers: &[Layer], depth: usize, out: &mut Vec<Row>) {
                 }
                 out.push(row);
             }
-            Layer::Collection { label, children } => {
+            Layer::Collection {
+                label, children, ..
+            } => {
                 if let Some(label) = label {
                     let mut row = Row::plain(depth, label.clone());
                     row.style = Style {

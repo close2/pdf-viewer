@@ -442,6 +442,25 @@ impl OptionalContent {
         }
     }
 
+    /// The languages §7.9.2.2.2's escape sequences state inside a group's `/Name`, each with the
+    /// byte offset in [`Self::name`]'s text from which it governs; empty where it states none.
+    ///
+    /// `/Name` is a text string, and §14.9.2.1 names "names for optional content groups" among
+    /// the strings the hierarchy of languages reaches, the escape innermost: the decoding
+    /// removes the sequences, and a layer panel still says which language a name is in
+    /// (ADR 3633).
+    #[must_use]
+    pub fn name_languages(&self, document: &Document, group: ObjectId) -> Vec<(usize, String)> {
+        match document
+            .get(group)
+            .as_dict()
+            .map(|dict| document.get_key(dict, "Name"))
+        {
+            Some(Object::String(bytes)) => pdf_syntax::text_string_languages(&bytes),
+            _ => Vec::new(),
+        }
+    }
+
     /// Applies §12.6.4.13's state changes, in the order the action states them.
     ///
     /// The changes live here rather than in `action.rs` because both halves of the rule are
@@ -804,6 +823,10 @@ pub enum Presented {
     Collection {
         /// The non-selectable label, where the array opens with one.
         label: Option<String>,
+        /// The languages §7.9.2.2.2's escape sequences state inside the label, each with the
+        /// byte offset from which it governs, as [`OptionalContent::name_languages`] gives a
+        /// group's name (ADR 3633).
+        label_languages: Vec<(usize, String)>,
         /// What the collection holds.
         children: Vec<Presented>,
     },
@@ -1043,12 +1066,17 @@ fn collection(
     if depth >= MAX_ORDER_DEPTH {
         return None;
     }
-    let (label, rest) = match nested.split_first() {
-        Some((Object::String(bytes), rest)) => (Some(pdf_syntax::text_string(bytes)), rest),
-        _ => (None, nested),
+    let (label, label_languages, rest) = match nested.split_first() {
+        Some((Object::String(bytes), rest)) => (
+            Some(pdf_syntax::text_string(bytes)),
+            pdf_syntax::text_string_languages(bytes),
+            rest,
+        ),
+        _ => (None, Vec::new(), nested),
     };
     Some(Presented::Collection {
         label,
+        label_languages,
         children: order_items(document, rest, states, depth.saturating_add(1)),
     })
 }

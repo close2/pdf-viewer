@@ -101,7 +101,9 @@ fn strings_of(viewer: &Viewer) -> [Vec<String>; 5] {
         while let Some(layer) = stack.pop() {
             match layer {
                 Layer::Group { name, .. } => strings[1].extend(name),
-                Layer::Collection { label, children } => {
+                Layer::Collection {
+                    label, children, ..
+                } => {
                     strings[1].extend(label);
                     stack.extend(children.into_iter().rev());
                 }

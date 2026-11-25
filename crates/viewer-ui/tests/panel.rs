@@ -37,6 +37,7 @@ fn item(title: &str, page: u32, children: Vec<Item>) -> Item {
         // a test that confused the two would fail rather than pass by coincidence.
         id: ObjectId::new(page + 100, 0),
         title: title.to_owned(),
+        title_languages: Vec::new(),
         destination: Some(Destination {
             target: Target::Object(ObjectId::new(page, 0)),
             view: View::Fit,
@@ -383,9 +384,11 @@ fn a_layer_switch_throws_unless_the_document_locked_it() {
     let layers = vec![
         Layer::Collection {
             label: Some("Plans".to_owned()),
+            languages: Vec::new(),
             children: vec![Layer::Group {
                 group: ObjectId::new(30, 0),
                 name: Some("Walls".to_owned()),
+                languages: Vec::new(),
                 on: true,
                 locked: false,
             }],
@@ -393,6 +396,7 @@ fn a_layer_switch_throws_unless_the_document_locked_it() {
         Layer::Group {
             group: ObjectId::new(31, 0),
             name: Some("Watermark".to_owned()),
+            languages: Vec::new(),
             on: false,
             locked: true,
         },

@@ -106,6 +106,38 @@ pub unsafe extern "C" fn quorra_outline_language(
     }
 }
 
+/// One run of the languages a row's title is in: the byte of the title it starts at, into `start`
+/// (which may be null), and its BCP 47 tag in the same two-call idiom — the catalog's `/Lang`
+/// (§14.9.2.1) from the start, and each §7.9.2.2.2 escape inside the title from where it stands.
+/// `QUORRA_OUT_OF_RANGE` past the last run, which is how a caller knows it has read them all.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_outline_language_run(
+    outline: *const Outline,
+    row: usize,
+    run: usize,
+    start: *mut usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(outline) = outline.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match outline.language_run(row, run) {
+        Ok((from, language)) => {
+            if let Some(start) = start.as_mut() {
+                *start = from;
+            }
+            copy_out(language, out, cap, needed)
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// How far in a row is, zero at the top level, and whether §12.3.3's `/Count` asks it to be open.
 ///
 /// Either out-parameter may be null.
@@ -397,6 +429,39 @@ pub unsafe extern "C" fn quorra_panel_name(
     };
     match panel.name(row) {
         Ok(name) => copy_out(name, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// One run of the languages a row's label is in, as
+/// [`quorra_outline_language_run`] reads an outline row's: a layer panel's rows carry the
+/// catalog's `/Lang`, which §14.9.2.1 extends to "names for optional content groups", and each
+/// §7.9.2.2.2 escape inside the name; every other panel's rows have none, and answer
+/// `QUORRA_OUT_OF_RANGE` at run 0.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_panel_language_run(
+    panel: *const Panel,
+    row: usize,
+    run: usize,
+    start: *mut usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(panel) = panel.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match panel.language_run(row, run) {
+        Ok((from, language)) => {
+            if let Some(start) = start.as_mut() {
+                *start = from;
+            }
+            copy_out(language, out, cap, needed)
+        }
         Err(status) => status.code(),
     }
 }

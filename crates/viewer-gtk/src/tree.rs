@@ -169,15 +169,26 @@ fn bind(item: &glib::Object, act: &Rc<dyn Fn(&RowAction)>, pictures: &Previews) 
     if let Some(attributes) = item_style(&row) {
         label.set_attributes(Some(&attributes));
     }
-    // `PanelRow::language` is §14.9.2.1's: an outline entry's or a layer name's language is the
-    // catalog's `/Lang`. `GtkAccessible` has no language property, so the label states it the way
-    // this toolkit states a text's language — a Pango language attribute, which GTK's AT-SPI text
-    // interface reports among the run's attributes and which Pango shapes and chooses fonts by.
-    if let Some(language) = row.language.as_deref() {
+    // `PanelRow::languages` is §14.9.2.1's: an outline entry's or a layer name's language is the
+    // catalog's `/Lang`, and a §7.9.2.2.2 escape inside the title overrides it from where it
+    // stands. `GtkAccessible` has no language property, so the label states each run the way this
+    // toolkit states a text's language — a Pango language attribute over the run's bytes, which
+    // GTK's AT-SPI text interface reports among the run's attributes and which Pango shapes and
+    // chooses fonts by.
+    if !row.languages.is_empty() {
         let attributes = label.attributes().unwrap_or_default();
-        attributes.insert(pango::AttrLanguage::new(&pango::Language::from_string(
-            language,
-        )));
+        for (index, (start, language)) in row.languages.iter().enumerate() {
+            let end = row
+                .languages
+                .get(index.saturating_add(1))
+                .map_or(row.label.len(), |(next, _)| *next);
+            let mut attribute = pango::AttrLanguage::new(&pango::Language::from_string(language));
+            // Pango's indices are `u32` bytes; a label past four gigabytes is not one a row
+            // holds, and saturating keeps the run reaching the end rather than wrapping.
+            attribute.set_start_index(u32::try_from(*start).unwrap_or(u32::MAX));
+            attribute.set_end_index(u32::try_from(end).unwrap_or(u32::MAX));
+            attributes.insert(attribute);
+        }
         label.set_attributes(Some(&attributes));
     }
     text.append(&label);
