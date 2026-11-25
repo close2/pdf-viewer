@@ -2422,10 +2422,11 @@ impl Conversion {
         if !self.runs_written_as_drawn.is_empty() {
             let _ = writeln!(
                 out,
-                "  {} run(s) ISO 32000-2 \u{a7}7.3.3 spells as no number, or lone delimiters \
-                 \u{a7}7.2.3 opens nothing with, are written as this viewer draws each \
-                 \u{2014} a run as its number, a delimiter as white space \u{2014} losing \
-                 content-as-drawn:",
+                "  {} run(s) ISO 32000-2 \u{a7}7.3.3 spells as no number, lone delimiters \
+                 \u{a7}7.2.3 opens nothing with, operators this viewer repaired, or inline \
+                 image entries it did not read, are written as this viewer draws each \u{2014} a \
+                 run as its number, a colour operator as the device operator it drew it by, the \
+                 rest as white space \u{2014} losing content-as-drawn:",
                 self.runs_written_as_drawn.len()
             );
             for written in &self.runs_written_as_drawn {

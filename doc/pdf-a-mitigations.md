@@ -359,12 +359,16 @@ per document
   closed before the first operator §9.4.1 keeps out of a text object (or by the producer's own
   stray `ET`), under the same proof and loss, and refused by name where the walk cannot state the
   matrix (ADR 3661); where the source's cross-reference table was rebuilt by scanning, the proof's
-  second file is written whole rather than appended (ADR 3662); a property list nothing defines is defined as a membership dictionary
+  second file is written whole rather than appended (ADR 3662); a colour operator whose one, three
+  or four operands do not fit the space is written as the device operator this reader drew them by,
+  operands kept (ADR 3679; a section left open is not closed); an inline image entry this reader did not read, its key stated twice, is written out
+  (ADR 3678) — each under the same proof and loss; a number in exponential form is written as the
+  decimal of the value read, at `content-as-drawn` with no proof needed (ADR 3677); a property list nothing defines is defined as a membership dictionary
   naming no group, losing nothing (ADR 2684, ADR 3631); under
   `as-if-printed` the page holding any other is photographed at `page-as-image` (ADR 3557); a repair
   in an annotation's appearance, and every repair under `as-shown` the first answer leaves, is
-  refused by name under the fence, the class and its clause in the sentence (ADR 3560 lists what
-  stays). A page box this reader could not read (`model/media-box-substituted`,
+  refused by name under the fence, the class, its clause and why no write states it in the sentence
+  (ADR 3560 and ADR 3680 list what stays). A page box this reader could not read (`model/media-box-substituted`,
   `model/page-boundary-unusable`) is written on a `/Type /Page` object as the box it drew the page
   with, losing nothing (ADR 3559, extending ADR 3142). Data no filter decodes is refused by name; a
   `/DecodeParms` that does not pair with its `/Filter` is answered only where a restatement

@@ -91,7 +91,8 @@ pub(super) struct Answered {
     /// first one no photograph takes off its page (ADR 3551).
     refused: Vec<(ObjectId, Because)>,
     /// Whether an operator this reader repaired was written out of its stream where the page
-    /// draws the same without it, so that the row costs `content-as-drawn` (`doc/adr/3558`).
+    /// draws the same without it, or a number in exponential form respelled, so that the row
+    /// costs `content-as-drawn` (`doc/adr/3558`, `doc/adr/3677`).
     pub(super) operators_written_out: bool,
 }
 
@@ -235,6 +236,14 @@ pub(super) fn settled(
                 operators_written_out = true;
                 return true;
             }
+            // A number in exponential form, respelled as the value read, which no other row's
+            // decision states (`doc/adr/3677`).
+            if class.name == RESPELLED_BY_THE_RUN_REWRITE
+                && drawn.is_some_and(|drawn| written_by(&drawn.at))
+            {
+                operators_written_out = true;
+                return true;
+            }
             // A `BDC` naming a property list nothing defines, where ADR 2684's rewrite defines
             // the name as a membership dictionary naming no group, which hides nothing, as the
             // reader drew it (`doc/adr/3631`).
@@ -279,21 +288,31 @@ const DEFINED_BY_THE_RESOURCE_REWRITE: &str = "model/property-list-unresolved";
 
 /// Whether the input failed section 5.1 on an operator this reader repaired inside a content
 /// stream, of a class `super::as_drawn` writes out where the page draws the same
-/// (`doc/adr/3558`), so that a profile granting `content-as-drawn` asks for that write.
+/// (`doc/adr/3558`), or on a number written with an exponent, which its write respells
+/// (`doc/adr/3677`), so that a profile granting `content-as-drawn` asks for that write.
 pub(super) fn operators_repaired(document: &Document, input: &pdf_archive::Report) -> bool {
     input
         .failures()
         .any(|judgement| judgement.id == BASE_STANDARD)
         && document.repairs().iter().any(|logged| {
             matches!(logged.at, Site::Content(Some(_)))
-                && super::as_drawn::WRITTEN_OUT_WHERE_DRAWN_THE_SAME.contains(&logged.class.name)
+                && (super::as_drawn::WRITTEN_OUT_WHERE_DRAWN_THE_SAME.contains(&logged.class.name)
+                    || logged.class.name == RESPELLED_BY_THE_RUN_REWRITE)
         })
 }
 
 /// The classes `super::as_drawn` writes out of a stream it rewrites: a run it reads a number off
-/// (ADR 2638) and a lone delimiter it writes as the white space it draws as (ADR 2859).
-const WRITTEN_OUT_BY_THE_RUN_REWRITE: [&str; 2] =
-    ["syntax/number-salvaged", "syntax/delimiter-unmatched"];
+/// (ADR 2638), a lone delimiter it writes as the white space it draws as (ADR 2859), and a number
+/// written with an exponent, respelled as the value it was read as (ADR 3677).
+const WRITTEN_OUT_BY_THE_RUN_REWRITE: [&str; 3] = [
+    "syntax/number-salvaged",
+    "syntax/delimiter-unmatched",
+    RESPELLED_BY_THE_RUN_REWRITE,
+];
+
+/// The class `super::as_drawn` answers wherever its write is made, not only where an operator the
+/// base standard does not define asks for it: a number written with an exponent (ADR 3677).
+const RESPELLED_BY_THE_RUN_REWRITE: &str = "syntax/number-with-an-exponent";
 
 /// The class `super::integer_reals` writes out of a stream it rewrites: an integer too wide for 64
 /// bits, written as the real of the same value (ADR 3533).
@@ -562,31 +581,102 @@ macro_rules! in_content_operator {
     };
 }
 
+/// Builds one [`IN_CONTENT_BY_CLASS`] entry for a class whose sentence states its own answer:
+/// what `super::as_drawn` writes for it and when, or why no write states what this reader drew
+/// (`doc/adr/3677` to `doc/adr/3680`).
+macro_rules! in_content_because {
+    ($name:literal, $clause:literal, $because:literal) => {
+        (
+            $name,
+            $clause,
+            concat!(
+                "a content stream of this file needed the repair ",
+                $name,
+                " (",
+                $clause,
+                "), so it does not adhere to the base standard, which ISO 19005 section 5.1 \
+                 requires; ",
+                $because,
+                ", so the stream crosses this verb byte for byte; a profile granting \
+                 page-as-image photographs the page instead — doc/pdf-a-conversion-limits.md \
+                 section 5.2"
+            ),
+        )
+    };
+}
+
 /// The sentence for each class the content reader's lexer records, with the class's clause.
 const IN_CONTENT_BY_CLASS: &[(&str, &str, &str)] = &[
-    in_content!("syntax/delimiter-unmatched", "ISO 32000-2 §7.2.3"),
+    in_content_because!(
+        "syntax/delimiter-unmatched",
+        "ISO 32000-2 §7.2.3",
+        "a lone delimiter is written as white space only where no operand stands before it and the \
+         write then answers every operator the base standard does not define (ADR 2859); one \
+         after an operand clears it when this reader meets it, and no write states that clearing \
+         but the white space that would hand the operand on (ADR 3680)"
+    ),
     in_content!("syntax/name-escape-incomplete", "ISO 32000-2 §7.3.5"),
-    in_content!("syntax/string-unterminated", "ISO 32000-2 §7.3.4.2"),
+    in_content_because!(
+        "syntax/string-unterminated",
+        "ISO 32000-2 §7.3.4.2",
+        "this reader read the string to the end of the data, so every operator the producer \
+         wrote after its opening parenthesis became bytes of one string; closing it anywhere \
+         would choose where the producer meant it to end, and no write states what this reader \
+         drew but the bytes as they stand (ADR 3680)"
+    ),
     in_content!(
         "syntax/hexadecimal-string-unterminated",
         "ISO 32000-2 §7.3.4.3"
     ),
-    in_content!(
+    in_content_because!(
         "syntax/hexadecimal-string-stray-byte",
-        "ISO 32000-2 §7.3.4.3"
+        "ISO 32000-2 §7.3.4.3",
+        "this reader skipped the byte and read the digits around it; writing the string without \
+         it is not built, since the corpus's one carrier holds the byte among other classes this \
+         converter does not write (ADR 3680)"
     ),
     in_content!("syntax/integer-past-i64", "ISO 32000-2 §7.3.3"),
-    in_content!("syntax/number-with-an-exponent", "ISO 32000-2 §7.3.3"),
-    in_content!("syntax/number-salvaged", "ISO 32000-2 §7.3.3"),
+    in_content_because!(
+        "syntax/number-with-an-exponent",
+        "ISO 32000-2 §7.3.3",
+        "the number is written as the decimal of the value this reader read it as only where the \
+         profile grants content-as-drawn and the stream re-encodes (ADR 3677), and here one of \
+         those does not hold"
+    ),
+    in_content_because!(
+        "syntax/number-salvaged",
+        "ISO 32000-2 §7.3.3",
+        "the run is written as the number this reader drew off its front only where the profile \
+         grants content-as-drawn, the base standard's operator row asks for the write and every \
+         stream of the page re-encodes (ADR 2638), and here one of those does not hold"
+    ),
     // What `pdf_model` logs reading a content stream's inline objects and its operators'
     // operands (ADR 3541).
-    in_content!("model/inline-object-malformed", "ISO 32000-2 §7.8.2"),
-    in_content!("model/inline-image-key-twice", "ISO 32000-2 §8.9.7"),
+    in_content_because!(
+        "model/inline-object-malformed",
+        "ISO 32000-2 §7.8.2",
+        "this reader read the dictionary or array without the token that is no object, or \
+         skipped an inline image whose dictionary did not read; what it went on to read after \
+         that point is its recovery, not bytes a write can restate (ADR 3680)"
+    ),
+    in_content_because!(
+        "model/inline-image-key-twice",
+        "ISO 32000-2 §8.9.7",
+        "the entry this reader did not read is written out only where the profile grants \
+         content-as-drawn and this reader draws the page the same without it (ADR 3678), and \
+         here one of those does not hold"
+    ),
     in_content!(
         "model/inline-image-colour-space-unresolved",
         "ISO 32000-2 §8.9.7"
     ),
-    in_content!("model/inline-image-data-extent", "ISO 32000-2 §8.9.7"),
+    in_content_because!(
+        "model/inline-image-data-extent",
+        "ISO 32000-2 §8.9.7",
+        "this reader found the image's end by searching for EI where the dictionary's extent did \
+         not reach it; restating the data at the extent read, or the dictionary's length, is not \
+         built (ADR 3680)"
+    ),
     in_content_operator!("model/operand-of-the-wrong-type", "ISO 32000-2 §7.8.2"),
     in_content_operator!("model/operator-short-of-operands", "ISO 32000-2 §7.8.2"),
     in_content_operator!("model/restore-with-nothing-saved", "ISO 32000-2 §8.4.2"),
@@ -614,7 +704,14 @@ const IN_CONTENT_BY_CLASS: &[(&str, &str, &str)] = &[
     in_content_operator!("model/operands-left-over", "ISO 32000-2 §7.8.2"),
     // What a stream leaves open, which the checker's grammar reads off the tokens (ADR 3614); an
     // `EMC` closing nothing is written out alone where the page draws the same (ADR 3631).
-    in_content!("model/marked-content-unbalanced", "ISO 32000-2 §14.6.1"),
+    in_content_because!(
+        "model/marked-content-unbalanced",
+        "ISO 32000-2 §14.6.1",
+        "an EMC closing nothing is written out only where the profile grants content-as-drawn and \
+         this reader draws the page the same (ADR 3631); a section the content leaves open is \
+         not closed, since where the content ends is this reader's reading and a write that \
+         answers part of a page keeps its photograph from it (ADR 3679)"
+    ),
     in_content!(
         "model/compatibility-sections-unbalanced",
         "ISO 32000-2 §7.8.2"

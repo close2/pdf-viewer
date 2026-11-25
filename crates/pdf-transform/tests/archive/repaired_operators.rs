@@ -265,8 +265,9 @@ fn a_media_box_that_is_no_rectangle_is_written_as_the_box_this_reader_drew() {
 /// ISO 32000-2 Table 352's `BMC` begins a sequence "terminated by a balancing EMC operator", and
 /// §7.8.2's `BX` and `EX` "shall occur in pairs": a stream ending inside a section, or closing one
 /// it never opened, is read as if balanced, and the checker's grammar finds it before the fence
-/// asks which pages to photograph (`doc/adr/3614`). Under `as-shown` the row keeps its refusal by
-/// the class's name; under `as-if-printed` the page is photographed.
+/// asks which pages to photograph (`doc/adr/3614`). A section left open is not closed (ADR 3679).
+/// Under `as-shown` the row keeps its refusal by the class's name; under `as-if-printed` the page is
+/// photographed.
 #[test]
 fn a_section_left_open_or_closed_twice_is_found_before_the_photographs() {
     let target = Target::Two(Level::B);
@@ -502,5 +503,62 @@ fn a_bare_blend_mode_name_is_written_as_the_normal_this_reader_draws() {
         let written = String::from_utf8_lossy(&output).into_owned();
         assert!(written.contains("/BM /Normal"), "{written}");
         assert!(!written.contains("Sepia"), "the producer's name is gone");
+    }
+}
+
+/// §8.6.8 has `sc` take as many operands as the current space has components; three in the initial
+/// `DeviceGray` (§8.4.1) are drawn by this reader in `DeviceRGB`, as `rg` draws them, so the operator
+/// is written as `rg` with its operands kept where the page draws the same (`doc/adr/3679`).
+#[test]
+fn colour_operands_that_do_not_fit_are_written_as_the_device_operator_this_reader_drew() {
+    let source = a_page_whose_stream_is(b"0.5 0.25 1 sc 0 0 10 10 re f");
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (output, losses) = as_shown(&source, target);
+        assert!(
+            losses.iter().eq([Loss::ContentAsDrawn]),
+            "{}",
+            losses.words()
+        );
+        assert_eq!(contents_text(&output), "0.5 0.25 1 rg 0 0 10 10 re f");
+    }
+}
+
+/// §7.3.3 forbids a writer the exponential form ("such as 6.02E23") and states nothing for a
+/// reader; this reader reads `1.2e1` as twelve, so the run is written as `12` (`doc/adr/3677`).
+#[test]
+fn a_number_in_exponential_form_is_written_as_the_value_it_was_read_as() {
+    let source = a_page_whose_stream_is(b"BT /F1 1.2e1 Tf 10 100 Td (Hello) Tj ET");
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (output, losses) = as_shown(&source, target);
+        assert!(
+            losses.iter().eq([Loss::ContentAsDrawn]),
+            "{}",
+            losses.words()
+        );
+        assert_eq!(
+            contents_text(&output),
+            "BT /F1 12 Tf 10 100 Td (Hello) Tj ET"
+        );
+    }
+}
+
+/// §8.9.7's Table 91 abbreviation and its full name are one key, and Errata Collection 3 (Issue #3)
+/// makes the abbreviated one take precedence: `/W 1` is the width this reader read, and the
+/// contradicting `/Width 2` is written out where the page draws the same (`doc/adr/3678`).
+#[test]
+fn an_inline_image_key_stated_twice_keeps_the_entry_this_reader_read() {
+    let source = a_page_whose_stream_is(
+        b"q 10 0 0 10 0 0 cm BI /W 1 /H 1 /BPC 8 /CS /G /Width 2 ID \x80 EI Q",
+    );
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (output, losses) = as_shown(&source, target);
+        assert!(
+            losses.iter().eq([Loss::ContentAsDrawn]),
+            "{}",
+            losses.words()
+        );
+        let text = contents_text(&output);
+        assert!(text.contains("BI /W 1 /H 1 /BPC 8 /CS /G ID"), "{text}");
+        assert!(!text.contains("/Width"), "{text}");
     }
 }

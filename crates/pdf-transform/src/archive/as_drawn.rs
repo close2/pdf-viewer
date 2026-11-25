@@ -63,6 +63,16 @@
 //! white-space character and the operator keeps its own operands, which is what the reader ran;
 //! the proof by drawing both files still decides (`doc/adr/3641`).
 //!
+//! # What else the write states as this reader read it
+//!
+//! A number written with an exponent, which §7.3.3 forbids a writer and this reader reads as its
+//! value, is written as the decimal of that value (`doc/adr/3677`). A colour operator given one,
+//! three or four operands that do not fit the current space (§8.6.8) is drawn by this reader in the
+//! device space with that many components, so it is written as `G`, `RG` or `K` (or the
+//! non-stroking form) with its operands kept (`doc/adr/3679`); and an inline image entry this
+//! reader did not read, its key stated twice, is written out (`doc/adr/3678`). Each of the last two
+//! stands only where the page draws the same, as above.
+//!
 //! # A text operator this reader drew outside a text object
 //!
 //! ISO 32000-2 §9.4.2 and §9.4.3 each say their operators "shall only appear within text
@@ -119,8 +129,10 @@ const NOT_DRAWN_THE_SAME: &str = "writing out the operators this reader repaired
 /// it where it needs another (§7.8.2, `doc/adr/3641`), and an `EMC` with no section open is written
 /// out alone (Table 352), each only where the page draws the same. A
 /// class the write takes nothing at — a section left open at its stream's end — stays in the
-/// output, whose own check then refuses the write rather than let it be wrong.
-pub(super) const WRITTEN_OUT_WHERE_DRAWN_THE_SAME: [&str; 8] = [
+/// output, whose own check then refuses the write rather than let it be wrong. An inline image's
+/// key stated twice is not an operator's, but its entry this reader did not read is written out
+/// under the same proof (`doc/adr/3678`).
+pub(super) const WRITTEN_OUT_WHERE_DRAWN_THE_SAME: [&str; 9] = [
     "model/operator-short-of-operands",
     "model/operand-of-the-wrong-type",
     "model/restore-with-nothing-saved",
@@ -129,6 +141,7 @@ pub(super) const WRITTEN_OUT_WHERE_DRAWN_THE_SAME: [&str; 8] = [
     "model/property-list-unresolved",
     "model/operands-left-over",
     "model/marked-content-unbalanced",
+    "model/inline-image-key-twice",
 ];
 
 /// The most pages the proof draws twice; past it the operators are left.
@@ -237,6 +250,9 @@ impl Drawn {
                 }
             } else {
                 written.extend_from_slice(&place.number);
+                if place.operator {
+                    self.written_out.insert(id);
+                }
             }
             from = place.end;
             let run = data
@@ -550,9 +566,10 @@ fn whole_file(document: &Document, at: &BTreeMap<ObjectId, Object>) -> Option<Ve
 pub(super) fn history(drawn: &Drawn, citation: &str) -> String {
     let mut out = format!(
         "{citation}: {} run(s) the base standard spells as no number, lone delimiters it reads \
-         as no operator, or operators this reader repaired and drew the page the same without, \
-         were written as this reader draws them, a run as its number and a delimiter or an \
-         operator with its operands as white space; loss {}",
+         as no operator, operators this reader repaired and drew the page the same without, or \
+         entries of an inline image dictionary it did not read, were written as this reader \
+         draws them, a run as its number, a colour operator as the device operator it drew it \
+         by, and a delimiter, an operator with its operands or an entry as white space; loss {}",
         drawn.runs.len(),
         super::Loss::ContentAsDrawn.word()
     );
@@ -691,6 +708,17 @@ impl Place {
             end,
             number,
             operator: false,
+            text_object: false,
+        }
+    }
+
+    /// The operator keyword from `start` to `end`, written as `device` (`doc/adr/3679`).
+    const fn respelled(start: usize, end: usize, device: Vec<u8>) -> Self {
+        Self {
+            start,
+            end,
+            number: device,
+            operator: true,
             text_object: false,
         }
     }
@@ -875,6 +903,9 @@ enum WrittenOut {
     /// Only the operands left over in front of the operator's own are written out: the place from
     /// the first of them to the first of its own (`doc/adr/3641`).
     LeftOver(usize, usize),
+    /// The operator keyword, from `start` to `end`, is written as the device operator this reader
+    /// drew it as, its operands kept (`doc/adr/3679`).
+    Respelled(usize, usize, &'static [u8]),
 }
 
 /// How many operands' starts [`Walk`] keeps before one operator. Far below the interpreter's own
@@ -965,6 +996,7 @@ impl Walk {
     ) -> (WrittenOut, Option<Place>) {
         let from = self.operands_from.unwrap_or(start);
         let whole_here = !self.operands_elsewhere;
+        let given = (!self.starts_lost).then_some(self.starts.len());
         let own_from = signature(word)
             .and_then(|signature| signature.operand_count())
             .filter(|_| !self.starts_lost)
@@ -998,8 +1030,15 @@ impl Walk {
         let written = whole_here
             && classes.peek().is_some()
             && classes.all(|class| WRITTEN_OUT_WHERE_DRAWN_THE_SAME.contains(&class.name));
+        let only_colour = found.classes().all(|class| {
+            class.name == pdf_model::repair::COLOUR_OPERANDS_DO_NOT_FIT_THE_SPACE.name
+        });
         let place = match (written, only_left_over && from < own_from) {
             (false, _) => WrittenOut::Left,
+            (true, _) if only_colour => device_operator(word, given)
+                .map_or(WrittenOut::Whole(from), |device| {
+                    WrittenOut::Respelled(start, end, device)
+                }),
             (true, true) => WrittenOut::LeftOver(from, own_from),
             (true, false) => WrittenOut::Whole(from),
         };
@@ -1192,6 +1231,9 @@ fn salvaged_runs(
             lexer.seek(scan.resume);
             pending = 0;
             added(&mut out, most, walk.inline_image().filter(|_| operators))?;
+            if operators {
+                entries_set_aside(&mut out, most, scan)?;
+            }
             continue;
         }
         if depth == 0
@@ -1255,10 +1297,13 @@ fn salvaged_runs(
                 }
             }
         }
-        if lexer.salvaged().is_some_and(draws_the_salvage)
-            && let Some(number) = number_drawn(&token)
-        {
-            let end = lexer.position();
+        let end = lexer.position();
+        let number = if lexer.salvaged().is_some_and(draws_the_salvage) {
+            number_drawn(&token)
+        } else {
+            respelled_exponent(&token, data.get(start..end))
+        };
+        if let Some(number) = number {
             placed(&mut out, most, Place::number(start, end, number))?;
         }
     }
@@ -1270,6 +1315,25 @@ fn salvaged_runs(
         walk.end_added_text_object().filter(|_| operators),
     )?;
     Some((out, left))
+}
+
+/// Adds a place for each entry of an inline image dictionary this reader did not read, its key
+/// stated twice: the entry it read stays, and the other is written as one white-space character,
+/// proved like an operator (`doc/adr/3678`). `None` where `out` already holds `most`.
+fn entries_set_aside(
+    out: &mut Vec<Place>,
+    most: usize,
+    scan: pdf_model::inline_image::Scan,
+) -> Option<()> {
+    if scan.image.is_err() {
+        return Some(());
+    }
+    let mut set_aside = scan.set_aside;
+    set_aside.sort_unstable();
+    for (from, to) in set_aside {
+        placed(out, most, Place::white_space(from, to, true))?;
+    }
+    Some(())
 }
 
 /// Whether `byte` is one of ISO 32000-2 §7.2.3's six white-space characters (Table 1).
@@ -1291,6 +1355,9 @@ fn written_out(
 ) -> Option<()> {
     let (from, to) = match written {
         WrittenOut::Left => return Some(()),
+        WrittenOut::Respelled(start, end, device) => {
+            return placed(out, most, Place::respelled(start, end, device.to_vec()));
+        }
         WrittenOut::Whole(from) => (from, end),
         // The white space before the operator's own first operand stays and parts the place
         // from it, so the place ends where the last leftover does.
@@ -1325,6 +1392,45 @@ fn number_drawn(token: &Token<'_>) -> Option<Vec<u8>> {
     // never uses an exponent.
     pdf_syntax::write::object(&value, &mut number);
     Some(number)
+}
+
+/// The device operator this reader draws `word`'s colour by where its `given` operands do not fit
+/// the current space: ISO 32000-2 §8.6.8 has `SC`, `SCN`, `sc` and `scn` take as many operands
+/// as the space has components, and where they are one, three or four this reader draws them in
+/// the device space with that many — as the page defines it, its default colour space included
+/// (§8.6.5.6) — which is what `G`, `RG` or `K` and their non-stroking forms draw (`doc/adr/3679`).
+/// `None` for any other operator or count: the reader draws nothing for one, and it is written out.
+fn device_operator(word: &[u8], given: Option<usize>) -> Option<&'static [u8]> {
+    let stroking = match word {
+        b"SC" | b"SCN" => true,
+        b"sc" | b"scn" => false,
+        _ => return None,
+    };
+    Some(match (given?, stroking) {
+        (1, true) => b"G",
+        (3, true) => b"RG",
+        (4, true) => b"K",
+        (1, false) => b"g",
+        (3, false) => b"rg",
+        (4, false) => b"k",
+        _ => return None,
+    })
+}
+
+/// The value a real written with an exponent was read as, in ISO 32000-2 §7.3.3's spelling, where
+/// `run` is the run the lexer read it from and holds one (`doc/adr/3677`); `None` for every other
+/// token.
+///
+/// §7.3.3 forbids the spelling to a writer and states nothing for a reader; this reader reads the
+/// run as its value (`pdf_syntax::lexer`, ADR 0733), so the page is the page with that value in that
+/// place, and the decimal that reads back as the same value draws what it drew.
+fn respelled_exponent(token: &Token<'_>, run: Option<&[u8]>) -> Option<Vec<u8>> {
+    let exponent = run?.iter().any(|byte| matches!(byte, b'e' | b'E'));
+    if exponent && matches!(token, Token::Real(_)) {
+        number_drawn(token)
+    } else {
+        None
+    }
 }
 
 /// Adds the `BT` or `ET` a text object is opened or closed by (`doc/adr/3661`) in its place

@@ -817,3 +817,31 @@ fn a_window_that_cuts_the_filters_marker_asks_for_more_bytes() {
         pdf_model::inline_image::InlineImageError::Truncated
     );
 }
+
+/// ISO 32000-2 §8.9.7, with Errata Collection 3's Issue #3: where both an abbreviated key and its
+/// full name are present, "the abbreviated key name shall take precedence", and a key stated twice
+/// the same way keeps the first, as every other dictionary does. The scan states each entry it
+/// did not read, key to value, so that a writer can remove exactly those (`doc/adr/3678`).
+#[test]
+fn each_entry_the_scan_did_not_read_is_stated_by_its_span() {
+    for (content, unread) in [
+        (
+            &b"BI /Width 2 /W 1 /H 1 /BPC 8 /CS /G ID \xff EI"[..],
+            &[&b"/Width 2"[..]][..],
+        ),
+        (
+            &b"BI /W 1 /H 1 /H 3 /BPC 8 /CS /G ID \xff EI"[..],
+            &[&b"/H 3"[..]][..],
+        ),
+        (&b"BI /W 1 /H 1 /BPC 8 /CS /G ID \xff EI"[..], &[][..]),
+    ] {
+        let scanned = scan(content);
+        assert!(scanned.image.is_ok(), "{:?}", scanned.image);
+        let spans: Vec<&[u8]> = scanned
+            .set_aside
+            .iter()
+            .map(|&(from, to)| content.get(from..to).expect("a span inside the content"))
+            .collect();
+        assert_eq!(spans, unread);
+    }
+}

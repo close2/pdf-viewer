@@ -144,6 +144,11 @@ pub struct Scan {
     /// (ADR 3541): a caller holding the content stream's reader records them there
     /// ([`crate::content::reader::ContentReader::note_repair`]).
     pub repairs: Vec<&'static RepairClass>,
+    /// Each entry of the image dictionary that reading it did not use, as the span from its key's
+    /// first byte to its value's last: a key of Table 91 stated a second time, where the entry
+    /// kept is the other (`read_dictionary`). Empty where the dictionary did not read. A writer
+    /// that removes these spans leaves the dictionary this reader read (`doc/adr/3678`).
+    pub set_aside: Vec<(usize, usize)>,
 }
 
 /// Reads the inline image whose `BI` has just been consumed, from `at`.
@@ -169,7 +174,13 @@ pub fn scan(
 ) -> Scan {
     let mut lexer = Lexer::at(content, at);
     let mut repairs = Vec::new();
-    let dict = match read_dictionary(document, &mut lexer, resources, &mut repairs) {
+    let mut set_aside = Vec::new();
+    let dict = match read_dictionary(
+        document,
+        &mut lexer,
+        resources,
+        (&mut repairs, &mut set_aside),
+    ) {
         Ok(dict) => dict,
         Err(error) => {
             // The dictionary is what says where the data ends, so without it there is
@@ -184,6 +195,7 @@ pub fn scan(
                 resume: search_for_terminator(content, at).map_or(content.len(), |found| found.1),
                 image: Err(error),
                 repairs,
+                set_aside: Vec::new(),
             };
         }
     };
@@ -221,6 +233,7 @@ pub fn scan(
                 resume: content.len(),
                 image: Err(InlineImageError::Truncated),
                 repairs,
+                set_aside,
             };
         }
         Extent::Missing => {
@@ -229,6 +242,7 @@ pub fn scan(
                 resume: content.len(),
                 image: Err(InlineImageError::NoTerminator),
                 repairs,
+                set_aside,
             };
         }
     };
@@ -245,6 +259,7 @@ pub fn scan(
             decryption_failed: false,
         }),
         repairs,
+        set_aside,
     }
 }
 
@@ -258,19 +273,25 @@ fn note(repairs: &mut Vec<&'static RepairClass>, class: &'static RepairClass) {
 /// Reads the key–value pairs between `BI` and `ID`, expanded into an image dictionary.
 ///
 /// The lexer is left immediately after the `ID`.
+///
+/// Each entry it does not use is pushed onto `set_aside` as the span from its key to its value.
 fn read_dictionary(
     document: &Document,
     lexer: &mut Lexer<'_>,
     resources: &Dictionary,
-    repairs: &mut Vec<&'static RepairClass>,
+    (repairs, set_aside): (&mut Vec<&'static RepairClass>, &mut Vec<(usize, usize)>),
 ) -> Result<Dictionary, InlineImageError> {
     let content = lexer.input();
     let limits = document.limits();
     let mut dict = Dictionary::new();
     // Which entries were filled from Table 91's abbreviated spelling.
     let mut by_abbreviation: Vec<&'static str> = Vec::new();
+    // The span of the entry each key was filled from.
+    let mut used: Vec<(&'static str, (usize, usize))> = Vec::new();
 
     loop {
+        lexer.skip_whitespace();
+        let entry_at = lexer.position();
         let Some(token) = lexer.next_token() else {
             return Err(InlineImageError::Truncated);
         };
@@ -314,11 +335,18 @@ fn read_dictionary(
             if already {
                 note(repairs, &crate::repair::INLINE_IMAGE_KEY_TWICE);
             }
+            let span = (entry_at, lexer.position());
             if !already || (abbreviated && !by_abbreviation.contains(&full)) {
                 dict.insert(Name::new(full.as_bytes().to_vec()), value);
                 if abbreviated {
                     by_abbreviation.push(full);
                 }
+                match used.iter_mut().find(|(key, _)| *key == full) {
+                    Some((_, kept)) => set_aside.push(std::mem::replace(kept, span)),
+                    None => used.push((full, span)),
+                }
+            } else {
+                set_aside.push(span);
             }
         }
     }

@@ -88,6 +88,7 @@ impl Interpreter<'_> {
                     resume: scanned.resume,
                     image: Err(crate::inline_image::InlineImageError::Unbuffered { bound }),
                     repairs: scanned.repairs,
+                    set_aside: scanned.set_aside,
                 };
             }
             want = want.saturating_mul(2).min(bound);
