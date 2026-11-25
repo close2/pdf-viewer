@@ -174,7 +174,7 @@ const MAX_OPERANDS: usize = 1 << 16;
 /// `d0` glyph doing the same through a pattern, recurse until the stack aborts the process —
 /// three seven-object files, each a `fatal runtime error: stack overflow`, all three held by
 /// `tests/hostile_budgets.rs`. One counter in one place bounds every route (ADR 0793).
-const MAX_FORM_DEPTH: usize = 64;
+pub(crate) const MAX_FORM_DEPTH: usize = 64;
 
 /// Deepest nesting of soft-mask groups.
 ///

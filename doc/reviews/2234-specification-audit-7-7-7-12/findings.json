@@ -13,7 +13,7 @@
   "code": "crates/pdf-model/src/colourants.rs:515 (Role::Font pushes the font dictionary's /Resources only; module doc 'a Type 3 font's own /Resources'); crates/pdf-model/src/content/ext_gstate.rs:714 (blends_under: the Font arm reads the font dictionary's /Resources only); the interpreter's route that is right: crates/pdf-model/src/content/text/type3.rs:101 and crates/pdf-model/src/type3.rs:463 (Type3Font::resources)",
   "change": "In both walks, beneath a Type 3 font, also push the /Resources of each /CharProcs stream that states one (bounded by the walks' existing seen-set and budgets), so the search reaches every dictionary the interpreter can draw a glyph from.",
   "execution": "FAIL (expected): crates/pdf-model/tests/resources_7_8_3_spec_audit.rs::a_type3_glyphs_own_resources_name_its_spot_colourant_spec_audit (content_suite) \u2014 round 2234; its control (the space in the font dictionary's /Resources) passes. resources_blend has no public observable short of a CMYK luminosity mask's raster and is not tested separately.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2234-B02",
@@ -28,7 +28,7 @@
   "code": "crates/pdf-model/src/optional_content.rs:912 (gather_from_resources: /Properties and /XObject only) and :878 (groups_referenced_by: an annotation's own /OC, not its appearance's resources)",
   "change": "Walk the content-stream resource dictionaries \u00a77.8.2 lists: a tiling pattern's /Resources under /Pattern, a Type 3 font's and its glyph streams' /Resources under /Font, and each annotation's normal appearance streams' /Resources, under the existing depth bound and visited set.",
   "execution": "FAIL (expected): crates/pdf-model/tests/resources_7_8_3_spec_audit.rs::a_group_marked_inside_a_pattern_is_referenced_by_the_page_spec_audit and ::a_group_marked_inside_an_annotation_appearance_is_referenced_by_the_page_spec_audit (content_suite) \u2014 round 2234; each control (the group marked inside a form the page draws) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2234-B03",
@@ -41,7 +41,7 @@
   "code": "crates/pdf-syntax/src/text_string.rs:93 (encode_text_string returns pdf_doc_encoded(text) whenever it is Some)",
   "change": "Accept the PDFDocEncoding form only when its bytes do not begin with either Unicode prefix (equivalently, when text_string of the bytes is the text); otherwise write UTF-16BE.",
   "execution": "FAIL (expected): crates/pdf-syntax/tests/text_string_prefix_spec_audit.rs::a_text_beginning_with_a_prefix_spelling_is_written_in_a_unicode_form_spec_audit \u2014 round 2234; its control (the same characters not at the start) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2234-D01",

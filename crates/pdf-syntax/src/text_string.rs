@@ -111,9 +111,22 @@ pub fn is_text_string(bytes: &[u8]) -> bool {
 ///
 /// A code that Table D.3 maps to a *different* character is not a fit: the table is not Latin-1,
 /// and the round trip through [`text_string`] is what "fits" means.
+///
+/// **Nor is a text whose codes begin with a Unicode form's prefix.** `þÿ` is `FE FF` and `ï»¿` is
+/// `EF BB BF` in Table D.3, so a reader would take either as the marker of §7.9.2.2.1:
+///
+/// > NOTE 3 This mechanism precludes beginning a string using PDFDocEncoding with the two
+/// > characters thorn ydieresis, which is unlikely to be a meaningful beginning of a word or phrase.
+///
+/// NOTE 4 says the same of the UTF-8 marker (Errata Collection 3's Issue #161 spells its first
+/// character idieresis). Such a text is written in UTF-16BE, whose own prefix makes the rest of the
+/// bytes unambiguous.
 #[must_use]
 pub fn encode_text_string(text: &str) -> Vec<u8> {
-    if let Some(bytes) = pdf_doc_encoded(text) {
+    if let Some(bytes) = pdf_doc_encoded(text)
+        && !bytes.starts_with(&UTF16BE_PREFIX)
+        && !bytes.starts_with(&UTF8_PREFIX)
+    {
         return bytes;
     }
     let mut out = Vec::from(UTF16BE_PREFIX);
@@ -526,6 +539,8 @@ mod tests {
             "\u{1F600}",
             "gültig",
             "a mix: тест \u{20AC}",
+            "\u{FE}\u{FF}",
+            "\u{EF}\u{BB}\u{BF}x",
         ] {
             assert_eq!(text_string(&encode_text_string(text)), text, "{text:?}");
         }

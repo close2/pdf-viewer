@@ -16,6 +16,7 @@ use super::{
     DashPhase, GraphicsState, Interpreter, apply_dash, line_cap, line_join, miter_limit, read_dash,
 };
 use crate::black_generation::BlackGeneration;
+use crate::resource_walk::ResourceWalk;
 
 pub(crate) use crate::transfer::{Stated, Transfer};
 
@@ -662,81 +663,54 @@ fn stated_blend_mode(document: &Document, entry: &Object) -> Option<BlendMode> {
     }
 }
 
-/// How deep [`resources_blend`] follows resources into the forms, patterns and Type 3 glyphs that
-/// state their own. Eight, as for every nesting a document can state without bound here.
-const BLEND_SEARCH_DEPTH: usize = 8;
-
 /// How many resource dictionaries [`resources_blend`] reads for one group before it stops: a cost
 /// guard, and it answers `true` there, because what it decides is whether a mask group needs the
 /// construction that is exact under every blend mode (ADR 1342).
 const BLEND_SEARCH_DICTIONARIES: usize = 256;
 
 /// Whether content drawn under `resources` can reach a blend mode other than `Normal` — ISO
-/// 32000-2 §11.6.3: a `/BM` in an `/ExtGState` of these resources, or of the resources of a form
-/// `XObject`, a tiling pattern or a Type 3 font inside them.
+/// 32000-2 §11.6.3: a `/BM` in an `/ExtGState` of any resource dictionary `crate::resource_walk`
+/// yields beneath them — a form's, a tiling pattern's, a Type 3 font's and each of its glyph
+/// descriptions' (Errata Collection 3's Issue #128, ADR 3645) — or in a shading pattern's own
+/// `/ExtGState` (Table 76).
 ///
 /// An upper bound, and the safe one for its caller: it does not check that a `gs` names the state
 /// or that a mark follows it, so a group it answers `true` for may blend nowhere, and is then drawn
-/// by a construction that is exact without a blend mode too.
+/// by a construction that is exact without a blend mode too. For the same reason a walk cut by its
+/// depth bound or by [`BLEND_SEARCH_DICTIONARIES`] answers `true`.
 pub(crate) fn resources_blend(document: &Document, resources: &Dictionary) -> bool {
-    let mut read = 0_usize;
-    blends_under(document, resources, 0, &mut read)
-}
-
-/// [`resources_blend`], carrying the depth and the count.
-fn blends_under(
-    document: &Document,
-    resources: &Dictionary,
-    depth: usize,
-    read: &mut usize,
-) -> bool {
-    *read = read.saturating_add(1);
-    if depth > BLEND_SEARCH_DEPTH || *read > BLEND_SEARCH_DICTIONARIES {
-        return true;
-    }
-    let entries = |category: &str| {
-        document
-            .get_key(resources, category)
-            .as_dict()
-            .map_or_default(|dict| {
-                dict.iter()
-                    .map(|(_, value)| document.resolve(value))
-                    .collect::<Vec<_>>()
-            })
-    };
-    let blends = entries("ExtGState").iter().any(|state| {
+    let blends = |state: &Object| {
         state.as_dict().is_some_and(|state| {
             stated_blend_mode(document, &document.get_key(state, "BM"))
                 .is_some_and(|blend| blend != BlendMode::Normal)
         })
-    });
-    if blends {
-        return true;
-    }
-    // A shading pattern states a graphics state of its own (Table 76's `/ExtGState`), and a form,
-    // a tiling pattern and a Type 3 font state resources.
-    let nested = [entries("XObject"), entries("Pattern"), entries("Font")].concat();
-    nested.iter().any(|object| {
-        let dict = match object {
-            Object::Stream(stream) => Some(&stream.dict),
-            Object::Dictionary(dict) => Some(dict),
-            _ => None,
-        };
-        dict.is_some_and(|dict| {
-            let state = document.get_key(dict, "ExtGState");
-            let in_state = state.as_dict().is_some_and(|state| {
-                stated_blend_mode(document, &document.get_key(state, "BM"))
-                    .is_some_and(|blend| blend != BlendMode::Normal)
-            });
-            in_state
-                || document
-                    .get_key(dict, "Resources")
+    };
+    let mut walk = ResourceWalk::new(document, resources);
+    for (read, resources) in walk.by_ref().enumerate() {
+        if read >= BLEND_SEARCH_DICTIONARIES {
+            return true;
+        }
+        let states = document.get_key(&resources, "ExtGState");
+        let in_states = states.as_dict().is_some_and(|states| {
+            states
+                .iter()
+                .any(|(_, state)| blends(&document.resolve(state)))
+        });
+        // A shading pattern states a graphics state of its own, Table 76's `/ExtGState`.
+        let patterns = document.get_key(&resources, "Pattern");
+        let in_patterns = patterns.as_dict().is_some_and(|patterns| {
+            patterns.iter().any(|(_, pattern)| {
+                document
+                    .resolve(pattern)
                     .as_dict()
-                    .is_some_and(|inner| {
-                        blends_under(document, inner, depth.saturating_add(1), read)
-                    })
-        })
-    })
+                    .is_some_and(|pattern| blends(&document.get_key(pattern, "ExtGState")))
+            })
+        });
+        if in_states || in_patterns {
+            return true;
+        }
+    }
+    walk.truncated()
 }
 
 /// Maps a PDF blend mode name, taking `Normal` for anything this reader does not know.

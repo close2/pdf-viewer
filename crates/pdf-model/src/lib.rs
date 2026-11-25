@@ -71,6 +71,7 @@ pub mod progress;
 pub mod reference;
 pub mod repair;
 pub mod requirements;
+mod resource_walk;
 pub mod restriction;
 pub mod retrieval;
 mod rich_text;

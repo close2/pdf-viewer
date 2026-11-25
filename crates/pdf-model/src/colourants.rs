@@ -38,14 +38,17 @@
 //!
 //! # What is walked
 //!
-//! Every place a colour space reaches this page's marks from: the `/ColorSpace`, `/Pattern`,
-//! `/Shading`, `/XObject` and `/Font` resources, a form's and a tiling pattern's and a Type 3
-//! font's own `/Resources` beneath them, an `Indexed` space's base and a `Pattern` space's
-//! underlying space, and each annotation's normal appearance, which §12.5.5 draws onto the same
-//! page. **A soft mask's group is not walked**, and §11.7.3 is why: "In particular, spot colours
-//! shall not be available in a transparency group XObject that is used to define a soft mask; the
-//! alternate colour space shall always be substituted in that case." What a mask group names
-//! therefore needs no plane, and `/ExtGState` is the only road to one.
+//! Every place a colour space reaches this page's marks from, in every resource dictionary
+//! `crate::resource_walk` yields for the page — its own, a form's, a tiling pattern's, a Type 3
+//! font's and each of its glyph descriptions' (Errata Collection 3's Issue #128 puts a glyph's own
+//! `/Resources` first), and each annotation's normal appearance's, which §12.5.5 draws onto the
+//! same page (ADR 3645). In each, the `/ColorSpace` and `/Shading` resources, a shading pattern's
+//! shading and an image's own space, and beneath any of those an `Indexed` space's base and a
+//! `Pattern` space's underlying space. **A soft mask's group is not walked**, and §11.7.3 is why:
+//! "In particular, spot colours shall not be available in a transparency group XObject that is
+//! used to define a soft mask; the alternate colour space shall always be substituted in that
+//! case." What a mask group names therefore needs no plane, and `/ExtGState` is the only road to
+//! one.
 //!
 //! Over-reading costs a plane nothing draws on and under-reading costs a colourant its
 //! separation, so the walk takes a resource the content stream may not use rather than parsing
@@ -57,10 +60,10 @@
 //! "subject to implementation limits" and §8.6.6.5 lets a `DeviceN` "contain an arbitrary number
 //! of colour components". So the walk truncates nothing, and the bound is where planes are made:
 //! [`MAX_SPOT_PLANES`], with a page past it named rather than cut. The walk is finite without a
-//! budget —
-//! every indirect object is entered at most once per role, `Seen` holding which, and it runs
-//! from an explicit stack rather than recursion, so a chain of forms each naming the next costs
-//! heap rather than the thread's stack.
+//! budget: the resource dictionaries by `crate::resource_walk`'s bounds, which stop at the depth
+//! the interpreter itself stops drawing at, and the colour spaces beneath each because every
+//! indirect object is entered at most once per role, `Seen` holding which, from an explicit stack
+//! rather than recursion.
 #![expect(
     clippy::doc_markdown,
     reason = "the module and `nchannel_process` quote §8.6.6.5 and §11.7.3 verbatim, and a \
@@ -74,6 +77,7 @@ use std::sync::Arc;
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
 use crate::colour::{ColourSpace, DeviceSpots, PROCESS_COLOURANTS, Plane, Press, Reading};
+use crate::resource_walk::{Annotations, ResourceWalk};
 
 /// How many spot planes one page is given: sixteen, forty-eight colourants.
 ///
@@ -388,20 +392,15 @@ pub fn plane(list: &pdf_render::DisplayList, plane: Plane) -> Option<&pdf_render
 /// What an object is being read *as*, which decides what is looked for inside it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Role {
-    /// A resource dictionary (§7.8.3, Table 34).
-    Resources,
     /// A colour space, by name or by array (§8.6).
     ColourSpace,
     /// A pattern resource: a tiling pattern's stream or a shading pattern's dictionary (§8.7).
     Pattern,
     /// A shading dictionary or stream (§8.7.4.3).
     Shading,
-    /// An external object: an image's colour space or a form's resources (§8.8, §8.10).
+    /// An external object, of which an image states a colour space (§8.9.5); a form's resources
+    /// are the walk's.
     XObject,
-    /// A font, of which only Type 3's own resources can name a colour space (§9.6.4).
-    Font,
-    /// An annotation's `/AP` normal appearance, a stream or a dictionary of them (§12.5.5).
-    Appearance,
 }
 
 /// Which indirect objects have been entered, and in which role.
@@ -420,35 +419,33 @@ type Seen = BTreeSet<(ObjectId, Role)>;
 pub fn spot_colourants(document: &Document, page: &crate::Page) -> SpotColourants {
     let mut found = SpotColourants::default();
     let mut seen = Seen::new();
-    let mut roots: Vec<(Object, Role)> = vec![(
-        Object::Dictionary((*page.resources).clone()),
-        Role::Resources,
-    )];
-    if let Some(annotations) = document.get_key(&page.dict, "Annots").as_array() {
-        for annotation in annotations {
-            let annotation = document.resolve(annotation);
-            if let Some(annotation) = annotation.as_dict()
-                && let Some(normal) = document.get_key(annotation, "AP").as_dict()
-                && let Some(entry) = normal.get("N")
-            {
-                roots.push((entry.clone(), Role::Appearance));
+    let mut stack: Vec<(Object, Role)> = Vec::new();
+    let mut children = Vec::new();
+    for resources in ResourceWalk::of_page(document, page, Annotations::Appearances) {
+        for (category, role) in [
+            ("ColorSpace", Role::ColourSpace),
+            ("Pattern", Role::Pattern),
+            ("Shading", Role::Shading),
+            ("XObject", Role::XObject),
+        ] {
+            if let Some(entries) = document.get_key(&resources, category).as_dict() {
+                stack.extend(entries.iter().map(|(_, value)| (value.clone(), role)));
             }
         }
-    }
-    // A stack pops the last thing pushed, so each object's children go on in reverse and come
-    // off in the order the object states them: the walk is depth-first in document order, which
-    // is what makes "first named" mean the same thing on every run.
-    let mut stack: Vec<(Object, Role)> = roots.into_iter().rev().collect();
-    let mut children = Vec::new();
-    while let Some((object, role)) = stack.pop() {
-        if let Some(id) = object.as_reference()
-            && !seen.insert((id, role))
-        {
-            continue;
+        // A stack pops the last thing pushed, so each object's children go on in reverse and
+        // come off in the order the object states them: the walk is depth-first in document
+        // order, which is what makes "first named" mean the same thing on every run.
+        stack.reverse();
+        while let Some((object, role)) = stack.pop() {
+            if let Some(id) = object.as_reference()
+                && !seen.insert((id, role))
+            {
+                continue;
+            }
+            let object = document.resolve(&object);
+            visit(document, &object, role, &mut children, &mut found);
+            stack.extend(children.drain(..).rev());
         }
-        let object = document.resolve(&object);
-        visit(document, &object, role, &mut children, &mut found);
-        stack.extend(children.drain(..).rev());
     }
     found
 }
@@ -463,32 +460,13 @@ fn visit(
     found: &mut SpotColourants,
 ) {
     match role {
-        Role::Resources => {
-            let Some(resources) = object.as_dict() else {
-                return;
-            };
-            for (category, role) in [
-                ("ColorSpace", Role::ColourSpace),
-                ("Pattern", Role::Pattern),
-                ("Shading", Role::Shading),
-                ("XObject", Role::XObject),
-                ("Font", Role::Font),
-            ] {
-                if let Some(entries) = document.get_key(resources, category).as_dict() {
-                    stack.extend(entries.iter().map(|(_, value)| (value.clone(), role)));
-                }
-            }
-        }
         Role::ColourSpace => colour_space(document, object, stack, found),
         Role::Pattern => {
             let Some(pattern) = object.as_dict() else {
                 return;
             };
-            // §8.7.3's tiling pattern is a content stream with resources of its own; §8.7.4's
-            // shading pattern names a shading. A dictionary states which by `/PatternType`,
-            // and reading both keys where either is present costs nothing a wrong guess would
-            // not.
-            push_entry(pattern, "Resources", Role::Resources, stack);
+            // §8.7.4's shading pattern names a shading; §8.7.3's tiling pattern is a content
+            // stream whose resources are the walk's.
             push_entry(pattern, "Shading", Role::Shading, stack);
         }
         Role::Shading => {
@@ -500,41 +478,16 @@ fn visit(
             let Some(xobject) = object.as_dict() else {
                 return;
             };
-            match document.get_key(xobject, "Subtype").as_name() {
-                // §8.9.5 Table 87's `/ColorSpace`. An image's own `/SMask` is a mask and is
-                // not walked, for §11.7.3's reason in the module documentation.
-                Some(subtype) if subtype.as_bytes() == b"Image" => {
-                    push_entry(xobject, "ColorSpace", Role::ColourSpace, stack);
-                }
-                Some(subtype) if subtype.as_bytes() == b"Form" => {
-                    push_entry(xobject, "Resources", Role::Resources, stack);
-                }
-                _ => {}
-            }
-        }
-        Role::Font => {
-            if let Some(font) = object.as_dict()
-                && document
-                    .get_key(font, "Subtype")
-                    .as_name()
-                    .is_some_and(|subtype| subtype.as_bytes() == b"Type3")
+            // §8.9.5 Table 87's `/ColorSpace`. An image's own `/SMask` is a mask and is not
+            // walked, for §11.7.3's reason in the module documentation.
+            if document
+                .get_key(xobject, "Subtype")
+                .as_name()
+                .is_some_and(|subtype| subtype.as_bytes() == b"Image")
             {
-                push_entry(font, "Resources", Role::Resources, stack);
+                push_entry(xobject, "ColorSpace", Role::ColourSpace, stack);
             }
         }
-        Role::Appearance => match object {
-            // §12.5.5: a normal appearance is a form, or a dictionary of forms keyed by
-            // appearance state.
-            Object::Stream(stream) => push_entry(&stream.dict, "Resources", Role::Resources, stack),
-            Object::Dictionary(states) => {
-                stack.extend(
-                    states
-                        .iter()
-                        .map(|(_, value)| (value.clone(), Role::Appearance)),
-                );
-            }
-            _ => {}
-        },
     }
 }
 

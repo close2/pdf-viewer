@@ -59,6 +59,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
 use crate::action::Change;
+use crate::resource_walk::{Annotations, ResourceWalk};
 
 /// Deepest nesting of a visibility expression that will be evaluated.
 ///
@@ -849,27 +850,20 @@ pub enum ListMode {
     VisiblePages,
 }
 
-/// Deepest nesting of form `XObject`s walked while gathering a page's groups.
-///
-/// A form may name a form, and the chain is the document's to state. The bound is generous
-/// against real files — a drawing three templates deep is unusual — and finite against a file
-/// whose forms name each other, which the visited set already stops but which would otherwise
-/// be bounded by nothing at all.
-const MAX_FORM_DEPTH: usize = 8;
-
 /// Every optional content group one page's content and annotations reference.
 ///
 /// Table 99's `/ListMode` `VisiblePages` displays "only those groups in the Order array that are
 /// referenced by one or more visible pages", and the clause does not say what *referenced by*
-/// means. What is taken here is the three places §8.11 puts an `/OC`: the page's
-/// `/Resources /Properties`, which is what a `BDC /OC` names (§8.11.3.2); an `XObject`'s own
-/// `/OC` (§8.11.3.3); and an annotation's, Table 166's (§8.11.4.4). A membership dictionary
-/// contributes every group its `/OCGs` or its `/VE` names, because content governed by one is
-/// content whose visibility those groups decide.
+/// means. What is taken here is the three places §8.11 puts an `/OC`: a `/Properties` entry,
+/// which is what a `BDC /OC` names (§8.11.3.2); an `XObject`'s own `/OC` (§8.11.3.3); and an
+/// annotation's, Table 166's (§8.11.4.4). A membership dictionary contributes every group its
+/// `/OCGs` or its `/VE` names, because content governed by one is content whose visibility those
+/// groups decide.
 ///
-/// **Resources are followed into nested forms**, since a group referenced by a template placed
-/// on the page is referenced by the page. Bounded by `MAX_FORM_DEPTH` and by a visited set,
-/// both because the nesting is a document's word.
+/// **The first two are read in every resource dictionary §7.8.2's content streams name**, not
+/// only the page's: a form's, a tiling pattern's cell, a Type 3 font's and its glyphs', and each
+/// annotation's normal appearance — `crate::resource_walk`'s list, under its bounds (ADR 3645). A
+/// group marked inside any of them is marked on the page that draws it.
 ///
 /// This does *not* interpret the page: a `BDC /OC` naming a property this walk found is what
 /// makes the group reachable, and whether the operator is executed is a different question the
@@ -877,7 +871,11 @@ const MAX_FORM_DEPTH: usize = 8;
 /// costs a person nothing; under-listing one hides a switch the document asked to show.
 #[must_use]
 pub fn groups_referenced_by(document: &Document, page: &crate::page::Page) -> BTreeSet<ObjectId> {
-    let mut found = groups_referenced_by_content(document, page);
+    let mut found = BTreeSet::new();
+    let walk = ResourceWalk::of_page(document, page, Annotations::Appearances);
+    for resources in walk {
+        gather_from_resources(document, &resources, &mut found);
+    }
     let annotations = document.get_key(&page.dict, "Annots");
     if let Some(annotations) = annotations.as_array() {
         for annotation in annotations {
@@ -893,30 +891,28 @@ pub fn groups_referenced_by(document: &Document, page: &crate::page::Page) -> BT
 }
 
 /// Every optional content group one page's *content* references: [`groups_referenced_by`] without
-/// its annotations.
+/// its annotations, their `/OC` entries and their appearances alike.
 ///
-/// The two places §8.11 puts an `/OC` that the page's content stream reaches — the page's
-/// `/Resources /Properties` (§8.11.3.2) and an `XObject`'s own `/OC` (§8.11.3.3), followed into
-/// nested forms under the same bounds — for a caller that replaces the content and keeps the
-/// annotations, each of which still carries its own `/OC`.
+/// For a caller that replaces the content and keeps the annotations, each of which still carries
+/// its own `/OC` and its own appearance.
 #[must_use]
 pub fn groups_referenced_by_content(
     document: &Document,
     page: &crate::page::Page,
 ) -> BTreeSet<ObjectId> {
     let mut found = BTreeSet::new();
-    let mut visited = BTreeSet::new();
-    gather_from_resources(document, &page.resources, &mut found, &mut visited, 0);
+    for resources in ResourceWalk::of_page(document, page, Annotations::Excluded) {
+        gather_from_resources(document, &resources, &mut found);
+    }
     found
 }
 
-/// Adds the groups a resource dictionary reaches: its `/Properties`, and its `/XObject`s.
+/// Adds the groups one resource dictionary names itself: its `/Properties`, and each of its
+/// `XObject`s' own `/OC` — an image's as well as a form's. What lies beneath a form is the walk's.
 fn gather_from_resources(
     document: &Document,
     resources: &Dictionary,
     found: &mut BTreeSet<ObjectId>,
-    visited: &mut BTreeSet<ObjectId>,
-    depth: usize,
 ) {
     let properties = document.get_key(resources, "Properties");
     if let Some(properties) = properties.as_dict() {
@@ -925,29 +921,13 @@ fn gather_from_resources(
         }
     }
     let xobjects = document.get_key(resources, "XObject");
-    let Some(xobjects) = xobjects.as_dict() else {
-        return;
-    };
-    for (_, value) in xobjects.iter() {
-        if let Some(id) = reference(value)
-            && !visited.insert(id)
-        {
-            continue;
-        }
-        let resolved = document.resolve(value);
-        let Some(stream) = resolved.as_stream() else {
-            continue;
-        };
-        // not a repair: an absent /OC is Null, the entry's absence, not a default value.
-        let oc = stream.dict.get("OC").cloned().unwrap_or(Object::Null);
-        gather_from_oc(document, &oc, found);
-        if depth >= MAX_FORM_DEPTH {
-            continue;
-        }
-        let nested = document.get_key(&stream.dict, "Resources");
-        if let Some(nested) = nested.as_dict() {
-            let nested = nested.clone();
-            gather_from_resources(document, &nested, found, visited, depth.saturating_add(1));
+    if let Some(xobjects) = xobjects.as_dict() {
+        for (_, value) in xobjects.iter() {
+            if let Some(xobject) = document.resolve(value).as_stream() {
+                // not a repair: an absent /OC is Null, the entry's absence, not a default value.
+                let oc = xobject.dict.get("OC").cloned().unwrap_or(Object::Null);
+                gather_from_oc(document, &oc, found);
+            }
         }
     }
 }
