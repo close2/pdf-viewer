@@ -83,6 +83,29 @@ pub unsafe extern "C" fn quorra_outline_title(
     }
 }
 
+/// The BCP 47 tag of the language one row's title is in — §14.9.2.1's catalog `/Lang` — or the
+/// empty string where the document states none, in the same two-call idiom.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_outline_language(
+    outline: *const Outline,
+    row: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(outline) = outline.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match outline.language(row) {
+        Ok(language) => copy_out(language, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
 /// How far in a row is, zero at the top level, and whether §12.3.3's `/Count` asks it to be open.
 ///
 /// Either out-parameter may be null.

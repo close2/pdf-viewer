@@ -53,7 +53,7 @@ pub use annotations::{
 pub(crate) use field_tree::{Omitted, field_table, field_table_on_page, widgets_under};
 pub use field_tree::{widgets_by_field_name, widgets_on_page_by_field_name};
 pub(crate) use fields::alternative_name;
-pub use fields::{field_at, field_at_in_view, is_file_select};
+pub use fields::{field_at, field_at_in_view, field_name, is_file_select};
 pub use script_model::{
     Alignment, AnnotationChange, AnnotationReach, AnnotationState, BookmarkState, BorderStyle,
     Colour, CommitKey, ConsoleCommand, ConsoleRequest, Display, DocumentState, DocumentTrigger,

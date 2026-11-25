@@ -13,7 +13,7 @@
   "code": "crates/pdf-model/src/content.rs:2589 (by_absence: MCID spans, declared artifacts and annotations only); crates/pdf-model/src/structure.rs:2582 (artifacts_by_absence's doc, the same three routes); crates/pdf-model/src/structure/logical.rs:75 (logical_text skips Child::Object); crates/viewer-core/src/accessibility.rs:1358 (Child::Object arm) and :1542 (names_object, annotations only)",
   "change": "Record the readback range of a form or image XObject that states /StructParent as an object span beside the annotations' (the interpreter already reads Table 359 for forms' /StructParents), subtract it in by_absence, give it to logical_text where an /OBJR names the object, and let viewer-core's walk attribute it to the element like an /MCID sequence.",
   "execution": "FAIL (expected): crates/pdf-model/tests/structure_14_6_14_9_spec_audit.rs::a_form_named_by_an_object_reference_is_the_elements_real_content_spec_audit and crates/viewer-core/tests/structure_objr_xobject_spec_audit.rs::an_element_whose_content_is_a_form_xobject_is_spoken_with_its_text_spec_audit — round 2229; each control (the same form drawn inside /P <</MCID 0>> BDC … EMC) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2229-B02",
@@ -27,7 +27,7 @@
   "code": "crates/pdf-model/src/content/marked.rs:543 (described.language = described.language.or(enclosing.language)); crates/pdf-model/src/accessibility.rs:135 (speech: an inner Described without a language inherits the outer one)",
   "change": "Give a sequence that names a structure element a language that stops the enclosing Span's: the element chain's, else the document's default (or a marker meaning 'the structure's, which is the default'), so speech does not fall through to the Span.",
   "execution": "FAIL (expected): crates/pdf-model/tests/structure_14_6_14_9_spec_audit.rs::a_span_language_stops_at_structured_content_inside_it_spec_audit — round 2229; its control (a Sect above the P stating /Lang) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2229-B03",
@@ -41,7 +41,7 @@
   "code": "crates/pdf-model/src/submission.rs:917 (and :735, :785, :791, :858, :870, :1148, :1167, :1239, :1259); crates/viewer-core/src/scripting.rs:263; crates/pdf-model/src/view/fields.rs:1004",
   "change": "Name the field by FieldName::shown (/TU, else the qualified name) in every sentence meant for a person, keeping the qualified name where a sentence addresses the field for a program.",
   "execution": "FAIL (expected): crates/pdf-model/tests/structure_14_6_14_9_spec_audit.rs::a_report_about_a_field_names_it_by_its_alternative_name_spec_audit — round 2229; its control (the same field without /TU is named in the report) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2229-B04",
@@ -68,7 +68,7 @@
   "code": "crates/pdf-model/src/content/marked.rs:536 (described.alt from the sequence's element); crates/pdf-model/src/content/report.rs:1442 (Interpretation::speech)",
   "change": "Read /Alt and /E through the same walk up /P that structure::enclosing makes for /ActualText (2038-B12's fix), so one description covers all an element encloses and is spoken once.",
   "execution": "FAIL (expected): crates/pdf-model/tests/structure_14_6_14_9_spec_audit.rs::an_elements_alternate_description_is_spoken_once_over_all_it_encloses_spec_audit — round 2229; its control (a Figure owning one sequence directly) passes",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2229-D01",
@@ -82,6 +82,6 @@
   "code": "crates/pdf-model/src/content.rs:2583; crates/pdf-model/src/structure.rs:2563",
   "change": "Restate both with B01's fix.",
   "execution": "Read, not executed.",
-  "status": "open"
+  "status": "fixed"
  }
 ]

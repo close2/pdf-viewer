@@ -787,8 +787,9 @@ pub fn compose_packaged(
         ));
     }
     for (name, why) in &written.xfa_unkept {
+        let shown = shown_name(document, &table, name);
         owed.push(format!(
-            "field {name}: its value is not in the XFA data submitted: {why}"
+            "field {shown}: its value is not in the XFA data submitted: {why}"
         ));
     }
     let unpackaged = |why: String| Refusal::Unpackaged { format: name, why };
@@ -853,9 +854,12 @@ fn chosen(
             continue;
         };
         let field = Field::read(document, dict, view.annotation(*widget).value);
+        // `name` addresses the field in what is submitted; `shown` is what a sentence to the
+        // person calls it.
+        let shown = &shown_name(document, table, name);
         if field.cyclic {
             owed.push(format!(
-                "field {name}: its /Parent chain returns to a field it has already passed, so \
+                "field {shown}: its /Parent chain returns to a field it has already passed, so \
                  it is no hierarchy, §12.7.4.1's inheritance cannot be resolved and neither its \
                  flags nor its value are known"
             ));
@@ -867,7 +871,7 @@ fn chosen(
         if matches!(field.kind, Some(FieldKind::Button { toggling: false })) {
             if action.fields.is_some() && format == Format::Fdf {
                 owed.push(format!(
-                    "push-button {name}: its submitted value would be its /AP appearance \
+                    "push-button {shown}: its submitted value would be its /AP appearance \
                      streams, which are this document's objects and are not carried into an FDF"
                 ));
             }
@@ -886,7 +890,7 @@ fn chosen(
         let value = field
             .value
             .as_ref()
-            .map(|value| resolved(document, name, value, owed));
+            .map(|value| resolved(document, shown, value, owed));
         // A stream that would not decode is a field whose value this reader does not know, which
         // is not the same as a field that has none: it is left out even where bit 2 is set.
         if matches!(value, Some(None)) {
@@ -916,7 +920,7 @@ fn chosen(
                 .unwrap_or(field.flags & FLAG_REQUIRED != 0);
             if required {
                 owed.push(format!(
-                    "field {name}: Table 227 bit 2 makes it Required, so it shall have a value \
+                    "field {shown}: Table 227 bit 2 makes it Required, so it shall have a value \
                      at the time it is exported, and it has none"
                 ));
             }
@@ -930,8 +934,8 @@ fn chosen(
             continue;
         };
         if file_select {
-            let selected = selected_file(document, view, name, &value, owed);
-            file_entry(format, name, selected, &mut chosen.entries, owed);
+            let selected = selected_file(document, view, (name, shown), &value, owed);
+            file_entry(format, (name, shown), selected, &mut chosen.entries, owed);
             continue;
         }
         let widgets = table.get(name).map_or(&[][..], Vec::as_slice);
@@ -1103,7 +1107,7 @@ pub(crate) fn button_export(
 /// three sit beside each other and the one that cannot is visible as such.
 fn file_entry(
     format: Format,
-    name: &str,
+    (name, shown): (&str, &str),
     selected: Selected,
     entries: &mut Vec<Entry>,
     owed: &mut Vec<String>,
@@ -1145,7 +1149,7 @@ fn file_entry(
             // wrong value under the right name — the clause asks for the contents — so
             // the field is named rather than guessed at.
             Selected::Elsewhere(pathname) => owed.push(format!(
-                "field {name}: a file-select control naming {}, a file outside this \
+                "field {shown}: a file-select control naming {}, a file outside this \
                  document, whose contents multipart/form-data would carry and this \
                  process has no filesystem to read",
                 pdf_syntax::text_string(&pathname)
@@ -1164,7 +1168,7 @@ fn file_entry(
                 file: Some(file),
             }),
             Selected::Elsewhere(pathname) => owed.push(format!(
-                "field {name}: a file-select control naming {}, a file outside this \
+                "field {shown}: a file-select control naming {}, a file outside this \
                  document, whose contents §12.7.5.3 submits as the field's value and \
                  this process has no filesystem to read",
                 pdf_syntax::text_string(&pathname)
@@ -1203,7 +1207,7 @@ enum Selected {
 fn selected_file(
     document: &Document,
     view: &ViewState,
-    name: &str,
+    (name, shown): (&str, &str),
     value: &Object,
     owed: &mut Vec<String>,
 ) -> Selected {
@@ -1236,7 +1240,7 @@ fn selected_file(
                 // Table 43 makes `/F` "[r]equired if the DOS, Mac, and Unix entries are all
                 // absent", so a dictionary with none of them and no `/EF` identifies nothing.
                 owed.push(format!(
-                    "field {name}: a file-select control whose value is a file specification \
+                    "field {shown}: a file-select control whose value is a file specification \
                      naming no file at all, so nothing is submitted for it"
                 ));
                 return Selected::Nothing;
@@ -1256,7 +1260,7 @@ fn selected_file(
                 // reader does not know, which is not the same as a file of no bytes.
                 Err(refusal) => {
                     owed.push(format!(
-                        "field {name}: a file-select control whose embedded file stream this \
+                        "field {shown}: a file-select control whose embedded file stream this \
                          reader could not decode ({refusal:?}), so the field is not submitted at \
                          all rather than submitted empty"
                     ));
@@ -1266,13 +1270,37 @@ fn selected_file(
         }
         other => {
             owed.push(format!(
-                "field {name}: a file-select control whose value is {}, which §7.11.1 makes no \
+                "field {shown}: a file-select control whose value is {}, which §7.11.1 makes no \
                  file specification, so no file is submitted for it",
                 other.type_name()
             ));
             Selected::Nothing
         }
     }
+}
+
+/// The name a sentence to the person calls a field: [`crate::view::FieldName::shown`]'s, which
+/// is Table 226's `/TU` where the field states one and `qualified` where it does not.
+///
+/// ISO 32000-2 §14.9.3: the alternative name "shall be used in place of the actual field name
+/// when an interactive PDF processor identifies the field in a user-interface", and
+/// [`Submission::owed`] is read by the person deciding whether to send. What is *submitted* keeps
+/// the qualified name, which addresses the field for the program receiving it.
+fn shown_name(
+    document: &Document,
+    table: &BTreeMap<String, Vec<ObjectId>>,
+    qualified: &str,
+) -> String {
+    let alternative = table
+        .get(qualified)
+        .and_then(|widgets| widgets.first())
+        .and_then(|widget| crate::view::alternative_name(document, *widget));
+    crate::view::FieldName {
+        qualified: qualified.to_owned(),
+        alternative,
+    }
+    .shown()
+    .to_owned()
 }
 
 /// The fully qualified names the action selects, before `NoExport` and before values.
@@ -1333,7 +1361,7 @@ fn selected_names(
 /// shorter list is reported rather than merely shorter.
 fn resolved(
     document: &Document,
-    name: &str,
+    shown: &str,
     value: &Object,
     owed: &mut Vec<String>,
 ) -> Option<Object> {
@@ -1341,14 +1369,14 @@ fn resolved(
         Object::Array(items) => Object::Array(
             items
                 .iter()
-                .filter_map(|item| resolved(document, name, item, owed))
+                .filter_map(|item| resolved(document, shown, item, owed))
                 .collect(),
         ),
         Object::Stream(stream) => match document.decoded_stream_data_reported(&stream) {
             Ok(decoded) => Object::String(decoded.data.to_vec().into()),
             Err(refusal) => {
                 owed.push(format!(
-                    "field {name}: its value is a stream this reader could not decode \
+                    "field {shown}: its value is a stream this reader could not decode \
                      ({refusal:?}), so the field is not submitted at all rather than submitted empty"
                 ));
                 return None;

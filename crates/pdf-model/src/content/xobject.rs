@@ -6,7 +6,7 @@
 use pdf_render::Transform;
 use pdf_syntax::{Dictionary, Object};
 
-use super::report::{ContentStream, Unsupported};
+use super::report::{ContentStream, ObjectItem, ObjectSpan, Unsupported};
 use super::run::{name_at, narrow};
 use super::transparency::GroupBody;
 use super::{GraphicsState, Interpreter};
@@ -86,6 +86,50 @@ impl Interpreter<'_> {
         // What a *report* and an image's diagnostic label want is text; §7.3.5 binds the lookups
         // above, which take the name's own bytes.
         let label = String::from_utf8_lossy(name.as_bytes()).into_owned();
+
+        // ISO 32000-2 §14.7.5.3: an `XObject` can be a structure element's content outright,
+        //
+        // > When a structure element's content consists of an entire PDF object, such as an
+        // > XObject directly or indirectly referenced by a page description or an annotation, the
+        // > object shall be identified in the structure element's K entry by an object reference
+        // > dictionary
+        //
+        // and §14.7.5.4 gives it the way back, its own `/StructParent`. Such an object carries no
+        // `/MCID`, so what it draws is recorded here as the element's — without it, §14.8.2.2.2
+        // would call its text an artifact by absence. Hidden content is not recorded: it was
+        // returned from above.
+        let claimed = self
+            .tagged
+            .as_ref()
+            .is_some_and(|tree| tree.claims_object(self.document, &stream.dict));
+        if !claimed {
+            self.draw_shown_xobject(&label, named, &stream, group.as_ref(), resources, state);
+            return;
+        }
+        let before = self.text.len();
+        self.open_object_item();
+        self.draw_shown_xobject(&label, named, &stream, group.as_ref(), resources, state);
+        let closed = self.close_object_item();
+        self.object_items.push(ObjectSpan {
+            object: named,
+            range: before..self.text.len(),
+            item: ObjectItem::XObject {
+                drawn: closed.and_then(|closed| closed.drawn),
+                enclosed_a_refusal: closed.is_some_and(|closed| closed.enclosed_a_refusal),
+            },
+        });
+    }
+
+    /// Draws a form or image `XObject` that [`Self::draw_xobject`] found, and found visible.
+    fn draw_shown_xobject(
+        &mut self,
+        label: &str,
+        named: Option<pdf_syntax::ObjectId>,
+        stream: &std::sync::Arc<pdf_syntax::Stream>,
+        group: Option<&Object>,
+        resources: &Dictionary,
+        state: &GraphicsState,
+    ) {
         let subtype = self.document.get_key(&stream.dict, "Subtype");
         let subtype = subtype
             .as_name()
@@ -98,10 +142,10 @@ impl Interpreter<'_> {
             // "the base image shall be rendered".
             let alternate = match group {
                 Some(_) => None,
-                None => self.alternate_image(&stream.dict, &label),
+                None => self.alternate_image(&stream.dict, label),
             };
             // not a repair: the image this reader chose to draw, not a value the file states.
-            let drawn = alternate.as_ref().unwrap_or(&stream);
+            let drawn = alternate.as_ref().unwrap_or(stream);
             // Table 87's `/Measure` is the named image's, and an alternate is another rendition of
             // that image (§8.9.5.4), so the base image's entry is the one read. Its bounds are
             // the unit square §8.9.4 draws it into, and the CTM here is where that landed — the
@@ -111,7 +155,7 @@ impl Interpreter<'_> {
             // twice is the same allocation twice and its address is the name of the image.
             self.draw_image(
                 crate::image::NamedStream::allocation(drawn),
-                &label,
+                label,
                 resources,
                 state,
             );
@@ -130,8 +174,8 @@ impl Interpreter<'_> {
         // is in one or the other according to what a host supplied — never according to the file.
         // `imported_page` is where the supply is asked, once, and the proxy below is the answer
         // for every reference whose page it cannot produce (`crate::reference`, ADR 1101).
-        if let Some((supplied, index)) = self.imported_page(&stream.dict, &label) {
-            self.draw_imported_page(&stream.dict, &label, state, supplied, index);
+        if let Some((supplied, index)) = self.imported_page(&stream.dict, label) {
+            self.draw_imported_page(&stream.dict, label, state, supplied, index);
             return;
         }
 
@@ -139,7 +183,7 @@ impl Interpreter<'_> {
         // objects", which is §7.8.2's content stream under another name — so a form that
         // decoded only part-way is drawn to where its damage is and reported for the rest.
         // See [`Interpreter::content_stream`].
-        let Some(data) = self.content_stream(&stream, &format!("a form XObject /{label} (§8.10)"))
+        let Some(data) = self.content_stream(stream, &format!("a form XObject /{label} (§8.10)"))
         else {
             self.note(Unsupported::Operator {
                 operator: format!("undecodable form /{label}"),

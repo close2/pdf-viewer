@@ -353,6 +353,10 @@ pub(super) fn pages_panel_index() -> u8 {
 
 /// One level of the tree and everything under it.
 fn push_rows(rows: &[PanelRow], depth: u32, into: &mut Vec<Flat>) {
+    // `PanelRow::language` — §14.9.2.1's language of an outline entry or a layer name — does not
+    // cross: Qt's item views give a row's accessible interface no locale a model can set, and a
+    // `QLocale` on the view would state one language for every panel. Said here rather than
+    // carried to a role nothing reads.
     for row in rows {
         let (action, on, locked) = match &row.action {
             RowAction::Inert => (0, false, false),

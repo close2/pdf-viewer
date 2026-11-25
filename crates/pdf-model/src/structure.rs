@@ -506,7 +506,8 @@ impl Tree {
     /// > document's logical structure.
     ///
     /// So an `OBJR` naming one of `objects` gives that annotation's text a piece at its place in
-    /// the traversal, once however often the tree names it — Table 358's NOTE 2: "if it is
+    /// the traversal — and a form `XObject`'s the same, §14.7.5.3 making it the element's content
+    /// — once however often the tree names it — Table 358's NOTE 2: "if it is
     /// rendered multiple times on the same page, just a single object reference suffices". Bytes of
     /// it that a marked-content sequence already covers are that sequence's, because §14.7.5.3's
     /// NOTE 1 sends a part of an object's stream to §14.7.5.2 (ADR 1970).
@@ -590,7 +591,8 @@ impl Tree {
                         .map(|span| span.range.clone())
                         .collect()
                 }
-                // §14.8.2.5.2's annotation, at the place the tree names it, once.
+                // §14.7.5.3's object — §14.8.2.5.2's annotation, or a form or image `XObject` —
+                // at the place the tree names it, once.
                 Child::Object { object, page: at }
                     if at.is_none_or(|at| at == page) && placed_objects.insert(object) =>
                 {
@@ -801,14 +803,16 @@ impl Accounted {
     }
 }
 
-/// The parts of `range` that no marked-content sequence covers, in order.
+/// The parts of `range` that no marked-content sequence covers, in order: what of an object
+/// content item's readback is the object's own.
 ///
-/// An annotation's range is its whole appearance's readback, and a sequence inside that appearance
-/// is §14.7.5.2's content item rather than the object's: §14.7.5.3's NOTE 1 says that where "the
+/// An object's range is its whole readback — an annotation's appearance, a form's stream — and a
+/// sequence inside it is §14.7.5.2's content item rather than the object's: §14.7.5.3's NOTE 1 says that where "the
 /// referenced content forms only part of the object's content stream, it is instead handled as a
 /// marked -content sequence". Taking those bytes out is what keeps an annotation the tree names
 /// both ways from being copied twice.
-fn outside_sequences(
+#[must_use]
+pub fn outside_sequences(
     range: std::ops::Range<usize>,
     marked: &[crate::content::MarkedSpan],
 ) -> Vec<std::ops::Range<usize>> {
@@ -2561,9 +2565,10 @@ fn widen(band: &mut (f32, f32), span: (f32, f32)) {
 /// to all page content as well as annotations."
 ///
 /// `included` is every range of `text` some route into the structure tree covers — a sequence the
-/// producer identified with an `/MCID` (§14.7.5.2), an annotation whose own `/StructParent` makes
-/// it a content item (§14.7.5.3), and the artifacts the producer already declared. This is the
-/// complement of their union, as the ranges a consumer may subtract.
+/// producer identified with an `/MCID` (§14.7.5.2), an object whose own `/StructParent` makes it a
+/// content item — an annotation, or a form or image `XObject` drawn by `Do` (§14.7.5.3, Table
+/// 359) — and the artifacts the producer already declared. This is the complement of their union,
+/// as the ranges a consumer may subtract.
 ///
 /// # What decides inclusion, and what deliberately does not
 ///
@@ -3553,14 +3558,16 @@ pub fn language(document: &Document, element: &Dictionary) -> Option<String> {
 
 /// What a structure element and its ancestors state over one content item, in one walk up `/P`.
 ///
-/// Two of §14.9's entries reach a content item from *above* its own element, by two different
-/// rules, and both are read here so that the chain is followed once per marked-content sequence:
+/// Four of §14.9's entries reach a content item from *above* its own element, by two different
+/// rules, and all are read here so that the chain is followed once per marked-content sequence:
 ///
 /// - `/Lang` by inheritance — §14.9.2.3: an element without one "shall inherit its language from
 ///   any parent element that has one" — so the **nearest** statement wins;
-/// - `/ActualText` by enclosure — §14.9.4: the replacement text applies to "the content enclosed
-///   by the structure element", and an element encloses its descendants' content — so the
-///   **outermost** statement wins, because its replacement covers the inner one's content too.
+/// - `/ActualText`, `/Alt` and `/E` by enclosure — §14.9.4: the replacement text applies to "the
+///   content enclosed by the structure element"; Table 355 makes `/Alt` "\[a]n alternative
+///   description of the structure element and its children"; §14.9.5 makes `/E` "a word or
+///   phrase substitution for the tagged text", and an element's text is what it encloses — so
+///   the **outermost** statement wins, because it covers the inner one's content too.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Enclosing {
     /// The nearest `/Lang`, with `Some("")` for a stated unknown language (see [`language`]).
@@ -3568,7 +3575,44 @@ pub(crate) struct Enclosing {
     /// The outermost `/ActualText`, as the string object the file wrote, with the element
     /// stating it where that element is an indirect object — the identity that lets a page
     /// substitute it once however many of the element's content items it meets.
-    pub(crate) actual_text: Option<(Option<ObjectId>, std::sync::Arc<[u8]>)>,
+    pub(crate) actual_text: Option<Stated>,
+    /// The outermost non-empty `/Alt`, with its element, for the same reason.
+    pub(crate) alt: Option<Stated>,
+    /// The outermost non-empty `/E`, with its element, for the same reason.
+    pub(crate) expansion: Option<Stated>,
+}
+
+/// One text-string entry of an element, as the file wrote it, with the element stating it where
+/// that element is an indirect object.
+pub(crate) type Stated = (Option<ObjectId>, std::sync::Arc<[u8]>);
+
+/// One element's own statements, before its ancestors are laid under them.
+#[derive(Debug, Clone, Default)]
+struct OwnStatements {
+    language: Option<String>,
+    actual_text: Option<std::sync::Arc<[u8]>>,
+    alt: Option<std::sync::Arc<[u8]>>,
+    expansion: Option<std::sync::Arc<[u8]>>,
+}
+
+impl Enclosing {
+    /// Lays one element's own statements over what lies above it, or — `nearer` false — under
+    /// what lies below it: the nearest `/Lang` and the outermost of the rest.
+    fn take(&mut self, element: Option<ObjectId>, own: OwnStatements, nearer: bool) {
+        if own.language.is_some() && (nearer || self.language.is_none()) {
+            self.language = own.language;
+        }
+        let outer = |slot: &mut Option<Stated>, stated: Option<std::sync::Arc<[u8]>>| {
+            if let Some(bytes) = stated
+                && (slot.is_none() || !nearer)
+            {
+                *slot = Some((element, bytes));
+            }
+        };
+        outer(&mut self.actual_text, own.actual_text);
+        outer(&mut self.alt, own.alt);
+        outer(&mut self.expansion, own.expansion);
+    }
 }
 
 /// What [`enclosing`] has already answered for the elements of one document, by identity.
@@ -3588,22 +3632,45 @@ pub(crate) struct Enclosing {
 /// root, or at a `/P` that is not a dictionary — is kept: a walk the bound cut answers for its
 /// first element alone.
 #[derive(Debug, Default)]
-pub(crate) struct EnclosingMemo(BTreeMap<ObjectId, (Enclosing, usize)>);
+pub(crate) struct EnclosingMemo {
+    chains: BTreeMap<ObjectId, (Enclosing, usize)>,
+    /// §14.9.2.3's catalog `/Lang`, read on first asking: see [`EnclosingMemo::document_language`].
+    document_language: Option<String>,
+}
 
-/// One element's own `/Lang` and `/ActualText`, before its ancestors are laid under them.
-fn stated_on(
-    document: &Document,
-    element: &Dictionary,
-) -> (Option<String>, Option<std::sync::Arc<[u8]>>) {
-    let language = match document.get_key(element, "Lang") {
-        Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
-        _ => None,
-    };
-    let actual_text = match document.get_key(element, "ActualText") {
+impl EnclosingMemo {
+    /// The language of structured content no element of its chain states one for: §14.9.2.3's
+    /// "The Lang entry in the document catalog dictionary shall specify the default natural
+    /// language for all text in the document", or the empty identifier — §14.9.2.2's "the
+    /// language is unknown" — where the catalog states none.
+    ///
+    /// Asked of a sequence the structure hierarchy contains, for §14.9.2.3's exception to a
+    /// `Span`'s language — "except for nested marked-content that is contained in the structure
+    /// hierarchy (in which case the structure element's language applies)" — so that a `Span`
+    /// around it does not lend it its own.
+    pub(crate) fn document_language(&mut self, document: &Document) -> String {
+        // not a repair: §14.9.2.2's empty identifier is "the language is unknown", which is what a
+        //   catalog stating no `/Lang` leaves; not a value the file states.
+        self.document_language
+            .get_or_insert_with(|| document_language(document).unwrap_or_default())
+            .clone()
+    }
+}
+
+/// One element's own `/Lang`, `/ActualText`, `/Alt` and `/E`, before its ancestors are laid
+/// under them. An empty `/Alt` or `/E` states no phrase, as the property list's reading has it.
+fn stated_on(document: &Document, element: &Dictionary) -> OwnStatements {
+    let string = |key: &str| match document.get_key(element, key) {
         Object::String(bytes) => Some(bytes),
         _ => None,
     };
-    (language, actual_text)
+    let phrase = |key: &str| string(key).filter(|bytes| !pdf_syntax::text_string(bytes).is_empty());
+    OwnStatements {
+        language: string("Lang").map(|bytes| pdf_syntax::text_string(&bytes)),
+        actual_text: string("ActualText"),
+        alt: phrase("Alt"),
+        expansion: phrase("E"),
+    }
 }
 
 /// Walks from `element` (whose own identity is `id`, where known) up `/P` for [`Enclosing`],
@@ -3617,7 +3684,7 @@ pub(crate) fn enclosing(
     memo: &mut EnclosingMemo,
 ) -> Enclosing {
     if let Some(id) = id
-        && let Some((answer, _)) = memo.0.get(&id)
+        && let Some((answer, _)) = memo.chains.get(&id)
     {
         return answer.clone();
     }
@@ -3629,7 +3696,7 @@ pub(crate) fn enclosing(
     // `None` where the bound cut the walk.
     let above = loop {
         if let Some(parent) = parent_id
-            && let Some((answer, depth)) = memo.0.get(&parent)
+            && let Some((answer, depth)) = memo.chains.get(&parent)
         {
             if chain.len().saturating_add(*depth) > MAX_ANCESTRY {
                 // The bound would have cut this walk inside the remembered chain; the bounded
@@ -3655,18 +3722,13 @@ pub(crate) fn enclosing(
     let ended = above.is_some();
     // not a repair: the walk's own memo of what lies above, not a value the file states.
     let (mut found, mut depth) = above.unwrap_or_default();
-    for (element_id, (language, actual_text)) in chain.into_iter().rev() {
-        // §14.9.2.3: the nearest `/Lang` wins, so an element's own stands over its parent's.
-        if language.is_some() {
-            found.language = language;
-        }
-        // §14.9.4: the outermost `/ActualText` wins, so a parent's stands over the element's.
-        if found.actual_text.is_none() {
-            found.actual_text = actual_text.map(|bytes| (element_id, bytes));
-        }
+    for (element_id, own) in chain.into_iter().rev() {
+        // §14.9.2.3: the nearest `/Lang` wins, so an element's own stands over its parent's;
+        // and the outermost of the other three, so a parent's stands over the element's.
+        found.take(element_id, own, true);
         depth = depth.saturating_add(1);
         if ended && let Some(element_id) = element_id {
-            memo.0.insert(element_id, (found.clone(), depth));
+            memo.chains.insert(element_id, (found.clone(), depth));
         }
     }
     found
@@ -3692,13 +3754,8 @@ fn enclosing_unremembered(
     let mut current = element.clone();
     let mut current_id = id;
     for _ in 0..MAX_ANCESTRY {
-        let (language, actual_text) = stated_on(document, &current);
-        if found.language.is_none() {
-            found.language = language;
-        }
-        if let Some(bytes) = actual_text {
-            found.actual_text = Some((current_id, bytes));
-        }
+        // Walking outward: a statement met later is an ancestor's, so it is the farther one.
+        found.take(current_id, stated_on(document, &current), false);
         current_id = current.get("P").and_then(Object::as_reference);
         let Some(parent) = owned_dict(document.get_key(&current, "P")) else {
             break;

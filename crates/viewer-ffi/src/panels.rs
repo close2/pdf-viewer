@@ -46,6 +46,8 @@ struct Row {
     object: (u32, u16),
     /// Table 151's `/C` and Table 152's flags.
     style: OutlineStyle,
+    /// The language the title is in, §14.9.2.1's: [`PanelRow::language`].
+    language: Option<String>,
 }
 
 /// How an outline row's text is drawn: Table 151's `/C` and Table 152's two flags.
@@ -90,6 +92,20 @@ impl Outline {
         self.rows
             .get(row)
             .map(|row| row.title.as_str())
+            .ok_or(Status::OutOfRange)
+    }
+
+    /// The BCP 47 tag of the language one row's title is in — ISO 32000-2 §14.9.2.1 makes the
+    /// catalog's `/Lang` the language of "outline entries" — or the empty string where the
+    /// document states none.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such row.
+    pub fn language(&self, row: usize) -> Result<&str, Status> {
+        self.rows
+            .get(row)
+            .map(|row| row.language.as_deref().unwrap_or_default())
             .ok_or(Status::OutOfRange)
     }
 
@@ -345,6 +361,7 @@ fn push_rows(rows: &[PanelRow], depth: u32, into: &mut Vec<Row>) {
                 italic: row.style.is_some_and(|style| style.italic),
                 bold: row.style.is_some_and(|style| style.bold),
             },
+            language: row.language.clone(),
         });
         push_rows(&row.children, depth.saturating_add(1), into);
     }
@@ -373,6 +390,7 @@ mod tests {
                 children: Vec::new(),
             }],
             stated_count: None,
+            language: None,
         };
         assert_eq!(
             Outline::of(&items).style(0),

@@ -1169,6 +1169,8 @@ struct PieceRun {
     structure_deferred: bool,
     artifacts: Vec<super::ArtifactSpan>,
     marked: Vec<super::MarkedSpan>,
+    /// §14.7.5.3's objects the piece drew by `Do`, each closed inside its own operator.
+    objects: Vec<super::ObjectSpan>,
     associated: Vec<(Range<usize>, crate::attachment::Attachment)>,
     measured_xobjects: Vec<crate::measurement::MeasuredXObject>,
     /// The extents of sections with an `/MCID` still open, which only the last piece may leave.
@@ -1317,6 +1319,7 @@ impl Interpreter<'_> {
         }
         self.artifacts.append(&mut run.artifacts);
         self.marked.append(&mut run.marked);
+        self.object_items.append(&mut run.objects);
         self.associated.append(&mut run.associated);
         self.measured_xobjects.append(&mut run.measured_xobjects);
         self.marking.append(&mut run.marking);
@@ -1401,10 +1404,11 @@ impl Interpreter<'_> {
             return Some("a piece before the last showed text, whose readback is the last piece's");
         }
         // A closed section's spans are offsets into the readback, which is empty before the
-        // last piece in the page's reading as in the piece's, so they join in order; one that
-        // records an extent and is still open does not (ADR 1894). `clip_extents` is a memo of
-        // the piece's own clip table, and is left behind.
-        if !self.structural_annotations.is_empty() || (!text_allowed && !self.marking.is_empty()) {
+        // last piece in the page's reading as in the piece's, so they join in order — and so do
+        // an `XObject`'s object item, closed inside its `Do`; one that records an extent and is
+        // still open does not (ADR 1894). `clip_extents` is a memo of the piece's own clip table,
+        // and is left behind.
+        if !text_allowed && !self.marking.is_empty() {
             return Some(
                 "a piece left a sequence with an /MCID open, whose extent the join does not carry",
             );
@@ -1534,6 +1538,7 @@ fn run_piece(
         structure_deferred: piece.structure_deferred.get(),
         artifacts: piece.artifacts,
         marked: piece.marked,
+        objects: piece.object_items,
         associated: piece.associated,
         measured_xobjects: piece.measured_xobjects,
         marking: piece.marking,

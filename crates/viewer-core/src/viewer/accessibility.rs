@@ -200,6 +200,7 @@ impl Viewer {
         let page = crate::accessibility::Readback {
             text: &readback.text,
             marked: &readback.marked,
+            objects: &readback.objects,
             described: &readback.described,
             places: &referenced.places,
             languages: &referenced.languages,

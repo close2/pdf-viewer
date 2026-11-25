@@ -103,6 +103,18 @@ pub struct Outline {
     /// it by an algorithm this module can run — so the two can be compared, which is the only
     /// way to find out whether a producer ran it too.
     pub stated_count: Option<i64>,
+    /// The language the item titles are in: the catalog's `/Lang`, where the document has an
+    /// outline and states one.
+    ///
+    /// ISO 32000-2 §14.9.2.1 extends the catalog's language past the content streams:
+    ///
+    /// > This applies to both content within content streams and any text strings, including
+    /// > text strings not included in the structure hierarchy such as, for example, entries in
+    /// > metadata, outline entries and names for optional content groups.
+    ///
+    /// So a panel presenting the titles to a screen reader says which language they are in,
+    /// rather than leaving the desktop's to be assumed.
+    pub language: Option<String>,
 }
 
 impl Outline {
@@ -124,6 +136,7 @@ impl Outline {
         Self {
             items: level(document, pages, root, 0, &mut visited, &mut budget),
             stated_count: document.get_key(root, "Count").as_integer(),
+            language: crate::structure::document_language(document),
         }
     }
 

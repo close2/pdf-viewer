@@ -1727,6 +1727,10 @@ size_t  quorra_outline_len(const quorra_outline *outline);
 /* Table 151's /Title, in the same two-call idiom quorra_events_describe uses. */
 int32_t quorra_outline_title(const quorra_outline *outline, size_t row, char *out, size_t cap,
                            size_t *needed);
+/* The BCP 47 tag of the language the title is in (§14.9.2.1: the catalog's /Lang), or "" where
+ * the document states none, in the same idiom. */
+int32_t quorra_outline_language(const quorra_outline *outline, size_t row, char *out, size_t cap,
+                              size_t *needed);
 /* `depth` is zero at the top level; `expanded` is the sign of §12.3.3's /Count. */
 int32_t quorra_outline_depth(const quorra_outline *outline, size_t row, uint32_t *depth,
                            bool *expanded);

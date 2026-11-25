@@ -144,6 +144,10 @@ pub(super) struct Accessible {
     /// §14.9.2's `/Lang`, already resolved through a structure element's ancestry; `Some("")`
     /// is §14.9.2.2's stated unknown language.
     pub(super) language: Option<String>,
+    /// The structure element whose `/Alt` — or `/E`, where no `/Alt` is spoken — this section is
+    /// spoken as, where the phrase came from the element rather than the property list: the
+    /// identity that lets the page speak it once over all the element encloses.
+    pub(super) phrase_owner: Option<ObjectId>,
 }
 
 impl Accessible {
@@ -377,6 +381,29 @@ impl Interpreter<'_> {
     /// past the outer one's mark.
     pub(super) fn close_marking(&mut self, mcid: Option<i64>) -> Option<Closed> {
         mcid?;
+        self.close_extent()
+    }
+
+    /// Opens the extent of a §14.7.5.3 object content item drawn by `Do`: a form or image
+    /// `XObject` whose own `/StructParent` the structure tree claims.
+    ///
+    /// The same record a sequence with an `/MCID` keeps, because §14.8.3.3's content rectangle is
+    /// derived "from the shape of the enclosed content" whichever of §14.7.5's routes made the
+    /// content an element's, and a sequence inside the form encloses into it as into any other.
+    pub(super) fn open_object_item(&mut self) {
+        self.marking.push(OpenSequence {
+            extent: None,
+            notes_at_open: self.notes_raised,
+        });
+    }
+
+    /// Closes what [`Self::open_object_item`] opened.
+    pub(super) fn close_object_item(&mut self) -> Option<Closed> {
+        self.close_extent()
+    }
+
+    /// Pops the innermost open extent, handing what it enclosed to the one around it.
+    fn close_extent(&mut self) -> Option<Closed> {
         let mine = self.marking.pop()?;
         if let Some(extent) = mine.extent
             && let Some(slot) = self.marking.last_mut()
@@ -497,6 +524,7 @@ impl Interpreter<'_> {
             alt: phrase(self.document.get_key(&list, "Alt")),
             expansion: phrase(self.document.get_key(&list, "E")),
             language: language(self.document.get_key(&list, "Lang")),
+            phrase_owner: None,
         };
 
         // The structure element supplies only what the property list did not state, and is
@@ -523,8 +551,9 @@ impl Interpreter<'_> {
         {
             let document = self.document;
             // `/Lang` is inherited from the nearest ancestor that states one (§14.9.2.3), and
-            // `/ActualText` covers everything its element encloses (§14.9.4), so both are read
-            // in one walk up `/P` — see `structure::Enclosing`.
+            // `/ActualText`, `/Alt` and `/E` cover everything their element encloses (§14.9.4,
+            // Table 355, §14.9.5), so all are read in one walk up `/P` — see
+            // `structure::Enclosing`.
             let enclosing = crate::structure::enclosing(
                 document,
                 &element,
@@ -536,13 +565,31 @@ impl Interpreter<'_> {
                     .actual_text
                     .map(|(owner, bytes)| (decoded(&bytes), owner));
             }
-            if described.alt.is_none() {
-                described.alt = phrase(document.get_key(&element, "Alt"));
+            if described.alt.is_none()
+                && let Some((owner, bytes)) = enclosing.alt
+            {
+                described.alt = Some(decoded(&bytes));
+                described.phrase_owner = owner;
             }
-            if described.expansion.is_none() {
-                described.expansion = phrase(document.get_key(&element, "E"));
+            if described.expansion.is_none()
+                && let Some((owner, bytes)) = enclosing.expansion
+            {
+                described.expansion = Some(decoded(&bytes));
+                // `Described::phrase` speaks `/Alt` over `/E`, so `/E`'s element owns the phrase
+                // only where no `/Alt` is spoken.
+                if described.alt.is_none() {
+                    described.phrase_owner = owner;
+                }
             }
-            described.language = described.language.or(enclosing.language);
+            // §14.9.2.3: a `Span`'s language covers its text "except for nested marked-content
+            // that is contained in the structure hierarchy (in which case the structure
+            // element's language applies)". This sequence is so contained, so where no element
+            // of its chain states a language, the catalog's default is the element's — stated
+            // here, because an enclosing `Span`'s would otherwise be in force when it is spoken.
+            described.language = described
+                .language
+                .or(enclosing.language)
+                .or_else(|| Some(self.enclosing.borrow_mut().document_language(document)));
         }
         (actual_text, described.or_nothing())
     }

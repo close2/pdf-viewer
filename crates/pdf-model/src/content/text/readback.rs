@@ -405,7 +405,7 @@ impl Interpreter<'_> {
         for (range, _) in &mut self.associated {
             span(range);
         }
-        for object in &mut self.structural_annotations {
+        for object in &mut self.object_items {
             span(&mut object.range);
         }
     }

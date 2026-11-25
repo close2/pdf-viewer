@@ -61,6 +61,12 @@ impl Tree {
     /// case a reader might expect otherwise that "\[a]rtifacts not contained within an Artifact
     /// structure element are not considered part of the logical content order".
     ///
+    /// A form or image `XObject` an object reference names is here, at the place the reference
+    /// stands, once: §14.7.5.3 makes such an object the element's content outright, and what it
+    /// read back is in the page's content stream where its `Do` stood. Bytes of it a
+    /// marked-content sequence already covers are that sequence's, by §14.7.5.3's NOTE 1, as in
+    /// [`Self::logical_range`].
+    ///
     /// Annotations are in [`Self::logical_order`] and not here. This is the page's *content
     /// streams* in the other order, which is what `tests/logical_order.rs` compares with the
     /// order they were shown in; an appearance's readback has no stream order on the page to be
@@ -83,15 +89,34 @@ impl Tree {
             return None;
         }
         let mut out = String::new();
+        let mut placed_objects: BTreeSet<ObjectId> = BTreeSet::new();
         for item in order.items {
-            let Child::MarkedContent { mcid, stream, .. } = item else {
-                continue;
+            let ranges: Vec<std::ops::Range<usize>> = match item {
+                // Both halves of §14.7.5.2's key: the identifier is unique only "within its
+                // content stream", so a page whose `/Contents` and whose form `XObject` both
+                // number from zero has two sequences called `/MCID 0` and one of them is not
+                // this element's.
+                Child::MarkedContent { mcid, stream, .. } => {
+                    crate::content::named_sequences(&interpretation.marked, mcid, stream)
+                        .into_iter()
+                        .map(|span| span.range.clone())
+                        .collect()
+                }
+                Child::Object { object, .. } if placed_objects.insert(object) => interpretation
+                    .objects
+                    .iter()
+                    .filter(|span| {
+                        span.object == Some(object)
+                            && matches!(span.item, crate::content::ObjectItem::XObject { .. })
+                    })
+                    .flat_map(|span| {
+                        super::outside_sequences(span.range.clone(), &interpretation.marked)
+                    })
+                    .collect(),
+                Child::Object { .. } | Child::Element(_) => continue,
             };
-            // Both halves of §14.7.5.2's key: the identifier is unique only "within its content
-            // stream", so a page whose `/Contents` and whose form `XObject` both number from zero
-            // has two sequences called `/MCID 0` and one of them is not this element's.
-            for span in crate::content::named_sequences(&interpretation.marked, mcid, stream) {
-                if let Some(text) = interpretation.text.get(span.range.clone()) {
+            for range in ranges {
+                if let Some(text) = interpretation.text.get(range) {
                     out.push_str(text);
                 }
             }

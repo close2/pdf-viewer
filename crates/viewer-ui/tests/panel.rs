@@ -77,6 +77,7 @@ fn outline() -> Outline {
             item("Chapter two", 20, Vec::new()),
         ],
         stated_count: None,
+        language: None,
     }
 }
 
@@ -169,6 +170,7 @@ fn a_title_this_interfaces_font_cannot_set_draws_a_box_for_each_character() {
     let outline = Outline {
         items: vec![item(title, 10, Vec::new())],
         stated_count: None,
+        language: None,
     };
     let mut panel = Sidebar::default();
     panel.toggle();
@@ -209,6 +211,7 @@ fn a_title_no_encoding_can_name_is_set_from_the_face_rather_than_boxed() {
     let outline = Outline {
         items: vec![item(title, 10, Vec::new())],
         stated_count: None,
+        language: None,
     };
     let mut panel = Sidebar::default();
     panel.toggle();
@@ -351,6 +354,7 @@ fn a_long_title_is_elided_to_the_width_available() {
     let outline = Outline {
         items: vec![item(long, 10, Vec::new())],
         stated_count: None,
+        language: None,
     };
     let list = panel.draw(&chrome, only(&outline), HEIGHT, 1.0);
     // The whole title is wider than the panel, so something must have been dropped — and what

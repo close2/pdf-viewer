@@ -87,6 +87,7 @@ fn a_populated_outline() -> pdf_model::outline::Outline {
             },
         ],
         stated_count: Some(-3),
+        language: Some("de-DE".to_owned()),
     }
 }
 

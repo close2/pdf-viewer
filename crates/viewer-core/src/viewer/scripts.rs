@@ -429,11 +429,15 @@ impl Viewer {
     /// [`crate::scripting::Withheld`] runner has been handed a script (ADR 1616).
     pub(super) fn ask_about_scripts(&mut self, events: &mut Vec<Event>) {
         for (id, open) in &self.documents {
-            if let Some((script, first_line)) = open
-                .consent
-                .withheld
-                .as_ref()
-                .and_then(|withheld| withheld.question())
+            if let Some((script, first_line)) =
+                open.consent.withheld.as_ref().and_then(|withheld| {
+                    // §14.9.3: the question names a field by `/TU` where it states one.
+                    withheld.question(|qualified| {
+                        pdf_model::view::field_name(&open.document, qualified)
+                            .shown()
+                            .to_owned()
+                    })
+                })
             {
                 events.push(Event::AskingToRunScripts {
                     document: *id,

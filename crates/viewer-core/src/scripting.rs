@@ -152,11 +152,26 @@ pub(crate) const MAX_FORM_ALERTS: usize = 64;
 #[derive(Debug, Default)]
 struct Seen {
     /// The first script it was handed: who runs it, and its first line.
-    first: Option<(String, String)>,
+    first: Option<(Handed, String)>,
     /// Whether the question about it has been put.
     asked: bool,
     /// Whether the person answered `no`.
     declined: bool,
+}
+
+/// Who runs the first script a [`Withheld`] runner was handed, as the question will name it.
+#[derive(Debug, Clone)]
+enum Handed {
+    /// A §12.6.3 trigger's script, kept as its parts until the question is put: the name a person
+    /// reads for its field is §14.9.3's `/TU`, which the document holds and the runner does not.
+    Event {
+        site: ScriptSite,
+        field: String,
+        label: String,
+        page: usize,
+    },
+    /// An XFA form's calculation, already worded.
+    Form(String),
 }
 
 /// The runner a document holds under [`Scripting::Ask`] until its question is answered `yes`.
@@ -188,14 +203,33 @@ impl Withheld {
 
     /// The question to put now — who runs the first script, and its first line — once, and only
     /// after a script has been handed over.
-    pub(crate) fn question(&self) -> Option<(String, String)> {
+    ///
+    /// `shown` turns a field's qualified name into the name a person reads for it, which is
+    /// `pdf_model::view::field_name`'s [`pdf_model::view::FieldName::shown`] over the document.
+    pub(crate) fn question(&self, shown: impl Fn(&str) -> String) -> Option<(String, String)> {
         let mut seen = self.seen.lock().unwrap_or_else(PoisonError::into_inner);
         if seen.asked || seen.declined {
             return None;
         }
-        let first = seen.first.clone()?;
+        let (handed, first_line) = seen.first.clone()?;
         seen.asked = true;
-        Some(first)
+        let who = match handed {
+            Handed::Event {
+                site,
+                field,
+                label,
+                page,
+            } => {
+                let field = if field.is_empty() {
+                    field
+                } else {
+                    shown(&field)
+                };
+                subject(site, &field, &label, page)
+            }
+            Handed::Form(worded) => worded,
+        };
+        Some((who, first_line))
     }
 }
 
@@ -215,7 +249,10 @@ impl ScriptRunner for Withheld {
         } else {
             if seen.first.is_none() {
                 seen.first = Some((
-                    format!("a {} calculation of the document's form", language.name()),
+                    Handed::Form(format!(
+                        "a {} calculation of the document's form",
+                        language.name()
+                    )),
                     first_line(script),
                 ));
             }
@@ -235,7 +272,13 @@ impl ScriptRunner for Withheld {
              closes"
         } else {
             if seen.first.is_none() {
-                seen.first = Some((subject(event), first_line(event.script)));
+                let handed = Handed::Event {
+                    site: event.site,
+                    field: event.field.to_owned(),
+                    label: event.label.to_owned(),
+                    page: event.page,
+                };
+                seen.first = Some((handed, first_line(event.script)));
             }
             "not run: this reader asks before it runs a document's scripts, and the question is \
              waiting on your answer (RFC 0008 section 6.3)"
@@ -251,25 +294,28 @@ impl ScriptRunner for Withheld {
 }
 
 /// Who runs a script, as a question names it: `the calculate script of Total`.
-fn subject(event: &ScriptEvent<'_>) -> String {
+///
+/// `field` is the name the person reads for the event's field — §14.9.3's `/TU` where it states
+/// one — and `label` and `page` are the event's own.
+fn subject(site: ScriptSite, field: &str, label: &str, page: usize) -> String {
     let of = |what: &str| {
-        if event.field.is_empty() {
+        if field.is_empty() {
             what.to_owned()
         } else {
-            event.field.to_owned()
+            field.to_owned()
         }
     };
-    match event.site {
-        ScriptSite::Field(trigger) => format!("the {} script of {}", trigger.noun(), event.field),
+    match site {
+        ScriptSite::Field(trigger) => format!("the {} script of {field}", trigger.noun()),
         ScriptSite::Annotation(trigger) => {
             format!("the /{} script of {}", trigger.key(), of("an annotation"))
         }
-        ScriptSite::Page(_) => format!("a script of page {}", event.page.saturating_add(1)),
+        ScriptSite::Page(_) => format!("a script of page {}", page.saturating_add(1)),
         ScriptSite::OpenAction => "the document's open action".to_owned(),
-        ScriptSite::Library => format!("the document-level script {:?}", event.label),
+        ScriptSite::Library => format!("the document-level script {label:?}"),
         ScriptSite::Document(trigger) => format!("the document's /{} script", trigger.key()),
         ScriptSite::Timer => "a timer's expression".to_owned(),
-        ScriptSite::Outline { .. } => format!("the script of the outline item {:?}", event.label),
+        ScriptSite::Outline { .. } => format!("the script of the outline item {label:?}"),
     }
 }
 
@@ -499,7 +545,7 @@ mod tests {
     fn a_withheld_runner_asks_once_about_the_first_script_it_was_handed() {
         let withheld = Withheld::waiting();
         assert_eq!(
-            withheld.question(),
+            withheld.question(str::to_owned),
             None,
             "nothing handed over, nothing to ask"
         );
@@ -516,13 +562,13 @@ mod tests {
         };
         withheld.run(&later);
         assert_eq!(
-            withheld.question(),
+            withheld.question(str::to_owned),
             Some((
                 "the calculate script of Total".to_owned(),
                 "// the total".to_owned()
             ))
         );
-        assert_eq!(withheld.question(), None, "asked once");
+        assert_eq!(withheld.question(str::to_owned), None, "asked once");
     }
 
     /// A `no` is said on every script, and never asked again.
@@ -534,7 +580,7 @@ mod tests {
             "Total",
         ));
         assert!(result.report[0].contains("you declined"));
-        assert_eq!(declined.question(), None);
+        assert_eq!(declined.question(str::to_owned), None);
     }
 
     /// An `error` says the entry was replaced and has one button, because it has nothing for a

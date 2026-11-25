@@ -71,8 +71,8 @@ pub use ledger::Ledger;
 pub use list_budget::MAX_LIST_BYTES;
 pub use report::{
     AfterDrawing, ArtifactSource, ArtifactSpan, ContentStream, DamagedStream, Interpretation,
-    MarkedSpan, ObjectSpan, Placed, Shortfall, StreamSyntaxFault, UnnamedCodes, Unsupported,
-    named_sequences,
+    MarkedSpan, ObjectItem, ObjectSpan, Placed, Shortfall, StreamSyntaxFault, UnnamedCodes,
+    Unsupported, named_sequences,
 };
 
 /// Deepest nesting of `q`/`Q` that will be tracked.
@@ -1586,6 +1586,7 @@ impl<'a> Interpreter<'a> {
             text: String::new(),
             described: Vec::new(),
             replaced_elements: BTreeSet::new(),
+            described_elements: BTreeSet::new(),
             structure_deferred: std::cell::Cell::new(false),
             artifacts: Vec::new(),
             marked: Vec::new(),
@@ -1623,7 +1624,7 @@ impl<'a> Interpreter<'a> {
                 .marked
                 .then(|| crate::structure::Tree::of(document))
                 .flatten(),
-            structural_annotations: Vec::new(),
+            object_items: Vec::new(),
             stream_structures: BTreeMap::new(),
             output_intent,
             grey,
@@ -1752,10 +1753,11 @@ impl<'a> Interpreter<'a> {
             text,
             described,
             replaced_elements,
+            described_elements,
             structure_deferred,
             artifacts,
             marked,
-            structural_annotations,
+            object_items,
             marking,
             associated,
             measured_xobjects,
@@ -1809,10 +1811,11 @@ impl<'a> Interpreter<'a> {
             text: text.clone(),
             described: described.clone(),
             replaced_elements: replaced_elements.clone(),
+            described_elements: described_elements.clone(),
             structure_deferred: structure_deferred.get(),
             artifacts: artifacts.clone(),
             marked: marked.clone(),
-            structural_annotations: structural_annotations.clone(),
+            object_items: object_items.clone(),
             marking: marking.clone(),
             associated: associated.clone(),
             measured_xobjects: measured_xobjects.clone(),
@@ -1863,10 +1866,11 @@ impl<'a> Interpreter<'a> {
             text,
             described,
             replaced_elements,
+            described_elements,
             structure_deferred,
             artifacts,
             marked,
-            structural_annotations,
+            object_items,
             marking,
             associated,
             measured_xobjects,
@@ -1909,10 +1913,11 @@ impl<'a> Interpreter<'a> {
         self.text = text;
         self.described = described;
         self.replaced_elements = replaced_elements;
+        self.described_elements = described_elements;
         self.structure_deferred.set(structure_deferred);
         self.artifacts = artifacts;
         self.marked = marked;
-        self.structural_annotations = structural_annotations;
+        self.object_items = object_items;
         self.marking = marking;
         self.associated = associated;
         self.measured_xobjects = measured_xobjects;
@@ -1996,6 +2001,8 @@ struct Checkpoint {
     described: Vec<crate::accessibility::Described>,
     /// See [`Interpreter::replaced_elements`].
     replaced_elements: BTreeSet<ObjectId>,
+    /// See [`Interpreter::described_elements`].
+    described_elements: BTreeSet<ObjectId>,
     /// See [`Interpretation::structure_deferred`].
     structure_deferred: bool,
     /// See [`Interpretation::artifacts`].
@@ -2004,12 +2011,13 @@ struct Checkpoint {
     marked: Vec<MarkedSpan>,
     /// §14.7.5.3's object content items on this page: [`Interpretation::objects`].
     ///
-    /// One entry per annotation whose own `/StructParent` makes it a content item of a structure
-    /// element and whose appearance stream read back anything. An appearance carries no `/MCID` of
-    /// its own, so this is the only route by which §14.8.2.2.2's "all page content as well as
-    /// annotations" can say an annotation's text *is* in the tree — and without it every widget's
-    /// value on a tagged form would be classified an artifact by absence.
-    structural_annotations: Vec<ObjectSpan>,
+    /// One entry per `Do` of a form or image `XObject`, and per annotation whose appearance stream
+    /// read back anything, whose own `/StructParent` makes it a content item of a structure
+    /// element. Neither carries an `/MCID` of its own, so this is the only route by which
+    /// §14.8.2.2.2's "all page content as well as annotations" can say such an object's text *is*
+    /// in the tree — and without it every widget's value on a tagged form, and every form a tree
+    /// names by `OBJR`, would be classified an artifact by absence.
+    object_items: Vec<ObjectSpan>,
     /// Marked-content sequences a malformed content stream left open, which the annotation pass
     /// would otherwise close on a stack that had not been opened.
     marking: Vec<marked::OpenSequence>,
@@ -2508,7 +2516,7 @@ fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpreta
         by_absence(
             &interpreter.text,
             &interpreter.marked,
-            &interpreter.structural_annotations,
+            &interpreter.object_items,
             &mut artifacts,
         );
     }
@@ -2548,7 +2556,7 @@ fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpreta
         structure_deferred: interpreter.structure_deferred.get(),
         artifacts,
         marked: interpreter.marked,
-        objects: interpreter.structural_annotations,
+        objects: interpreter.object_items,
         inferred_separators: interpreter.inferred_separators,
         associated_files: interpreter.associated,
         measured_xobjects: interpreter.measured_xobjects,
@@ -2583,21 +2591,21 @@ impl Interpreter<'_> {
 /// Appends ISO 32000-2 §14.8.2.2.2's artifacts by absence to what the page already declared.
 ///
 /// Three routes into the structure tree have to be subtracted before the complement means
-/// anything: a sequence the producer identified with an `/MCID` (§14.7.5.2), an annotation whose
-/// own `/StructParent` makes it a content item (§14.7.5.3), and the artifacts the producer declared
-/// outright. Called only for a document that claims §14.8 applies to it — see
+/// anything: a sequence the producer identified with an `/MCID` (§14.7.5.2), an object whose own
+/// `/StructParent` makes it a content item — an annotation, or a form or image `XObject` drawn by
+/// `Do`, both §14.7.5.3's and Table 359's — and the artifacts the producer declared outright. Called only for a document that claims §14.8 applies to it — see
 /// [`Interpreter::tagged`] — and [`crate::structure::artifacts_by_absence`] carries the reading.
 fn by_absence(
     text: &str,
     marked: &[MarkedSpan],
-    annotations: &[ObjectSpan],
+    objects: &[ObjectSpan],
     artifacts: &mut Vec<ArtifactSpan>,
 ) {
     let included: Vec<std::ops::Range<usize>> = marked
         .iter()
         .map(|span| span.range.clone())
         .chain(artifacts.iter().map(|span| span.range.clone()))
-        .chain(annotations.iter().map(|span| span.range.clone()))
+        .chain(objects.iter().map(|span| span.range.clone()))
         .collect();
     artifacts.extend(
         crate::structure::artifacts_by_absence(text, &included)
@@ -3029,6 +3037,10 @@ struct Interpreter<'a> {
     /// The structure elements whose `/ActualText` this page's readback already carries, so that
     /// §14.9.4's substitution for an element's enclosed content is made once.
     replaced_elements: BTreeSet<ObjectId>,
+    /// The structure elements whose `/Alt` or `/E` this page's speech already carries, so that
+    /// §14.9.3's description — "a complete (or whole) word or phrase substitution for the current
+    /// element" — is spoken once over all the element encloses (ADR 3625).
+    described_elements: BTreeSet<ObjectId>,
     /// Whether a marked-content sequence named a structure element whose §14.9 statements this
     /// reading left unread, under [`crate::view::ViewState::set_structure_deferred`]: what makes
     /// [`Interpretation::structure_deferred`]. A cell because [`Self::accessibility`] reads.
@@ -3039,12 +3051,13 @@ struct Interpreter<'a> {
     marked: Vec<MarkedSpan>,
     /// §14.7.5.3's object content items on this page: [`Interpretation::objects`].
     ///
-    /// One entry per annotation whose own `/StructParent` makes it a content item of a structure
-    /// element and whose appearance stream read back anything. An appearance carries no `/MCID` of
-    /// its own, so this is the only route by which §14.8.2.2.2's "all page content as well as
-    /// annotations" can say an annotation's text *is* in the tree — and without it every widget's
-    /// value on a tagged form would be classified an artifact by absence.
-    structural_annotations: Vec<ObjectSpan>,
+    /// One entry per `Do` of a form or image `XObject`, and per annotation whose appearance stream
+    /// read back anything, whose own `/StructParent` makes it a content item of a structure
+    /// element. Neither carries an `/MCID` of its own, so this is the only route by which
+    /// §14.8.2.2.2's "all page content as well as annotations" can say such an object's text *is*
+    /// in the tree — and without it every widget's value on a tagged form, and every form a tree
+    /// names by `OBJR`, would be classified an artifact by absence.
+    object_items: Vec<ObjectSpan>,
     /// The structure tree, for a document that claims §14.8's rules apply to it.
     ///
     /// `Some` only where the catalog's `/MarkInfo` states `/Marked true` — §14.8.1 makes that "a

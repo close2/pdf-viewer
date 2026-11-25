@@ -169,6 +169,17 @@ fn bind(item: &glib::Object, act: &Rc<dyn Fn(&RowAction)>, pictures: &Previews) 
     if let Some(attributes) = item_style(&row) {
         label.set_attributes(Some(&attributes));
     }
+    // `PanelRow::language` is §14.9.2.1's: an outline entry's or a layer name's language is the
+    // catalog's `/Lang`. `GtkAccessible` has no language property, so the label states it the way
+    // this toolkit states a text's language — a Pango language attribute, which GTK's AT-SPI text
+    // interface reports among the run's attributes and which Pango shapes and chooses fonts by.
+    if let Some(language) = row.language.as_deref() {
+        let attributes = label.attributes().unwrap_or_default();
+        attributes.insert(pango::AttrLanguage::new(&pango::Language::from_string(
+            language,
+        )));
+        label.set_attributes(Some(&attributes));
+    }
     text.append(&label);
     // Table 153's `/View D` asks for "all information in the Schema dictionary presented in a
     // multi- column format", and `/View T` for a subset of the same fields. A `GtkGrid` of

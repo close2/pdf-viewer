@@ -69,7 +69,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_model::accessibility::Described;
-use pdf_model::content::MarkedSpan;
+use pdf_model::content::{MarkedSpan, ObjectItem, ObjectSpan};
 use pdf_model::structure::{
     Artifact, BlockProgression, Category, CellPlacement, Child, HeaderScope, InlineStatements,
     ListEntry, Nonstandard, StandardType, TableStack, TextAlign, TextDecoration, TextPosition,
@@ -829,20 +829,95 @@ impl Sequence {
     }
 }
 
+/// One of an element's content items on this page: §14.7.5.2's marked-content sequence, or
+/// §14.7.5.3's whole object, named by an object reference.
+///
+/// An object item speaks and has a place only where it is a form or image `XObject` the page
+/// drew by `Do`: its readback is page content in stream order, as a sequence's is. An annotation
+/// an object reference names answers through [`Gathered::objects`] instead — §12.5.2's rectangle,
+/// §12.7's control — and contributes no text here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContentItem {
+    /// A marked-content sequence, in both halves of its key.
+    Sequence(Sequence),
+    /// Table 358's `/Obj`.
+    Object(ObjectId),
+}
+
+/// What one content item drew on the page: its text, beside the extent of its marks and whether
+/// this program declined any of them.
+struct Drawn {
+    range: std::ops::Range<usize>,
+    extent: Option<[f32; 4]>,
+    refused: bool,
+}
+
+impl ContentItem {
+    /// What the page's interpretation recorded for this item.
+    ///
+    /// An object's text is only the part no marked-content sequence covers, because §14.7.5.3's
+    /// NOTE 1 sends a part of an object's stream to §14.7.5.2 — the same division
+    /// [`pdf_model::structure::Tree::logical_range`] makes.
+    fn drawn(self, page: &Readback<'_>) -> Vec<Drawn> {
+        match self {
+            Self::Sequence(sequence) => sequence
+                .of(page.marked)
+                .into_iter()
+                .map(|span| Drawn {
+                    range: span.range.clone(),
+                    extent: span.drawn,
+                    refused: span.enclosed_a_refusal,
+                })
+                .collect(),
+            Self::Object(object) => page
+                .objects
+                .iter()
+                .filter(|span| span.object == Some(object))
+                .filter_map(|span| match span.item {
+                    ObjectItem::XObject {
+                        drawn,
+                        enclosed_a_refusal,
+                    } => Some((span, drawn, enclosed_a_refusal)),
+                    ObjectItem::Annotation => None,
+                })
+                .flat_map(|(span, extent, refused)| {
+                    let mut parts: Vec<Drawn> =
+                        pdf_model::structure::outside_sequences(span.range.clone(), page.marked)
+                            .into_iter()
+                            .map(|range| Drawn {
+                                range,
+                                extent: None,
+                                refused: false,
+                            })
+                            .collect();
+                    // The extent and the refusal are the object's whole, carried once.
+                    parts.push(Drawn {
+                        range: span.range.start..span.range.start,
+                        extent,
+                        refused,
+                    });
+                    parts
+                })
+                .collect(),
+        }
+    }
+}
+
 /// What one element contributes before its quads are mapped into the viewport.
 pub(crate) struct Gathered {
     /// The element's `/S`, role mapped.
     pub(crate) role: String,
     /// What that name means in the namespace it ends in, as [`AccessibilityNode::standard`] states.
     pub(crate) standard: Result<StandardType, Nonstandard>,
-    /// The marked-content sequences below it, including those of its descendants.
+    /// The content items below it — marked-content sequences and object references — including
+    /// those of its descendants.
     ///
     /// Descendants' too, because the *place* an element occupies is everything it encloses: a
     /// focus ring round a table cell is drawn round what the cell contains. What it is *spoken*
     /// as is [`Self::own`], for the reason [`AccessibilityNode::name`] gives.
-    pub(crate) mcids: Vec<Sequence>,
-    /// The sequences of the element's own content items, without its descendants'.
-    pub(crate) own: Vec<Sequence>,
+    pub(crate) items: Vec<ContentItem>,
+    /// The element's own content items, without its descendants'.
+    pub(crate) own: Vec<ContentItem>,
     /// Whether this element, or one below it, names a content item on the page being asked about.
     ///
     /// The one thing an `/OBJR` contributes: §14.7.5.3's object reference is an annotation or an
@@ -1035,14 +1110,14 @@ fn gather(
 /// Drops the elements that have nothing on this page, and repairs the parent links.
 ///
 /// An element is kept when it names a content item on this page or something below it does —
-/// which is what `mcids` and `on_page` already record, because both are pushed up the chain to
+/// which is what `items` and `on_page` already record, because both are pushed up the chain to
 /// every ancestor as the walk meets them. Order is preserved, so the answer stays parent-first
 /// and a parent index stays lower than its child's.
 fn prune(gathered: Vec<(Option<usize>, Gathered)>) -> Vec<(Option<usize>, Gathered)> {
     let mut moved: Vec<Option<usize>> = vec![None; gathered.len()];
     let mut out: Vec<(Option<usize>, Gathered)> = Vec::new();
     for (index, (parent, mut entry)) in gathered.into_iter().enumerate() {
-        if entry.mcids.is_empty() && !entry.on_page {
+        if entry.items.is_empty() && !entry.on_page {
             continue;
         }
         // §14.8.4.8.3's search only ever walks *out* to a header, so its new index is already
@@ -1289,7 +1364,7 @@ fn walk(
                     Gathered {
                         role,
                         standard,
-                        mcids: Vec::new(),
+                        items: Vec::new(),
                         own: Vec::new(),
                         on_page: false,
                         objects: Vec::new(),
@@ -1340,7 +1415,11 @@ fn walk(
                 if on.is_some_and(|object| object != page) {
                     continue;
                 }
-                attribute(Sequence { mcid, stream }, parent, out);
+                attribute(
+                    ContentItem::Sequence(Sequence { mcid, stream }),
+                    parent,
+                    out,
+                );
                 // Table 357's `/StmOwn` — "[t]he indirect reference to the PDF object
                 // referencing the stream identified by the Stm key", whose NOTE names "the
                 // annotation dictionary owning the appearance stream" as the common use. Where
@@ -1355,17 +1434,19 @@ fn walk(
                     names_object(owner, parent, out);
                 }
             }
-            // §14.7.5.3's object reference is an annotation or an XObject rather than text on
-            // this page's readback. It contributes no `/MCID`, so its element gets no quads — but
-            // it is not the dead end this comment used to describe: where the object is one of the
-            // page's annotations, §12.5.2 states where it is and §12.7 states what control it is,
-            // and both reach [`AccessibilityNode`] through `objects`. Table 358's `/Pg` is what
-            // keeps such an element from being pruned as belonging to another page.
+            // §14.7.5.3's object reference names an annotation or an `XObject`. A form or image
+            // the page drew is the element's content as a sequence would be — its text spoken,
+            // its marks its place — and is attributed like one, [`ContentItem::drawn`] reading
+            // what the page recorded for it. An annotation contributes no text that way: §12.5.2
+            // states where it is and §12.7 what control it is, and both reach
+            // [`AccessibilityNode`] through `objects`. Table 358's `/Pg` is what keeps such an
+            // element from being pruned as belonging to another page.
             Child::Object { object, page: on } => {
                 if on.is_some_and(|object| object != page) {
                     continue;
                 }
                 names_object(object, parent, out);
+                attribute(ContentItem::Object(object), parent, out);
                 let mut at = parent;
                 while let Some(index) = at {
                     let Some((above, entry)) =
@@ -1676,27 +1757,27 @@ fn raised_by(shift: f32) -> TextPosition {
     }
 }
 
-fn attribute(sequence: Sequence, parent: Option<usize>, out: &mut [(Option<usize>, Gathered)]) {
+fn attribute(item: ContentItem, parent: Option<usize>, out: &mut [(Option<usize>, Gathered)]) {
     if let Some(index) = parent
         && let Some((_, entry)) = out.get_mut(index)
     {
-        entry.own.push(sequence);
+        entry.own.push(item);
     }
     let mut at = parent;
     while let Some(index) = at {
         let Some((above, entry)) = out.get_mut(index).map(|(above, entry)| (*above, entry)) else {
             break;
         };
-        entry.mcids.push(sequence);
+        entry.items.push(item);
         at = above;
     }
 }
 
-/// The byte ranges of the readback that a set of `/MCID`s covers.
-pub(crate) fn ranges(marked: &[MarkedSpan], mcids: &[Sequence]) -> Vec<(usize, usize)> {
-    let mut out: Vec<(usize, usize)> = mcids
+/// The byte ranges of the readback that a set of content items covers.
+fn ranges(page: &Readback<'_>, items: &[ContentItem]) -> Vec<(usize, usize)> {
+    let mut out: Vec<(usize, usize)> = items
         .iter()
-        .flat_map(|sequence| sequence.of(marked))
+        .flat_map(|item| item.drawn(page))
         .filter(|span| span.range.start < span.range.end)
         .map(|span| (span.range.start, span.range.end))
         .collect();
@@ -1714,6 +1795,8 @@ pub(crate) struct Readback<'a> {
     pub(crate) text: &'a str,
     /// §14.7.5.2's marked-content sequences, with the range of the readback each covers.
     pub(crate) marked: &'a [MarkedSpan],
+    /// §14.7.5.3's objects the structure tree claims, with the range of the readback each covers.
+    pub(crate) objects: &'a [ObjectSpan],
     /// §14.9's substitutions the interpreter recorded inside those sequences.
     pub(crate) described: &'a [Described],
     /// §12.5.2's `/Rect` for each annotation this page lists, in **default user space**.
@@ -1749,7 +1832,7 @@ pub(crate) fn finish(
     mark: impl Fn([f32; 4]) -> Option<[f32; 4]>,
 ) -> AccessibilityNode {
     let substituted = gathered.phrase.is_some();
-    let own = ranges(page.marked, &gathered.own);
+    let own = ranges(page, &gathered.own);
     let name = gathered.phrase.unwrap_or_else(|| {
         // The element's own content items, not its descendants': see `AccessibilityNode::name`.
         spoken(page.text, page.described, &own)
@@ -1781,10 +1864,10 @@ pub(crate) fn finish(
     let (caret, interleaving) = if substituted {
         (Vec::new(), Vec::new())
     } else {
-        interleaved_lines(page.marked, &gathered.own, &gathered.children_after, &lines)
+        interleaved_lines(page, &gathered.own, &gathered.children_after, &lines)
     };
     let mut all = Vec::new();
-    for (start, end) in ranges(page.marked, &gathered.mcids) {
+    for (start, end) in ranges(page, &gathered.items) {
         all.extend(quads(start, end));
     }
     // Table 379's rectangle first, then §12.5.2's: see `AccessibilityNode::bounds` for why that
@@ -1842,8 +1925,8 @@ pub(crate) fn finish(
         continued_from: gathered.continued_from,
         lines: caret,
         interleaving,
-        drawn: marked_extent(page.marked, &gathered.mcids).and_then(mark),
-        enclosed_a_refusal: enclosed_a_refusal(page.marked, &gathered.mcids),
+        drawn: marked_extent(page, &gathered.items).and_then(mark),
+        enclosed_a_refusal: enclosed_a_refusal(page, &gathered.items),
         decoration: gathered.inline.decoration,
         decoration_colour: gathered.inline.colour,
         position: gathered.inline.position,
@@ -1863,8 +1946,8 @@ pub(crate) fn finish(
 /// Where no child stands inside the own sequences — the ordinary case, a `P` of text or a `Sect`
 /// of elements — this is one stretch and the lines are exactly the element's own, in drawing order.
 fn interleaved_lines(
-    marked: &[MarkedSpan],
-    own: &[Sequence],
+    page: &Readback<'_>,
+    own: &[ContentItem],
     children_after: &[usize],
     lines: &impl Fn(&[(usize, usize)]) -> Vec<TextLine>,
 ) -> (Vec<TextLine>, Vec<usize>) {
@@ -1878,7 +1961,7 @@ fn interleaved_lines(
         if cut > from
             && let Some(stretch) = own.get(from..cut)
         {
-            out.extend(lines(&ranges(marked, stretch)));
+            out.extend(lines(&ranges(page, stretch)));
         }
         from = cut;
         interleaving.push(out.len());
@@ -1886,7 +1969,7 @@ fn interleaved_lines(
     if let Some(rest) = own.get(from..)
         && !rest.is_empty()
     {
-        out.extend(lines(&ranges(marked, rest)));
+        out.extend(lines(&ranges(page, rest)));
     }
     (out, interleaving)
 }
@@ -2105,30 +2188,30 @@ fn union_into(into: &mut Option<[f32; 4]>, rect: Option<[f32; 4]>) {
 
 /// Whether any of an element's sequences enclosed content this program refused to draw.
 ///
-/// The element's own identifiers **and its descendants'**, which is [`Gathered::mcids`] and is
+/// The element's own identifiers **and its descendants'**, which is [`Gathered::items`] and is
 /// the same enclosure [`marked_extent`] takes: an element's content is everything it encloses,
 /// so a refusal below it is a refusal inside it.
-fn enclosed_a_refusal(marked: &[MarkedSpan], mcids: &[Sequence]) -> bool {
-    mcids
+fn enclosed_a_refusal(page: &Readback<'_>, items: &[ContentItem]) -> bool {
+    items
         .iter()
-        .flat_map(|sequence| sequence.of(marked))
-        .any(|span| span.enclosed_a_refusal)
+        .flat_map(|item| item.drawn(page))
+        .any(|drawn| drawn.refused)
 }
 
 /// §14.8.3.3's content rectangle for one element: the union of what its sequences drew.
 ///
-/// The element's own identifiers **and its descendants'**, which is what `Gathered::mcids` holds
+/// The element's own identifiers **and its descendants'**, which is what `Gathered::items` holds
 /// and for the reason stated there: an element's place is everything it encloses.
 ///
 /// `None` where none of them marked the page. That is the honest answer and not a gap — a sequence
 /// a producer opened around no operator, or one whose every command a clip excluded, has drawn
 /// nothing anywhere, and a rectangle standing in for it would be this program inventing a place.
-fn marked_extent(marked: &[MarkedSpan], mcids: &[Sequence]) -> Option<[f32; 4]> {
+fn marked_extent(page: &Readback<'_>, items: &[ContentItem]) -> Option<[f32; 4]> {
     let mut union: Option<[f32; 4]> = None;
-    for rect in mcids
+    for rect in items
         .iter()
-        .flat_map(|sequence| sequence.of(marked))
-        .filter_map(|span| span.drawn)
+        .flat_map(|item| item.drawn(page))
+        .filter_map(|drawn| drawn.extent)
     {
         union = Some(match union {
             None => rect,

@@ -131,6 +131,7 @@ fn an_arabic_outline_title_reaches_pango_as_stored() {
             children: Vec::new(),
         }],
         stated_count: None,
+        language: None,
     };
     let rows = viewer_host::panel::outline_rows(&outline);
     assert_eq!(rows.first().map(|row| row.label.as_str()), Some(stored));

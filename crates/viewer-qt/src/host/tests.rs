@@ -727,6 +727,7 @@ fn a_tree_of_rows_flattens_to_the_order_a_tree_shows() {
             style: None,
             cells: Vec::new(),
             picture: None,
+            language: None,
             children: vec![PanelRow {
                 label: "under".to_owned(),
                 detail: Some("said".to_owned()),
@@ -737,6 +738,7 @@ fn a_tree_of_rows_flattens_to_the_order_a_tree_shows() {
                 style: None,
                 cells: Vec::new(),
                 picture: None,
+                language: None,
                 children: Vec::new(),
             }],
         },
@@ -754,6 +756,7 @@ fn a_tree_of_rows_flattens_to_the_order_a_tree_shows() {
             style: None,
             cells: Vec::new(),
             picture: None,
+            language: None,
             children: Vec::new(),
         },
     ];

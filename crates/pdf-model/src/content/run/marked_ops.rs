@@ -199,7 +199,18 @@ impl Interpreter<'_> {
             // §14.9.3's and §14.9.5's substitutions are recorded over the range
             // rather than applied to it: they are what the page is *spoken* as,
             // and the text a person copies is unchanged by either.
-            if let Some(described) = section.described {
+            if let Some(mut described) = section.described {
+                // §14.9.3 makes an element's description "a complete (or whole) word or phrase
+                // substitution for the current element", so where the element owns several
+                // content items the first one met is spoken as it and the rest as nothing — the
+                // construction §14.9.4's `/ActualText` takes above (ADR 3625).
+                if described
+                    .phrase_owner
+                    .is_some_and(|owner| !self.described_elements.insert(owner))
+                {
+                    described.alt = Some((String::new(), Vec::new()));
+                    described.expansion = None;
+                }
                 // `Described::phrase` speaks `/Alt` over `/E`, so the languages its escapes
                 // state are the chosen string's.
                 let phrase_languages = described

@@ -98,12 +98,14 @@ pub(super) fn encode_outline(writer: &mut Writer, outline: &Outline) {
     let Outline {
         items,
         stated_count,
+        language,
     } = outline;
     writer.usize(items.len());
     for item in items {
         encode_outline_item(writer, item);
     }
     writer.option_i64(*stated_count);
+    writer.option_str(language.as_deref());
 }
 
 /// Reads §12.3.3's outline.
@@ -112,6 +114,7 @@ pub(super) fn decode_outline(reader: &mut Reader<'_>) -> Result<Outline, Protoco
     Ok(Outline {
         items: reader.list(what, |reader| decode_outline_item(reader, 0))?,
         stated_count: reader.option_i64("an outline's stated count")?,
+        language: reader.option_string("an outline's language")?,
     })
 }
 

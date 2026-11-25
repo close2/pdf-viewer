@@ -974,16 +974,17 @@ pub struct Interpretation {
     /// spans in the structure's order, and it is a *different* string from [`Self::text`] on
     /// exactly the pages where the two orders do not coincide.
     pub marked: Vec<MarkedSpan>,
-    /// §14.7.5.3's object content items over [`Self::text`]: each annotation the structure tree
-    /// claims, with the range its appearance stream read back.
+    /// §14.7.5.3's object content items over [`Self::text`]: each annotation and each form or
+    /// image `XObject` the structure tree claims, with the range it read back.
     ///
-    /// The other half of [`Self::marked`]. An appearance stream carries no `/MCID`, so an
-    /// annotation's text reaches the structure only as a whole object, by §14.7.5.3's object
-    /// reference and Table 359's `/StructParent`; [`crate::structure::Tree::logical_range`] places
-    /// it where the tree's `OBJR` names it, which is §14.8.2.5.2's rule — "\[t]he position of an
-    /// annotation in the logical content order is determined from the document's logical
-    /// structure" (ADR 1970). One entry per annotation whose appearance read back anything, in
-    /// `/Annots` order.
+    /// The other half of [`Self::marked`]. An appearance stream, or a form drawn as an object,
+    /// carries no `/MCID` of its own, so its text reaches the structure only as a whole object, by
+    /// §14.7.5.3's object reference and Table 359's `/StructParent`;
+    /// [`crate::structure::Tree::logical_range`] places it where the tree's `OBJR` names it, which
+    /// for an annotation is §14.8.2.5.2's rule — "\[t]he position of an annotation in the logical
+    /// content order is determined from the document's logical structure" (ADR 1970). One entry
+    /// per `Do` of a claimed `XObject`, in drawing order, then one per annotation whose
+    /// appearance read back anything, in `/Annots` order.
     ///
     /// Empty on a document whose `/MarkInfo` does not state `/Marked true`, because the claim is
     /// asked of the tree the interpreter keeps for §14.8.2.2.2's artifacts by absence, and that is
@@ -1317,23 +1318,50 @@ pub fn named_sequences(spans: &[MarkedSpan], mcid: i64, stm: Option<ObjectId>) -
     if one_stream { carried } else { Vec::new() }
 }
 
-/// One §14.7.5.3 object content item's extent in a page's readback: an annotation the structure
-/// tree claims, and what its appearance stream read back.
+/// One §14.7.5.3 object content item's extent in a page's readback: an annotation or an
+/// `XObject` the structure tree claims through its own `/StructParent`, and what it read back.
 ///
 /// [`MarkedSpan`]'s counterpart for the other kind of content item §14.7.5.1.1 names — "complete
-/// PDF objects such as annotations and `XObjects`". A form `XObject` drawn by `Do` is not one of
-/// these: its text is inside the page's own marked-content sequences or its own, and §14.7.5.3's
-/// NOTE 1 sends a part of a stream to §14.7.5.2.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// PDF objects such as annotations and `XObjects`". §14.7.5.3 gives the object route to "an
+/// `XObject` directly or indirectly referenced by a page description or an annotation", and
+/// §14.7.5.4 its key back: "content items that are entire PDF objects, such as `XObjects`, shall
+/// also use the parent tree to refer to their parent structure elements". So a form or image
+/// drawn by `Do` whose own `/StructParent` names an element is one of these, as §14.7.5.4's
+/// EXAMPLE 1 draws it; a form stating none is part of whatever sequence its `Do` stood in, which
+/// is §14.7.5.2's first arrangement.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ObjectSpan {
-    /// The annotation's object, which is what Table 358's `/Obj` names.
+    /// The object, which is what Table 358's `/Obj` names.
     ///
-    /// `None` for an annotation dictionary written directly in `/Annots`: Table 358 makes `/Obj`
-    /// "an indirect reference", so no object reference can name it, and its range is kept only
-    /// so that §14.8.2.2.2's artifact by absence does not take it.
+    /// `None` for an annotation dictionary written directly in `/Annots`, or a form or image
+    /// written directly in `/XObject`: Table 358 makes `/Obj` "an indirect reference", so no
+    /// object reference can name it, and its range is kept only so that §14.8.2.2.2's artifact by
+    /// absence does not take it.
     pub object: Option<ObjectId>,
-    /// Where its appearance's text sits in [`Interpretation::text`], in bytes.
+    /// Where its text sits in [`Interpretation::text`], in bytes. Empty for an image, and for a
+    /// form that showed no text.
     pub range: std::ops::Range<usize>,
+    /// Which kind of object it is, and what that kind records.
+    pub item: ObjectItem,
+}
+
+/// Which of §14.7.5.3's two kinds of object an [`ObjectSpan`] is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ObjectItem {
+    /// An annotation, recorded only where its appearance stream read back text.
+    ///
+    /// Its text follows the page's content in [`Interpretation::text`], because §14.8.2.5.2 says
+    /// an annotation "is not interleaved within the page's content stream"; where it is on the
+    /// page is §12.5.2's `/Rect`, so no extent is derived here.
+    Annotation,
+    /// A form or image `XObject`, drawn by `Do` where the page's content stream drew it.
+    XObject {
+        /// §14.8.3.3's content rectangle of what it drew, as [`MarkedSpan::drawn`] states one.
+        drawn: Option<[f32; 4]>,
+        /// Whether any of what it drew produced an [`Unsupported`], as
+        /// [`MarkedSpan::enclosed_a_refusal`] states it.
+        enclosed_a_refusal: bool,
+    },
 }
 
 /// One §14.7.5.2 marked-content sequence's extent in a page's readback, and on the page.

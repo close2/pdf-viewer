@@ -184,6 +184,8 @@ published pairs (`doc/questions/A308`, ADR 1916).
 - §13.2.5 — Table 291's /F 3, "A scrolling user interface shall be provided": no window provides
   one over a screen annotation, so it is non-viable in MH and set aside in BE; the other values fit
   the picture (ADR 3553).
+- §14.9.2.1 — "names for optional content groups": the outline's rows carry the catalog's `/Lang`,
+  the layer panel's do not, because `Answer::Layers` carries no document language (ADR 3627).
 
 §13.2.6.2 and §13.2.6.3 are `implemented`: `pdf_model::media::judge` reads an offset and
 its timespan, a section's `/B` and `/E` and a `BE` media duration's `/T` alike, and an unrecognised Table 296
@@ -298,6 +300,8 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
 §13.2 — over the media play parameters row, Table 291's /F 3's scrolling interface (ADR 3553).
+
+§14.9 and §14.9.2 — over the general row's optional content group names (ADR 3627).
 
 The three before it, §12.6, §12.6.4 and §12.6.4.14, are `implemented`, the window holding the
 association a rendition's stop, pause and resume act through (ADR 3433).

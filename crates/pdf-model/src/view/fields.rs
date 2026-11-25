@@ -994,7 +994,17 @@ fn is_read_only(document: &Document, widget: ObjectId) -> bool {
     })
 }
 
-/// §12.7.4.2's qualified name of the field a widget belongs to, or the widget's own object.
+/// The name a note to a person calls the field a widget belongs to: [`FieldName::shown`]'s —
+/// Table 226's `/TU`, else §12.7.4.2's qualified name — or the widget's own object.
+///
+/// ISO 32000-2 §14.9.3:
+///
+/// > An alternative name may be specified for an interactive form field (see 12.7, "Forms")
+/// > which, if present, shall be used in place of the actual field name when an interactive PDF
+/// > processor identifies the field in a user-interface.
+///
+/// Every caller writes a sentence for the person saving or typing, so the alternative name is
+/// the one this answers.
 ///
 /// A save is not a hot path and this walks the field tree to invert it, which is the honest way
 /// to answer a question the edit log does not hold: the log is keyed by *widget*, because
@@ -1007,8 +1017,33 @@ pub(super) fn field_name_of(document: &Document, widget: ObjectId) -> String {
         .find(|(_, widgets)| widgets.contains(&widget))
         .map_or_else(
             || format!("the field of object {}", widget.number),
-            |(name, _)| name,
+            |(qualified, _)| {
+                FieldName {
+                    qualified,
+                    alternative: alternative_name(document, widget),
+                }
+                .shown()
+                .to_owned()
+            },
         )
+}
+
+/// The field §12.7.4.2's fully qualified name `qualified` names, with Table 226's `/TU`: what
+/// [`FieldName::shown`] answers for a sentence to a person that a program composed with the
+/// qualified name. `alternative` is `None` where no field of the document has that name.
+///
+/// Walks the field tree, so it is for a question put once — a script question, a report — and
+/// not for a loop over fields.
+#[must_use]
+pub fn field_name(document: &Document, qualified: &str) -> FieldName {
+    let alternative = widgets_by_field_name(document)
+        .get(qualified)
+        .and_then(|widgets| widgets.first())
+        .and_then(|widget| alternative_name(document, *widget));
+    FieldName {
+        qualified: qualified.to_owned(),
+        alternative,
+    }
 }
 
 impl FieldName {

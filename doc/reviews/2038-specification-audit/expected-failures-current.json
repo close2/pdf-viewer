@@ -8,44 +8,7 @@
   "engine.log": "cargo nextest run -p pdf-script --features engine -E binary(matrix2d_reference_spec_audit): 1 failed"
  },
  "logs_directory": "/home/quorra/scratch/agent/r2070/",
- "failures": [
-  {
-   "binary": "pdf-model::navigation_suite",
-   "test": "structure_14_6_14_9_spec_audit::a_form_named_by_an_object_reference_is_the_elements_real_content_spec_audit",
-   "finding": "2229-B01",
-   "log": "round-2229 nextest of pdf-model"
-  },
-  {
-   "binary": "viewer-core::structure_objr_xobject_spec_audit",
-   "test": "an_element_whose_content_is_a_form_xobject_is_spoken_with_its_text_spec_audit",
-   "finding": "2229-B01",
-   "log": "round-2229 nextest of viewer-core"
-  },
-  {
-   "binary": "pdf-model::navigation_suite",
-   "test": "structure_14_6_14_9_spec_audit::a_span_language_stops_at_structured_content_inside_it_spec_audit",
-   "finding": "2229-B02",
-   "log": "round-2229 nextest of pdf-model"
-  },
-  {
-   "binary": "pdf-model::navigation_suite",
-   "test": "structure_14_6_14_9_spec_audit::a_report_about_a_field_names_it_by_its_alternative_name_spec_audit",
-   "finding": "2229-B03",
-   "log": "round-2229 nextest of pdf-model"
-  },
-  {
-   "binary": "viewer-host::outline_language_spec_audit",
-   "test": "an_outline_row_carries_the_documents_language_spec_audit",
-   "finding": "2229-B04",
-   "log": "round-2229 nextest of viewer-host"
-  },
-  {
-   "binary": "pdf-model::navigation_suite",
-   "test": "structure_14_6_14_9_spec_audit::an_elements_alternate_description_is_spoken_once_over_all_it_encloses_spec_audit",
-   "finding": "2229-B05",
-   "log": "round-2229 nextest of pdf-model"
-  }
- ],
+ "failures": [],
  "no_longer_failing": [
   {
    "binary": "pdf-model::fixed_documents",

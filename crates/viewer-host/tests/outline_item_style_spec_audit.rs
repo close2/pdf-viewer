@@ -25,6 +25,7 @@ fn item(italic: bool, bold: bool, colour: [f32; 3]) -> Outline {
             children: Vec::new(),
         }],
         stated_count: None,
+        language: None,
     }
 }
 

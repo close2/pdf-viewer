@@ -137,6 +137,15 @@ pub struct PanelRow {
     /// for the row. [`Picture`] says *how large* it is and *where it comes from*; the clause
     /// states no artwork for any of them, so each toolkit draws its own (ADRs 1215, 1251).
     pub picture: Option<Picture>,
+    /// The language [`Self::label`] is in, where the document states one: a BCP 47 tag, for the
+    /// toolkit's accessible item.
+    ///
+    /// ISO 32000-2 §14.9.2.1 makes the catalog's `/Lang` the language of text strings outside
+    /// the content streams too, "for example, entries in metadata, outline entries and names for
+    /// optional content groups" — so an outline's and a layer panel's rows carry it, and a screen
+    /// reader speaks a German document's outline in German whatever the desktop's language is.
+    /// `None` on every other panel's rows, and where the document states no language.
+    pub language: Option<String>,
     /// The rows underneath it.
     pub children: Vec<PanelRow>,
 }
@@ -315,6 +324,7 @@ impl PanelRow {
             style: None,
             cells: Vec::new(),
             picture: None,
+            language: None,
             children: Vec::new(),
         }
     }
@@ -333,14 +343,19 @@ impl PanelRow {
     }
 }
 
-/// §12.3.3's outline, as rows.
+/// §12.3.3's outline, as rows, each in the language §14.9.2.1 gives outline entries.
 #[must_use]
 pub fn outline_rows(outline: &Outline) -> Vec<PanelRow> {
-    outline.items.iter().map(row_of_item).collect()
+    let language = outline.language.as_deref();
+    outline
+        .items
+        .iter()
+        .map(|item| row_of_item(item, language))
+        .collect()
 }
 
 /// One outline item and everything under it.
-fn row_of_item(item: &Item) -> PanelRow {
+fn row_of_item(item: &Item, language: Option<&str>) -> PanelRow {
     PanelRow {
         label: item.title.clone(),
         detail: None,
@@ -355,7 +370,12 @@ fn row_of_item(item: &Item) -> PanelRow {
         }),
         cells: Vec::new(),
         picture: None,
-        children: item.children.iter().map(row_of_item).collect(),
+        language: language.map(str::to_owned),
+        children: item
+            .children
+            .iter()
+            .map(|child| row_of_item(child, language))
+            .collect(),
     }
 }
 
@@ -408,6 +428,7 @@ fn row_of_layer(layer: &Layer) -> PanelRow {
             style: None,
             cells: Vec::new(),
             picture: None,
+            language: None,
             children: Vec::new(),
         },
         Layer::Collection { label, children } => PanelRow {
@@ -420,6 +441,7 @@ fn row_of_layer(layer: &Layer) -> PanelRow {
             style: None,
             cells: Vec::new(),
             picture: None,
+            language: None,
             children: children.iter().map(row_of_layer).collect(),
         },
     }
@@ -463,6 +485,7 @@ pub fn attachment_rows(attachments: &[Attachment]) -> Vec<PanelRow> {
             // `/Collection` gets: the same files, unarranged.
             cells: Vec::new(),
             picture: None,
+            language: None,
             children: Vec::new(),
         })
         .collect()
@@ -815,6 +838,7 @@ fn index_folders(folder: &pdf_model::collection::Folder, shape: &Shape, out: &mu
         // drawn under it either, so what it does is nothing until a person chooses it.
         action: RowAction::Inert,
         picture: shape.picture(Icon::Folder, false),
+        language: None,
         ..PanelRow::item(folder.name.clone())
     });
     for child in &folder.children {
@@ -1150,6 +1174,7 @@ fn files_where(
                     name: attachment.name.clone(),
                 },
                 picture: shape.picture(icon_of(attachment), previewed),
+                language: None,
                 cells,
                 ..PanelRow::item(
                     attachment
@@ -1248,6 +1273,7 @@ fn folder_row(
         // children.
         action: RowAction::Inert,
         picture: shape.picture(Icon::Folder, false),
+        language: None,
         children,
         ..PanelRow::item(folder.name.clone())
     }

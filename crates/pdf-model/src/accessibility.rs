@@ -52,6 +52,10 @@ pub struct Described {
     pub range: Range<usize>,
     /// §14.9.3's `/Alt`: "human-readable text that could, for example, be vocalised by a
     /// text-to-speech engine".
+    ///
+    /// `Some("")` is the interpreter's and never the file's (an empty `/Alt` is read as none): a
+    /// content item of a structure element whose description an earlier item of the same element
+    /// already carries, spoken as nothing so that the description is spoken once.
     pub alt: Option<String>,
     /// §14.9.5's `/E`: the expansion of an abbreviation or acronym.
     pub expansion: Option<String>,
@@ -130,7 +134,12 @@ pub struct Spoken {
 ///   overridden by a structure element's, overridden by a nested element's or sequence's. The
 ///   clause's own EXAMPLE 3 is the case that looks like an exception and is not — structured
 ///   content inside a `Span` of another language takes the structure element's, because it is
-///   the inner statement.
+///   the inner statement; and where no element of its chain states one, the interpreter has
+///   already given it the catalog's, since the clause withholds the `Span`'s from "nested
+///   marked-content that is contained in the structure hierarchy".
+/// - A structure element's `/Alt` or `/E` covers everything the element encloses and is spoken
+///   once: the interpreter records it over the element's first content item and records the
+///   rest as replaced by nothing.
 #[must_use]
 pub fn speech(text: &str, described: &[Described], default: Option<&str>) -> Vec<Spoken> {
     // Outermost first, so that a sequence is met before what it encloses. Equal starts order
