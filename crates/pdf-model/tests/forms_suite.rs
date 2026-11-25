@@ -19,6 +19,7 @@ mod aform;
 mod appearance_state_precedence_spec_audit;
 mod canonical_dates;
 mod choice_locality_spec_audit;
+mod default_appearance_syntax_7_3_spec_audit;
 mod delegated_widgets;
 mod empty_fields_array_presence_spec_audit;
 mod fdf_field_dictionary_audit;

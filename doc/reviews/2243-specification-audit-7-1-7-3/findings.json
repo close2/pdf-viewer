@@ -1,0 +1,85 @@
+[
+ {
+  "id": "2243-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.3.8.1",
+   "7.3.8.2"
+  ],
+  "summary": "write::incremental_update writes a replacement stream's dictionary as handed, so a /Length that does not count the bytes it writes is written beside them. A stream whose file stated /Length 3 over 15 bytes (read by endstream, logged STREAM_EXTENT_FROM_ENDSTREAM) and is handed back with one entry added is appended as '/Length 3' over the 15 bytes. serialize and linearize re-derive /Length from the bytes and count the disagreement (Written::relengthed); the incremental writer does neither for an unencrypted target (encryption.rs's encrypt_for_update re-derives it only when it encrypts). pdf-transform's insert-pages carry (update.rs Carry::value) copies an incoming document's stream dictionary with its own /Length beside data already out of \u00a77.6's encryption, so an AES-encrypted incoming document's ciphertext /Length is written over the shorter plaintext on the same path.",
+  "source": "ISO 32000-2 \u00a77.3.8.2: \"Every stream dictionary shall have a Length entry that indicates how many bytes of the PDF file are used for the stream's data.\" Table 5 /Length: \"The number of bytes from the beginning of the line following the keyword stream to the last byte just before the keyword endstream.\" \u00a77.3.8.1: \"the stream dictionary specifies the exact number of bytes.\"",
+  "code": "crates/pdf-syntax/src/write.rs:113-118 (write::object's Stream arm writes stream.dict then stream.data) and :362-376 (incremental_update_extending writes each replacement through object()); contrast serialize.rs:1740-1747 and linearize.rs:2739-2745; crates/pdf-transform/src/update.rs:1043-1053 (Carry::value copies the incoming dictionary)",
+  "change": "Re-derive /Length as a direct integer from the bytes written for every stream an incremental update writes, as serialize and linearize do, and count the disagreements for the caller.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/objects_7_3_spec_audit.rs::an_incremental_update_states_the_length_of_the_bytes_it_writes_spec_audit \u2014 round 2243: /Length Some(3) over 15 bytes written; its control (a right /Length kept) passes.",
+  "status": "open"
+ },
+ {
+  "id": "2243-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.3.8.1",
+   "7.3.6",
+   "7.3.7"
+  ],
+  "summary": "A stream written as a direct value \u2014 `<< /Inner << /Length 3 >> stream ... endstream >>` \u2014 is read as a Stream value of the outer dictionary (or array) and nothing is logged: parse_dictionary_or_stream accepts the `stream` keyword after any dictionary at any depth. The file breaks \u00a77.3.8.1, so the reading is a repair, and it is a silent one (no RepairClass), which ADR 3477 makes a finding. The writers then carry the direct stream out: write::object writes a Stream nested in a dictionary or array inline, and serialize's renumber keeps it nested with its /Length not re-derived (only a top-level stream's is), so a file this program writes repeats the malformation.",
+  "source": "ISO 32000-2 \u00a77.3.8.1: \"All streams shall be indirect objects (see 7.3.10, \\\"Indirect objects\\\") and the stream dictionary shall be a direct object.\" \u00a77.3.7: \"An indirect reference (see 7.3.10, \\\"Indirect objects\\\") shall be used as the value to refer to a stream object\"; \u00a77.3.6 the same of an array's elements.",
+  "code": "crates/pdf-syntax/src/parser.rs:475-487 (parse_dictionary_or_stream, reached from parse_object_from at every depth); crates/pdf-syntax/src/write.rs:96-118 (object() recurses into arrays and dictionaries and writes a nested Stream inline); crates/pdf-syntax/src/serialize.rs:868-872",
+  "change": "Read the stream keyword as a stream only at an indirect object's top level (or log a named repair class where a nested one is kept), and have the writers hoist or refuse a nested stream rather than write it inline.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/objects_7_3_spec_audit.rs::a_stream_written_as_a_direct_value_is_not_read_in_silence_spec_audit \u2014 round 2243: read Object::Stream with no repairs; its control (an indirect stream reads without a repair) passes.",
+  "status": "open"
+ },
+ {
+  "id": "2243-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.3.5"
+  ],
+  "summary": "`/A#00B` writes character code 0 into a name through the number-sign escape; Lexer::read_name expands it into the name's bytes and logs nothing, though \u00a77.3.5 defines a name as a sequence of any characters except null. The malformed name reaches every dictionary reader as an ordinary key or value, and Name::escaped writes it back out as #00. A silent repair under ADR 3477.",
+  "source": "ISO 32000-2 \u00a77.3.5: \"Beginning with PDF 1.2 a name object is an atomic symbol uniquely defined by a sequence of any characters (8-bit values) except null (character code 0).\" \"Even though a name may contain any characters except null\"",
+  "code": "crates/pdf-syntax/src/lexer.rs:614-643 (read_name: a decoded #00 is pushed like any other byte; only an incomplete escape is noted, NAME_ESCAPE_INCOMPLETE)",
+  "change": "Log a named repair class (or refuse the token) when an escape decodes to 00h, and say in read_name's comment which reading the reader takes.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/objects_7_3_spec_audit.rs::a_null_written_into_a_name_by_its_escape_is_not_read_in_silence_spec_audit \u2014 round 2243: Name([65, 0, 66]) with no repairs; its control (/A#20B reads 'A B' without a repair) passes.",
+  "status": "open"
+ },
+ {
+  "id": "2243-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.3.10"
+  ],
+  "summary": "Errata issue #379's published grammar makes an object number `1-9` followed by digits and a generation number `0` or `1-9` followed by digits \u2014 no sign, no leading zero. `+1 0 R`, `01 0 R` and `1 00 R` are each read as a reference with nothing logged; doc/errata-read.md's #379 row records the tolerance as undocumented and owed. Under ADR 3581 the erratum is the standard, so the reading is a repair, and a silent one.",
+  "source": "ISO 32000-2 \u00a77.3.10 (\"The object identifier shall consist of two parts: A positive integer object number ... A non-negative integer generation number\") as amended by pdf-issues #379: doc/errata/site/docs/32000-2-2020/PDF-ObjectNumber.ebnf `PDF_Object_Number = \"1 - 9\", [{\"0 - 9\"}-] ;` and PDF-GenerationNumber.ebnf `PDF_Generation_Number = \"0\" | \"1 - 9\", [{\"0 - 9\"}-] ;`",
+  "code": "crates/pdf-syntax/src/parser.rs:279-307 (integer_or_reference takes Token::Integer values, which the lexer has already stripped of their sign and leading zeros, so the written form is gone before the reference is built)",
+  "change": "Check the two integer tokens' spelling against the amended grammar where a reference (and an object header) is built, and log a named repair class where it differs.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/objects_7_3_spec_audit.rs::an_object_identifier_outside_the_amended_grammar_is_not_read_in_silence_spec_audit \u2014 round 2243: [+1 0 R] read as Reference(1 0) with no repairs; its control ([1 0 R]) passes.",
+  "status": "open"
+ },
+ {
+  "id": "2243-B05",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.3.5",
+   "12.7.4.3"
+  ],
+  "summary": "A script that sets a field's textSize (and not textFont) has the producer's /DA font restated in a new Tf, and that name is written raw after a lossy UTF-8 decode: a /DR key `Helv Bold` (written /Helv#20Bold) becomes `/Helv#20Bold 10 Tf 0 g /Helv Bold 14 Tf` \u2014 the name Helv, an operator Bold, and a Tf whose first operand is a number. A name byte above 7Fh becomes U+FFFD's three bytes. variable_text.rs writes the same operand through Name::escaped (ADR 0453); scripted_appearance is the route that does not.",
+  "source": "ISO 32000-2 \u00a77.3.5: \"c) Any character that is not a regular character shall be written using its 2-digit hexadecimal code, preceded by the NUMBER SIGN only.\" \"Whitespace used as part of a name shall always be coded using the 2-digit hexadecimal notation.\" \"Regular characters that are outside the range EXCLAMATION MARK(21h) (!) to TILDE (7Eh) (~) should be written using the hexadecimal notation.\"",
+  "code": "crates/pdf-model/src/appearance.rs:1656-1668 (scripted_appearance: stated.font through String::from_utf8_lossy, then format!(\"/{resource} {} Tf\", ...)); form_font (:1689) keeps a script's textFont to keys needing no escape, so the stated-font fallback is the open route",
+  "change": "Keep the restated font as a Name and write it with Name::escaped, as variable_text does.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/default_appearance_syntax_7_3_spec_audit.rs::a_restated_default_appearance_font_name_is_escaped_spec_audit (forms_suite) \u2014 round 2243: got '/Helv#20Bold 10 Tf 0 g /Helv Bold 14 Tf'; its control (/Helv restated as itself) passes.",
+  "status": "open"
+ },
+ {
+  "id": "2243-B06",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.3.3",
+   "12.7.4.3"
+  ],
+  "summary": "variable_text's /DA replay narrows every real operand to f32 before writing it, so a real past f32's range \u2014 `400000000000000000000000000000000000000.5 w`, fixed-format syntax \u00a77.3.3 admits, Annex C's limits being informative \u2014 is written into the field's appearance stream as `inf w`: not a number but an operator token, which leaves the w with no operand and adds an unknown operator. A real inside the range is also written at f32 precision, not 'in the syntax it came in' as the function says.",
+  "source": "ISO 32000-2 \u00a77.3.3: \"A real value shall be written as one or more decimal digits with an optional sign and a leading, trailing, or embedded PERIOD (2Eh) (decimal point).\" \"A PDF writer shall not use the PostScript language syntax for numbers with non-decimal radices (such as 16#FFFE) or in exponential format (such as 6.02E23).\"",
+  "code": "crates/pdf-model/src/variable_text.rs:3839-3847 (write: Token::Real written as narrow(*value), narrow = value as f32 at :3889)",
+  "change": "Write the operand's f64 through pdf_syntax::write's real formatter (or the token's own bytes), so the replay is a number whatever its magnitude.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/default_appearance_syntax_7_3_spec_audit.rs::a_replayed_default_appearance_real_is_written_as_a_number_spec_audit (forms_suite) \u2014 round 2243: the appearance holds 'inf w'; its control (2.5 w replayed) passes.",
+  "status": "open"
+ }
+]

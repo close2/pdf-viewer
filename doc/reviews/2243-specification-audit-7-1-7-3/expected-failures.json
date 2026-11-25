@@ -1,0 +1,42 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2243 on main 6267ba7e",
+ "failures": [
+  {
+   "binary": "pdf-syntax::objects_7_3_spec_audit",
+   "test": "an_incremental_update_states_the_length_of_the_bytes_it_writes_spec_audit",
+   "finding": "2243-B01",
+   "log": "round-2243 nextest of pdf-syntax"
+  },
+  {
+   "binary": "pdf-syntax::objects_7_3_spec_audit",
+   "test": "a_stream_written_as_a_direct_value_is_not_read_in_silence_spec_audit",
+   "finding": "2243-B02",
+   "log": "round-2243 nextest of pdf-syntax"
+  },
+  {
+   "binary": "pdf-syntax::objects_7_3_spec_audit",
+   "test": "a_null_written_into_a_name_by_its_escape_is_not_read_in_silence_spec_audit",
+   "finding": "2243-B03",
+   "log": "round-2243 nextest of pdf-syntax"
+  },
+  {
+   "binary": "pdf-syntax::objects_7_3_spec_audit",
+   "test": "an_object_identifier_outside_the_amended_grammar_is_not_read_in_silence_spec_audit",
+   "finding": "2243-B04",
+   "log": "round-2243 nextest of pdf-syntax"
+  },
+  {
+   "binary": "pdf-model::forms_suite",
+   "test": "default_appearance_syntax_7_3_spec_audit::a_restated_default_appearance_font_name_is_escaped_spec_audit",
+   "finding": "2243-B05",
+   "log": "round-2243 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::forms_suite",
+   "test": "default_appearance_syntax_7_3_spec_audit::a_replayed_default_appearance_real_is_written_as_a_number_spec_audit",
+   "finding": "2243-B06",
+   "log": "round-2243 nextest of pdf-model"
+  }
+ ]
+}
