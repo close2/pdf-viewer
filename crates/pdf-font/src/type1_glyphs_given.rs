@@ -124,6 +124,10 @@ pub fn with_glyphs_given(
         let body = body_of(asked.draws, advance, &notdef_plain)?;
         let stored = body
             .len()
+            // not a repair: the lenIV is the program's own, and a negative one states charstrings
+            // stored without leading bytes, which `charstring_encrypted` writes as the body itself,
+            // so zero is the size that stores; this only sizes the bound checked next, and a count
+            // past `usize` saturates into that refusal.
             .saturating_add(usize::try_from(scan.len_iv.max(0)).unwrap_or(usize::MAX));
         if stored > MOST_CHARSTRING_BYTES {
             return Err(not_written(
@@ -133,6 +137,7 @@ pub fn with_glyphs_given(
         size = size
             .saturating_add(body.len())
             .saturating_add(name.len())
+            // not a repair: the same lenIV count as above, summed into the bound refused below it.
             .saturating_add(usize::try_from(scan.len_iv.max(0)).unwrap_or(usize::MAX))
             .saturating_add(32);
         if size > MOST_BYTES_WRITTEN {
@@ -168,6 +173,8 @@ pub fn with_glyphs_given(
     let mut added = Vec::with_capacity(written.len());
     for (at, Written { name, .. }) in written.iter().enumerate() {
         let glyph = u16::try_from(at)
+            // not a repair: a decline: an index past 16 bits is refused by the `ok_or_else` below
+            // as a `not_written` error, which `with_glyphs_given` returns.
             .ok()
             .and_then(|at| first.checked_add(at))
             .ok_or_else(|| not_written("a given glyph's index passes a glyph index"))?;
@@ -408,6 +415,9 @@ impl Tokens<'_> {
                 _ => {
                     let end = self.run_end(start);
                     self.at = end;
+                    // not a repair: a token that is not UTF-8 or not an integer is a
+                    // `Token::Other`, which is what it is; `agrees_with_reader` checks this scan
+                    // against `read-fonts` before it is trusted.
                     let text = std::str::from_utf8(&self.plain[start..end]).ok();
                     let Some(value) = text.and_then(|text| text.parse::<i64>().ok()) else {
                         return Some(Token::Other(start..end));
@@ -423,6 +433,9 @@ impl Tokens<'_> {
                     if reader_start < self.plain.len() && (reader == b"RD" || reader == b"-|") {
                         // One space after the reader token, then the bytes (section 2.4).
                         let from = reader_end.checked_add(1)?;
+                        // not a repair: a decline: a negative blob length ends the scan with
+                        // `None`, and `Scan::of` then makes `with_glyphs_given` return "the
+                        // CharStrings dictionary does not read".
                         let to = from.checked_add(usize::try_from(value).ok()?)?;
                         if to > self.plain.len() {
                             return None;
@@ -462,6 +475,8 @@ impl Scan {
         let Token::Int(stated, size) = tokens.next()? else {
             return None;
         };
+        // not a repair: a decline: a negative stated size ends `Scan::of` with `None`, the same
+        // refusal as a negative blob length.
         let stated = u64::try_from(stated).ok()?;
         let mut entries: Vec<Entry> = Vec::new();
         let close = loop {
@@ -548,6 +563,8 @@ fn section_with(
 ) -> Result<(), Type1Error> {
     let size = scan
         .stated
+        // not a repair: a length of a vector in memory, which fits `u64`; `checked_add` below
+        // refuses an overflow.
         .checked_add(u64::try_from(written.len()).unwrap_or(u64::MAX))
         .ok_or_else(|| not_written("the CharStrings size cannot be raised"))?;
     let reader = &plain[notdef.reader.clone()];
@@ -599,6 +616,8 @@ fn read_back(
     let section = decrypt(stored, EEXEC_KEY);
     let again = Scan::of(&section).ok_or_else(differs)?;
     let stated = u64::try_from(written.len())
+        // not a repair: a length of a vector in memory, which fits `u64`; a `None` here makes the
+        // comparison below fail and `read_back` return its `differs` error.
         .ok()
         .and_then(|added| scan.stated.checked_add(added));
     // Both counts are lengths of vectors in memory, so their sum cannot saturate.
@@ -777,10 +796,14 @@ fn with_width(charstring: &[u8], advance: i32) -> Option<Vec<u8>> {
 fn number(value: i32) -> Vec<u8> {
     match value {
         // Each arm's arithmetic stays inside the byte its range was chosen for.
+        // not a repair: what this program writes: section 6.2's one-byte number, `value + 139` in
+        // 32..=246 for this arm's range, so the conversion cannot fail.
         -107..=107 => vec![u8::try_from(value.saturating_add(139)).unwrap_or(0)],
         108..=1131 => {
             let v = value.saturating_sub(108);
             vec![
+                // not a repair: what this program writes: section 6.2's first byte `(value - 108) /
+                // 256 + 247` in 247..=250 and its second `% 256`, both within a byte.
                 u8::try_from((v / 256).saturating_add(247)).unwrap_or(0),
                 u8::try_from(v % 256).unwrap_or(0),
             ]
@@ -788,6 +811,8 @@ fn number(value: i32) -> Vec<u8> {
         -1131..=-108 => {
             let v = value.saturating_neg().saturating_sub(108);
             vec![
+                // not a repair: what this program writes: section 6.2's first byte `(-value - 108)
+                // / 256 + 251` in 251..=254 and its second `% 256`, both within a byte.
                 u8::try_from((v / 256).saturating_add(251)).unwrap_or(0),
                 u8::try_from(v % 256).unwrap_or(0),
             ]

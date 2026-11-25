@@ -189,6 +189,9 @@ pub static MAPPING: &[Mapped] = &[
     base("model/action-entry-unusable"),
     base("model/annotation-entry-unusable"),
     base("model/field-entry-unusable"),
+    // A group's required `/Name` absent, outside content: the whole-file rewrite carries the group
+    // as the file states it, and the output's own check refuses by the class's name (ADR 3669).
+    base("model/optional-content-group-name-unusable"),
     base("model/alpha-constant-out-of-range"),
     base("model/halftone-unreadable"),
     // A `/BM` name outside Tables 134 and 135, logged at the content site as the alpha constants

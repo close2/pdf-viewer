@@ -129,6 +129,8 @@ impl Word {
     #[must_use]
     pub fn as_slice(&self) -> &[u8] {
         match self {
+            // not a repair: `len` is this type's own, written by `new` only where the word fit the
+            // inline array, so the slice is always within it.
             Self::Short(bytes, len) => bytes.get(..usize::from(*len)).unwrap_or_default(),
             Self::Long(bytes) => bytes,
         }
@@ -581,6 +583,9 @@ impl<'a> ContentReader<'a> {
         match &mut self.held {
             Held::Whole { bytes, at, .. } => {
                 let room = upto.saturating_sub(out.len());
+                // not a repair: `at` is this reader's cursor into bytes it holds, which `skip`
+                // keeps within them; an empty rest is the stream's end, not a value the file
+                // stated.
                 let rest = bytes.get(*at..).unwrap_or_default();
                 let take = rest.len().min(room);
                 out.extend_from_slice(rest.get(..take).unwrap_or_default());
@@ -598,6 +603,7 @@ impl<'a> ContentReader<'a> {
     /// to null and are not the same statement — see [`ContentIssue::Unreachable`].
     #[must_use]
     pub fn for_page(document: &'a Document, page: &Page) -> Self {
+        // not a repair: Table 31, `/Contents`: "If this entry is absent, the page shall be empty."
         let stated = page.dict.get("Contents").cloned().unwrap_or(Object::Null);
         // Reached as `/Contents`, so the role decides the crypt filter (ADR 3241).
         let listed: Vec<(Object, Object)> =
@@ -760,6 +766,8 @@ impl<'a> ContentReader<'a> {
     /// half of the pair is what tells "the stream ends here" from "the buffer does".
     pub fn lookahead(&mut self, want: usize) -> (&[u8], bool) {
         match &mut self.held {
+            // not a repair: `at` is this reader's cursor into bytes it holds, kept within them by
+            // `skip`.
             Held::Whole { bytes, at, .. } => (bytes.get(*at..).unwrap_or_default(), true),
             Held::Window(window) => window.lookahead(want),
         }
@@ -782,6 +790,8 @@ impl<'a> ContentReader<'a> {
     pub fn read_to_end(&mut self) -> Vec<u8> {
         match &mut self.held {
             Held::Whole { bytes, at, .. } => {
+                // not a repair: `at` is this reader's cursor into bytes it holds, kept within them
+                // by `skip`.
                 let rest = bytes.get(*at..).unwrap_or_default().to_vec();
                 *at = bytes.len();
                 rest
@@ -1036,6 +1046,8 @@ impl Window {
         read: impl FnOnce(Option<Token<'_>>) -> T,
     ) -> T {
         if !self.in_comment && self.filled.saturating_sub(self.at) >= SLACK {
+            // not a repair: `filled` is this window's own count of the bytes its buffer holds,
+            // never past the buffer.
             let bytes = self.buffer.get(..self.filled).unwrap_or_default();
             let mut lexer = Lexer::at(bytes, self.at);
             if strings == Strings::StepOver {
@@ -1077,6 +1089,8 @@ impl Window {
             // string, and only the second pass — over a buffer the refill has completed —
             // knows that it is not.
             let whole = self.exhausted || {
+                // not a repair: `filled` is this window's own count of the bytes its buffer holds,
+                // never past the buffer.
                 let mut lexer =
                     Lexer::at(self.buffer.get(..self.filled).unwrap_or_default(), self.at);
                 let seen = lexer.next_token().is_some();
@@ -1098,6 +1112,8 @@ impl Window {
                 self.drop_token();
             }
         }
+        // not a repair: `filled` is this window's own count of the bytes its buffer holds, never
+        // past the buffer.
         let mut lexer = Lexer::at(self.buffer.get(..self.filled).unwrap_or_default(), self.at);
         let token = next_content_token(&mut lexer, runs);
         keep_repairs(&lexer, repairs);
@@ -1151,6 +1167,8 @@ impl Window {
     fn drop_literal_string(&mut self) {
         let mut end = LiteralStringEnd::default();
         loop {
+            // not a repair: `at..filled` is this window's cursor and fill, both within its buffer;
+            // an empty slice is no bytes held.
             let rest = self.buffer.get(self.at..self.filled).unwrap_or_default();
             if let Some(offset) = end.read(rest) {
                 self.at += offset;
@@ -1189,6 +1207,8 @@ impl Window {
                 // §7.2.4: a comment runs to the end of the line. One that the buffer cut is
                 // still a comment, and reading its tail as content is how a window-fed lexer
                 // silently changes a page.
+                // not a repair: `at..filled` is this window's cursor and fill, both within its
+                // buffer; an empty slice is no bytes held.
                 let rest = self.buffer.get(self.at..self.filled).unwrap_or_default();
                 if let Some(offset) = rest.iter().position(|&byte| byte == b'\n' || byte == b'\r') {
                     self.at += offset;
@@ -1203,6 +1223,8 @@ impl Window {
             }
 
             let before = self.at;
+            // not a repair: `filled` is this window's own count of the bytes its buffer holds,
+            // never past the buffer.
             let mut lexer = Lexer::at(self.buffer.get(..self.filled).unwrap_or_default(), self.at);
             lexer.skip_whitespace();
             self.at = lexer.position();
@@ -1212,6 +1234,8 @@ impl Window {
             if self.at >= self.filled {
                 // The run reaches the end of what is buffered, so it may continue past it —
                 // and if it ended inside a comment, so does the comment.
+                // not a repair: `before..at` are this window's own positions in its buffer, never
+                // past it.
                 self.in_comment =
                     comment_open(self.buffer.get(before..self.at).unwrap_or_default());
                 if !self.pull() {
@@ -1318,6 +1342,8 @@ impl Window {
         let out = buffer.get_mut(*filled..filled.saturating_add(room))?;
         let (wrote, ended) = match &mut part.source {
             PartSource::Bytes { data, at } => {
+                // not a repair: `at` is this part's own cursor into the bytes it holds; an empty
+                // rest is the part's end.
                 let left = data.get(*at..).unwrap_or_default();
                 let take = left.len().min(out.len());
                 out.get_mut(..take)?.copy_from_slice(left.get(..take)?);
@@ -1389,6 +1415,7 @@ impl Window {
             }
         }
         let held = self.filled - self.at;
+        // not a repair: `at..end` is this window's cursor and fill, both within its buffer.
         let end = self.filled.min(self.at.saturating_add(want));
         (
             self.buffer.get(self.at..end).unwrap_or_default(),
@@ -1422,6 +1449,7 @@ impl Window {
     fn read_to_end_within(&mut self, most: usize) -> Option<Vec<u8>> {
         let mut out = Vec::new();
         loop {
+            // not a repair: `at..filled` is this window's cursor and fill, both within its buffer.
             out.extend_from_slice(self.buffer.get(self.at..self.filled).unwrap_or_default());
             self.at = self.filled;
             if out.len() > most {
@@ -1436,6 +1464,7 @@ impl Window {
     fn read_to_end(&mut self) -> Vec<u8> {
         let mut out = Vec::new();
         loop {
+            // not a repair: `at..filled` is this window's cursor and fill, both within its buffer.
             out.extend_from_slice(self.buffer.get(self.at..self.filled).unwrap_or_default());
             self.at = self.filled;
             if !self.pull() {
@@ -1449,6 +1478,8 @@ impl Window {
     /// The window's buffer and `out` change places for the refill, so the decoder writes straight
     /// into `out`'s tail; what the window held before is moved across first.
     fn extend_within(&mut self, out: &mut Vec<u8>, upto: usize) -> bool {
+        // not a repair: `at..filled` is this window's cursor and fill, and `take` is no longer than
+        // what they hold.
         let held = self.buffer.get(self.at..self.filled).unwrap_or_default();
         let take = held.len().min(upto.saturating_sub(out.len()));
         out.extend_from_slice(held.get(..take).unwrap_or_default());
@@ -1562,6 +1593,8 @@ pub(super) enum Strings {
 /// they are all there is, which is where the lexer ends it.
 #[inline]
 fn string_end(bytes: &[u8], start: usize, whole: bool) -> Option<usize> {
+    // not a repair: `start` is the caller's offset into the bytes it holds; past their end no
+    // string begins, which the match answers with `None`.
     let rest = bytes.get(start..).unwrap_or_default();
     let end = match rest {
         [b'(', ..] => LiteralStringEnd::default().read(rest),

@@ -361,10 +361,11 @@ classes! {
     /// A string or stream that does not decrypt.
     DECRYPTION_FAILED = "syntax/decryption-failed", "ISO 32000-2 §7.6.3",
         "a string or stream that does not decrypt was read as empty";
-    /// A standard handler's `/R`, `/O`, `/U` or `/P` absent or of the wrong type.
+    /// An encryption dictionary's `/V`, or a standard handler's `/R`, `/O`, `/U` or `/P`, absent
+    /// or of the wrong type.
     ENCRYPTION_ENTRY = "syntax/encryption-entry", "ISO 32000-2 §7.6.4.2",
-        "a standard security handler's /R, /O, /U or /P, absent or of the wrong type, was read \
-         as zero or empty";
+        "an encryption dictionary's /V, or a standard security handler's /R, /O, /U or /P, \
+         absent or of the wrong type, was read as zero or empty";
 }
 
 #[cfg(test)]

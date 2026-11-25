@@ -253,6 +253,8 @@ pub(super) fn read(
         // Table 254's `/Page`, which §12.7.8.3.4 requires of every annotation in an FDF file and
         // the text's `page` attribute is (page 70). The redaction element's attribute list leaves
         // it out (page 54), and Table 254 does not, so it is read here for every element alike.
+        // not a repair: a decline: an annotation whose `page` does not read as a page number is
+        // said on `owed` just below and placed nowhere.
         let Some(page) = node
             .attribute("page")
             .and_then(|page| page.trim().parse::<usize>().ok())
@@ -305,6 +307,9 @@ pub(super) fn read(
         let Some(dict) = builder.annotation() else {
             continue;
         };
+        // not a repair: a `<popup>` with no `page` of its own is on its parent's page; the text's
+        // own examples write `<popup open="no"/>` with no `page` (pages 25 and 26), and Table 183's
+        // `/Parent` is the annotation it belongs to.
         let popup_page = popup
             .attribute("page")
             .and_then(|page| page.trim().parse::<usize>().ok())
@@ -653,6 +658,8 @@ impl Builder<'_, '_> {
         if child.has_elements {
             let markup = child
                 .markup
+                // not a repair: `start..end` are the XML reader's own offsets of the element's
+                // markup in `source`, never past it.
                 .and_then(|(start, end)| self.source.get(start..end))
                 .unwrap_or_default()
                 .trim();
@@ -678,9 +685,18 @@ impl Builder<'_, '_> {
             }
             _ => None,
         };
-        let length = data
+        // A `length` that is not a count is a damaged element, refused as one that disagrees.
+        let length = match data
             .attribute("length")
-            .and_then(|length| length.trim().parse::<usize>().ok());
+            .map(|length| length.trim().parse::<usize>())
+        {
+            None => None,
+            Some(Ok(length)) => Some(length),
+            Some(Err(_)) => {
+                owe(self.owed, malformed("data"));
+                return;
+            }
+        };
         let Some(decoded) = decoded.filter(|bytes| length.is_none_or(|n| n == bytes.len())) else {
             owe(self.owed, malformed("data"));
             return;
@@ -696,6 +712,8 @@ impl Builder<'_, '_> {
         let mut dict = Dictionary::new();
         dict.insert(
             Name::new(&b"Length"[..]),
+            // not a repair: `decoded.len()` is a length this reader holds, bounded by
+            // `MAX_DATA_BYTES`, so it always fits.
             Object::Integer(i64::try_from(decoded.len()).unwrap_or(i64::MAX)),
         );
         if let Some(filters) = data.attribute("filter").map(str::trim)
@@ -862,6 +880,7 @@ impl Builder<'_, '_> {
         {
             self.put(
                 "LE",
+                // not a repair: Tables 178 and 181, `/LE`: "Default value: [/None /None]."
                 Object::Array(vec![
                     name(head.unwrap_or("None")),
                     name(tail.unwrap_or("None")),
@@ -1046,6 +1065,8 @@ fn colour(value: &str) -> Option<Colour> {
         .as_chunks::<2>()
         .0
         .iter()
+        // not a repair: a decline: a pair that is not two hexadecimal digits makes `colour` answer
+        // `None`, which `attribute` says on `owed` as a malformed attribute.
         .map(|pair| {
             let pair = std::str::from_utf8(pair).ok()?;
             u8::from_str_radix(pair, 16)
@@ -1060,6 +1081,8 @@ fn colour(value: &str) -> Option<Colour> {
 fn numbers(value: &str, least: usize, most: usize) -> Option<Vec<f64>> {
     let parsed: Option<Vec<f64>> = value
         .split(',')
+        // not a repair: a decline: a list with a number that does not read is `None`, which
+        // `attribute` says on `owed`.
         .take(most.saturating_add(1))
         .map(|number| number.trim().parse::<f64>().ok().filter(|n| n.is_finite()))
         .collect();
@@ -1074,6 +1097,8 @@ fn coordinates(value: &str) -> Option<Vec<f64>> {
         .map(str::trim)
         .filter(|number| !number.is_empty())
         .take(MAX_NUMBERS.saturating_add(1))
+        // not a repair: a decline: a list with a number that does not read is `None`, which its
+        // caller says on `owed`.
         .map(|number| number.parse::<f64>().ok().filter(|n| n.is_finite()))
         .collect();
     flat.filter(|flat| !flat.is_empty() && flat.len() <= MAX_NUMBERS && flat.len() % 2 == 0)
@@ -1093,6 +1118,7 @@ fn hexadecimal(value: &str) -> Option<Vec<u8>> {
         .as_chunks::<2>()
         .0
         .iter()
+        // not a repair: each digit is below 16, so the pair is below 256 and always a byte.
         .map(|pair| u8::try_from(pair[0].saturating_mul(16).saturating_add(pair[1])).ok())
         .collect()
 }
@@ -1101,9 +1127,10 @@ fn hexadecimal(value: &str) -> Option<Vec<u8>> {
 /// conventions*, pages 28 and 29).
 ///
 /// Each character is one ISO Latin-1 byte, and a backslash followed by three octal digits is the
-/// byte those digits spell — the escape the convention writes for the control characters. The
-/// convention's own enhancement lets a writer translate UTF-8 characters rather than bytes, so a
-/// string holding a character Latin-1 has not got is taken as UTF-8.
+/// byte those digits spell, its high-order overflow ignored — the escape the convention writes for
+/// the control characters. The convention's own enhancement lets a writer translate UTF-8
+/// characters rather than bytes, so a string holding a character Latin-1 has not got is taken as
+/// UTF-8.
 fn bytes(value: &str) -> Vec<u8> {
     if value.chars().any(|character| u32::from(character) > 0xFF) {
         return value.as_bytes().to_vec();
@@ -1117,14 +1144,21 @@ fn bytes(value: &str) -> Vec<u8> {
             .filter(|digits| {
                 characters[at] == '\\' && digits.iter().all(|digit| ('0'..='7').contains(digit))
             })
-            .and_then(|digits| {
-                let text: String = digits.iter().collect();
-                u8::from_str_radix(&text, 8).ok()
+            .map(|digits| {
+                // The convention's escape is "just like escaped sequences in PDF literal string"
+                // (page 28), and ISO 32000-2 §7.3.4.2 says of those: "high-order overflow shall
+                // be ignored." Three octal digits reach 0o777, so the byte is the low eight bits.
+                let value = digits.iter().fold(0_u32, |value, digit| {
+                    (value << 3) | u32::from(*digit).saturating_sub(u32::from('0'))
+                });
+                value.to_le_bytes()[0]
             });
         if let Some(byte) = octal {
             out.push(byte);
             at = at.saturating_add(4);
         } else {
+            // not a repair: `bytes` takes this branch only where every character is at most U+00FF
+            // (the test above), so it is always a byte.
             out.push(u8::try_from(u32::from(characters[at])).unwrap_or(b'?'));
             at = at.saturating_add(1);
         }
@@ -1243,3 +1277,17 @@ sentences!(
     "border",
     "data",
 );
+
+#[cfg(test)]
+mod tests {
+    use super::bytes;
+
+    /// The convention's octal escape reads as ISO 32000-2 §7.3.4.2's does: "high-order overflow
+    /// shall be ignored", so `\777` is the byte 0xFF and not a backslash and three digits.
+    #[test]
+    fn an_octal_escape_past_a_byte_keeps_its_low_eight_bits() {
+        assert_eq!(bytes("\\007a"), [0x07, b'a']);
+        assert_eq!(bytes("\\777"), [0xFF]);
+        assert_eq!(bytes("\\9"), [b'\\', b'9']);
+    }
+}

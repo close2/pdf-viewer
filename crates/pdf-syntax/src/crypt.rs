@@ -399,6 +399,8 @@ impl Encryption {
             };
         }
 
+        // not a repair: Table 20 requires `/V`; one absent or not an integer is read as 0 here and
+        // logged as `ENCRYPTION_ENTRY` by `Document::authenticate` before this runs.
         let version = get("V").as_integer().unwrap_or(0);
         // not a repair: an absent or unreadable /R reads as 0, which the match below refuses by
         // name; no default is carried.
@@ -459,6 +461,8 @@ impl Encryption {
                 },
                 password,
                 &owner_entry,
+                // not a repair: a decline: an absent `/OE` or `/UE` unwraps to no 32-byte key in
+                // `file_key_from`, and the password is refused.
                 &user_entry,
                 get("OE").as_string().unwrap_or_default(),
                 get("UE").as_string().unwrap_or_default(),
@@ -920,6 +924,8 @@ fn file_key_legacy(padded: &[u8; 32], input: &AuthenticateLegacy<'_>) -> Vec<u8>
     if input.revision >= 3 {
         // (h) fifty further hashes, each over the first n bytes of the previous output.
         for _ in 0..50 {
+            // not a repair: `input.length` is at most 16, which `key_length` enforces, and an MD5
+            // digest is 16 bytes, so the slice is always there.
             let head = digest.get(..input.length).unwrap_or(&digest).to_vec();
             digest = md5::Md5::digest(&head).to_vec();
         }
@@ -1062,6 +1068,8 @@ fn authenticate_aes256(
     user_encryption: &[u8],
 ) -> SyntaxResult<(Vec<u8>, bool)> {
     let password = utf8_password(password)?;
+    // not a repair: a `/U` shorter than 48 bytes is hashed as it stands; the user branch below then
+    // finds no validation salt in it and the password is refused, so no value stands in.
     let user48 = user_entry.get(..48).unwrap_or(user_entry);
 
     // (c) Test the password against the owner key. The owner test comes first here and
@@ -1403,6 +1411,8 @@ fn crypt_filters(
     // which is the whole file on the launch path (`CLAUDE.md` principle 2) to decide a question
     // Table 25 already answers by declaration. ADR 1040.
     let named_at_open: Vec<Name> = events
+        // not a repair: `filters` and `events` are filled together from `/CF`, one entry each per
+        // name, so every name of `events` is in `filters`.
         .iter()
         .filter(|(name, event)| {
             **event == AuthEvent::DocOpen
@@ -1491,21 +1501,19 @@ fn key_length(
     // `/Length` "shall be a multiple of 8, in the range 40 to 128", and Table 25's "shall be a
     // multiple of 8 in the range of 40 to 256". Rounding one down would derive a key the
     // producer did not, so a count that is not a multiple of 8 is refused below rather than
-    // read. `None` is an entry this lexer cannot read as a count at all — a negative one —
-    // which takes the default as an absent entry does.
+    // read. A negative count is no key length either, and is refused the same way; only an
+    // absent entry takes Table 20's default.
     let in_bits = |value: i64| -> Option<Result<usize, i64>> {
-        let bits = usize::try_from(value).ok()?;
-        Some(if bits % 8 == 0 {
-            Ok(bits / 8)
-        } else {
-            Err(value)
+        Some(match usize::try_from(value) {
+            Ok(bits) if bits % 8 == 0 => Ok(bits / 8),
+            _ => Err(value),
         })
     };
     let normalise = |value: i64| -> Option<Result<usize, i64>> {
         if value >= 40 {
             in_bits(value)
         } else {
-            usize::try_from(value).ok().map(Ok)
+            Some(usize::try_from(value).map_err(|_| value))
         }
     };
 
@@ -1538,8 +1546,8 @@ fn key_length(
         Some(Err(bits)) => {
             return Err(SyntaxError::UnsupportedEncryption {
                 detail: format!(
-                    "a file encryption key of {bits} bits is not the multiple of 8 Table 20 \
-                     requires"
+                    "a file encryption key of {bits} bits is not the positive multiple of 8 \
+                     Table 20 requires"
                 ),
             });
         }
@@ -1707,6 +1715,8 @@ fn aes_cbc_decrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
             .decrypt_padded_b2b::<Pkcs7>(body, &mut out)
             .ok()?
             .len(),
+        // not a repair: the cipher library's refusals are returned as `None` for the caller to
+        // report; no value stands in.
         32 => cbc::Decryptor::<Aes256>::new_from_slices(key, iv)
             .ok()?
             .decrypt_padded_b2b::<Pkcs7>(body, &mut out)
@@ -1766,6 +1776,8 @@ fn aes_cbc_encrypt_with_iv(key: &[u8], iv: [u8; AES_BLOCK], data: &[u8]) -> Opti
             .encrypt_padded_b2b::<Pkcs7>(data, &mut body)
             .ok()?
             .len(),
+        // not a repair: the cipher library's refusals are returned as `None` for the caller to
+        // report; no value stands in.
         32 => cbc::Encryptor::<Aes256>::new_from_slices(key, &iv)
             .ok()?
             .encrypt_padded_b2b::<Pkcs7>(data, &mut body)
@@ -1831,6 +1843,8 @@ fn aes_cbc_decrypt_raw_with(
             }
         }
         (Direction::Encrypt, 32) => {
+            // not a repair: the cipher library's refusal is returned as `None` for the caller to
+            // report; no value stands in.
             let mut cipher = cbc::Encryptor::<Aes256>::new_from_slices(key, iv).ok()?;
             for block in blocks {
                 cipher.encrypt_block(block.into());
@@ -1914,6 +1928,8 @@ fn perms_block(key: &[u8], perms: &[u8]) -> Option<PermsBlock> {
     // all three of its ECB occurrences — Issue #24, `/State` `Review` `Completed` — for exactly
     // the reason written on this line before the erratum could be read (ADR 0253). The CBC
     // occurrences in Algorithm 2.A keep it, which is why `key_from_encrypted` still quotes it.
+    // not a repair: the cipher library's refusal is returned as `None` for the caller to report; no
+    // value stands in.
     let cipher = Aes256::new_from_slice(key).ok()?;
     cipher.decrypt_block((&mut block).into());
 
@@ -2455,15 +2471,9 @@ mod tests {
             );
         }
 
-        // **A negative `/Length` is the one value that is not refused**, and the distinction
-        // is worth stating rather than leaving to be discovered: it fails `usize::try_from`,
-        // which makes it unreadable rather than out of range, and an unreadable entry takes
-        // Table 20's default the same way an absent one does. That is leniency of the kind
-        // this lexer applies throughout, and it is safe for the reason the whole test exists
-        // — the result is a length inside the range, so nothing indexes past the digest. The
-        // cost is a worse diagnosis: the document is refused later, for the wrong password it
-        // now appears to have, rather than here for the `/Length` it actually wrote.
-        assert_eq!(with_length(Some(-8)), Ok(5));
+        // A negative `/Length` is no key length either: it is refused here, for the `/Length` it
+        // wrote, rather than read as an absent entry and refused later as a wrong password.
+        assert!(with_length(Some(-8)).is_err());
 
         // The property, stated as a property rather than as a list: whatever the file says,
         // the answer is an error or a length an MD5 digest can supply.

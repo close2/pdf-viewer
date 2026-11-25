@@ -196,6 +196,7 @@ impl Language {
     #[must_use]
     pub fn of(tag: &str) -> Self {
         let mut subtags = tag.split('-');
+        // not a repair: `split` yields at least one piece, so the first is always there.
         let primary = subtags.next().unwrap_or_default().to_ascii_lowercase();
         if !(2..=3).contains(&primary.len()) {
             return Self::default();
@@ -220,15 +221,22 @@ impl Language {
 
 /// The registry's tags for one ISO 639 code, two letters or three; none for a code it lists
 /// under no tag.
+///
+/// The registry is compiled in, not the file's, and a code it lists under no tag selects the
+/// default language system, OpenType's own rule for a language with no language-specific table
+/// (the module's choices).
 fn registered(code: &str) -> &'static [[u8; 4]] {
+    // not a repair: a lookup in the compiled-in registry; a code it does not list is no tag.
     let three: Option<[u8; 3]> = match code.as_bytes() {
         &[first, second] => languages::TWO_LETTER
             .binary_search_by_key(&[first, second], |(two, _)| *two)
             .ok()
             .and_then(|at| languages::TWO_LETTER.get(at))
             .map(|(_, three)| *three),
+        // not a repair: a code of neither two letters nor three is none the registry lists.
         three => <[u8; 3]>::try_from(three).ok(),
     };
+    // not a repair: a code the compiled-in registry does not list selects no language system.
     three
         .filter(|code| code.iter().all(u8::is_ascii_lowercase))
         .and_then(|three| {
@@ -237,6 +245,7 @@ fn registered(code: &str) -> &'static [[u8; 4]] {
                 .ok()
         })
         .and_then(|at| languages::LANGUAGES.get(at))
+        // not a repair: the registry's own ranges; a code it lists under no tag is no tag.
         .and_then(|(_, first, count)| {
             let first = usize::from(*first);
             languages::LANGUAGE_TAGS.get(first..first.checked_add(usize::from(*count))?)
@@ -441,11 +450,15 @@ impl Pairs {
             glyphs: vec![Adjustment::default(); glyphs.len()],
             vertical: false,
         };
+        // not a repair: `scripts` and `right_to_left` are the caller's, one per glyph it asks
+        // about; a glyph past them has no script and reads left to right, which is a pair with
+        // nothing.
         let script = |at: usize| scripts.get(at).copied().unwrap_or_default();
         let pair = |at: usize| {
             let next = at.checked_add(1)?;
             let first = glyphs.get(at).copied().flatten()?;
             let second = glyphs.get(next).copied().flatten()?;
+            // not a repair: `right_to_left` is the caller's, one per glyph it asks about.
             let direction = right_to_left.get(at).copied().unwrap_or(false);
             let other = right_to_left.get(next).copied().unwrap_or(false);
             (direction == other && script(at).run() == script(next).run())
@@ -587,6 +600,9 @@ impl Program {
                 let coverage = header.coverage();
                 // Bit 0 horizontal, bit 1 minimum, bit 2 cross-stream, bit 3 override.
                 let applied = coverage & 0b0111 == 0b0001;
+                // not a repair: a subtable of a format other than 0 and 2 is not one this reader
+                // applies (the module's list), and a format 0 or 2 body that does not read was
+                // declined at read by `kern_table_shape`.
                 let kind = subtable.kind().ok()?;
                 let readable = matches!(kind, SubtableKind::Format0(_) | SubtableKind::Format2(_));
                 (applied && readable).then_some((kind, coverage & 0b1000 != 0))
@@ -643,6 +659,8 @@ struct Value {
 }
 
 impl Value {
+    // not a repair: OpenType's `ValueRecord` holds only the fields its `ValueFormat` names, and a
+    // field it does not name adjusts nothing, which is zero.
     fn of(record: &skrifa::raw::tables::gpos::ValueRecord) -> Self {
         Self {
             x_advance: record.x_advance().unwrap_or(0),
@@ -669,6 +687,9 @@ fn pair_values(subtables: &[PairPos], first: u16, second: u16) -> Option<Matched
     for subtable in subtables {
         match subtable {
             PairPos::Format1(table) => {
+                // not a repair: a decline made at read: `kern_feature_lookups` refuses a program
+                // whose pair subtable's coverage or class definitions do not read, so here they
+                // read.
                 let Some(covered) = table.coverage().ok().and_then(|c| c.get(first)) else {
                     continue;
                 };
@@ -703,6 +724,7 @@ fn pair_values(subtables: &[PairPos], first: u16, second: u16) -> Option<Matched
                 });
             }
             PairPos::Format2(table) => {
+                // not a repair: a decline made at read, as for format 1 above.
                 if table.coverage().ok().and_then(|c| c.get(first)).is_none() {
                     continue;
                 }
@@ -745,7 +767,7 @@ struct Reaching {
 fn kern_lookups_of(
     system: &skrifa::raw::tables::layout::LangSys,
     features: &skrifa::raw::tables::layout::FeatureList,
-) -> Reached {
+) -> Result<Reached, NoPairs> {
     let kern = Tag::new(b"kern");
     let required = system.required_feature_index();
     let named = system
@@ -755,14 +777,16 @@ fn kern_lookups_of(
         .chain((required != 0xFFFF).then_some(required));
     let mut indices = Reached::new();
     for feature_index in named {
+        // A language system naming a feature the list does not hold, or a `kern` feature that
+        // does not read, is a damaged table: the program is declined, not kerned in part.
         let Some(record) = features.feature_records().get(usize::from(feature_index)) else {
-            continue;
+            return Err(NoPairs::Unreadable);
         };
         if record.feature_tag() != kern {
             continue;
         }
         let Ok(feature) = record.feature(features.offset_data()) else {
-            continue;
+            return Err(NoPairs::Unreadable);
         };
         indices.extend(
             feature
@@ -771,7 +795,7 @@ fn kern_lookups_of(
                 .map(skrifa::raw::types::BigEndian::get),
         );
     }
-    indices
+    Ok(indices)
 }
 
 /// `GPOS`'s script tables with the pair-adjustment lookups each of their language systems
@@ -792,22 +816,27 @@ fn kern_feature_lookups(font: &FontRef) -> Result<Option<Scripted>, NoPairs> {
     };
     let mut reached: Vec<Reaching> = Vec::new();
     for record in scripts.script_records() {
-        let table = record.script(scripts.offset_data()).ok();
-        let default = table
-            .as_ref()
-            .and_then(skrifa::raw::tables::layout::Script::default_lang_sys)
-            .and_then(Result::ok)
-            .map_or_default(|system| kern_lookups_of(&system, &features));
-        let languages = table.as_ref().map_or_default(|table| {
-            table
-                .lang_sys_records()
-                .iter()
-                .filter_map(|language| {
-                    let system = language.lang_sys(table.offset_data()).ok()?;
-                    Some((language.lang_sys_tag(), kern_lookups_of(&system, &features)))
-                })
-                .collect()
-        });
+        // A script table or a language system that does not read is a damaged table, and the
+        // program is declined as one whose kerning cannot be read rather than kerned by the
+        // part of it that reads.
+        let Ok(table) = record.script(scripts.offset_data()) else {
+            return Err(NoPairs::Unreadable);
+        };
+        let default = match table.default_lang_sys() {
+            None => Reached::new(),
+            Some(Ok(system)) => kern_lookups_of(&system, &features)?,
+            Some(Err(_)) => return Err(NoPairs::Unreadable),
+        };
+        let mut languages = Vec::new();
+        for language in table.lang_sys_records() {
+            let Ok(system) = language.lang_sys(table.offset_data()) else {
+                return Err(NoPairs::Unreadable);
+            };
+            languages.push((
+                language.lang_sys_tag(),
+                kern_lookups_of(&system, &features)?,
+            ));
+        }
         reached.push(Reaching {
             tag: record.script_tag(),
             default,
@@ -828,14 +857,33 @@ fn kern_feature_lookups(font: &FontRef) -> Result<Option<Scripted>, NoPairs> {
     let mut pairs = std::collections::BTreeSet::new();
     for index in every {
         let Ok(lookup) = list.lookups().get(usize::from(index)) else {
-            continue;
+            return Err(NoPairs::Unreadable);
         };
-        let Ok(PositionSubtables::Pair(found)) = lookup.subtables() else {
-            continue;
+        let found = match lookup.subtables() {
+            Ok(PositionSubtables::Pair(found)) => found,
+            Ok(_) => continue,
+            Err(_) => return Err(NoPairs::Unreadable),
         };
         subtables = subtables.saturating_add(found.len());
         if subtables > MAX_SUBTABLES {
             return Err(NoPairs::OverBudget);
+        }
+        // Every table `pair_values` reads to match a pair is read here once, so a subtable whose
+        // coverage or class definitions do not read declines the program instead of matching
+        // nothing at layout, where no report reaches.
+        for subtable in found.iter() {
+            let readable = match subtable {
+                Ok(PairPos::Format1(table)) => table.coverage().is_ok(),
+                Ok(PairPos::Format2(table)) => {
+                    table.coverage().is_ok()
+                        && table.class_def1().is_ok()
+                        && table.class_def2().is_ok()
+                }
+                Err(_) => false,
+            };
+            if !readable {
+                return Err(NoPairs::Unreadable);
+            }
         }
         pairs.insert(index);
     }
@@ -880,7 +928,10 @@ fn kern_table_shape(font: &FontRef) -> Result<Option<&'static str>, NoPairs> {
     let mut applied = 0_usize;
     let mut unread = None;
     for subtable in table.subtables() {
-        let Ok(Subtable::Ot(header)) = subtable else {
+        let Ok(subtable) = subtable else {
+            return Err(NoPairs::Unreadable);
+        };
+        let Subtable::Ot(header) = &subtable else {
             return Err(NoPairs::Unreadable);
         };
         let coverage = header.coverage();
@@ -894,6 +945,11 @@ fn kern_table_shape(font: &FontRef) -> Result<Option<&'static str>, NoPairs> {
             continue;
         }
         if format == 0 || format == 2 {
+            // The body `kerned` reads is read here once, so one that does not read declines the
+            // program rather than being passed over at layout.
+            if subtable.kind().is_err() {
+                return Err(NoPairs::Unreadable);
+            }
             applied = applied.saturating_add(1);
             if applied > MAX_SUBTABLES {
                 return Err(NoPairs::OverBudget);

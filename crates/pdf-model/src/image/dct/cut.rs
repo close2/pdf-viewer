@@ -101,9 +101,14 @@ impl Huffman {
                 if code >= 1 << length_u32 {
                     return None;
                 }
+                // not a repair: the check just above returns None unless `code < 1 << length` with
+                // `length` at most 16, so the code fits u16; a None would decline the cut and the
+                // stream is decoded whole.
                 *codes.get_mut(usize::from(symbol))? = Some((u16::try_from(code).ok()?, length));
                 if length <= 9 {
                     let spread = 9 - length_u32;
+                    // not a repair: a u32 widens to usize without loss on this target; a None would
+                    // decline the cut and the stream is decoded whole.
                     let first = usize::try_from(code << spread).ok()?;
                     let entry = u16::from(length) << 8 | u16::from(symbol);
                     fast.get_mut(first..first + (1 << spread))?.fill(entry);
@@ -145,7 +150,11 @@ impl Huffman {
             return Some(entry.to_le_bytes()[0]);
         }
         for length in 10u32..=16 {
+            // not a repair: `prefix` is a 16-bit peek, so a shift of at least 10 leaves under 2^16
+            // and fits i32; a None would decline the cut and the stream is decoded whole.
             let code = i32::try_from(prefix >> (16 - length)).ok()?;
+            // not a repair: `length` runs from 10 to 16, which fits usize; a None would decline the
+            // cut and the stream is decoded whole.
             let at = usize::try_from(length).ok()?;
             if code <= self.largest[at] {
                 bits.consume(length);
@@ -185,6 +194,7 @@ impl<'a> Bits<'a> {
             count: 0,
         };
         bits.refill();
+        // not a repair: `at % 8` is below 8, so it fits u32 and the conversion cannot fail.
         bits.consume(u32::try_from(at % 8).unwrap_or(0));
         bits
     }
@@ -197,6 +207,9 @@ impl<'a> Bits<'a> {
     )]
     fn refill(&mut self) {
         while self.count <= 56 {
+            // not a repair: past the end of the entropy data this reader loads zeros and counts
+            // them, and the row pass declines the cut where its end position exceeds the data's
+            // bits (the `end <= carried` test), so a zero here is never a decoded value.
             let byte = self.bytes.get(self.next).copied().unwrap_or(0);
             self.next = self.next.saturating_add(1);
             self.held |= u64::from(byte) << (56 - self.count);
@@ -213,6 +226,8 @@ impl<'a> Bits<'a> {
 
     /// Drops the next `n` bits, `n` at most what is held.
     fn consume(&mut self, n: u32) {
+        // not a repair: a shift of 64 or more drops every held bit, which is what this reader's own
+        // consume of that many bits means; `n` is at most 32 by the callers' contract.
         self.held = self.held.checked_shl(n).unwrap_or(0);
         self.count = self.count.saturating_sub(n);
     }
@@ -718,6 +733,8 @@ fn pass(frame: &Frame<'_>) -> Option<(Vec<RowStart>, u64)> {
 /// prediction of zero, in `table`, or `None` where the table has no code for its category.
 fn dc_code(table: Option<&Option<Huffman>>, value: i32) -> Option<((u16, u8), u64, u32)> {
     let size = u32::BITS.saturating_sub(value.unsigned_abs().leading_zeros());
+    // not a repair: `size` is at most 32, which fits usize; a None would decline the cut and the
+    // stream is decoded whole.
     let code = (*table?.as_ref()?.codes.get(usize::try_from(size).ok()?)?)?;
     // A negative difference's additional bits are its value less one, in `size` bits.
     let bits = if value < 0 {
@@ -748,6 +765,8 @@ fn codestream(frame: &Frame<'_>, rows: &[RowStart], end: u64, band: Band) -> Opt
     let stop = if finishes {
         end
     } else {
+        // not a repair: a u32 widens to usize without loss on this target; a None would decline the
+        // cut and the stream is decoded whole.
         rows.get(usize::try_from(last).ok()?)?.bit
     };
 

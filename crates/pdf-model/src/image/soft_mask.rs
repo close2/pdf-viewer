@@ -599,6 +599,8 @@ fn grey_plane_of_frame(document: &Document, mask: &Stream) -> Option<MaskPlane> 
     }
     let (width, height) = (u32::from(info.width), u32::from(info.height));
     let count = usize::from(info.width).saturating_mul(usize::from(info.height));
+    // not a repair: a usize converts to u64 without loss, so the conversion cannot fail; a None
+    // here declines this fast path and the general path reads the entry.
     if count == 0 || u64::try_from(count).ok()? > MAX_SAMPLES {
         return None;
     }
@@ -775,6 +777,8 @@ pub(super) fn device_scaled_soft_mask(
             .as_integer()
             .unwrap_or(8),
     )
+    // not a repair: the entry reached this route through `eligible_for_the_device_scale`, which
+    // admits only a depth of 1, 2, 4, 8 or 16, so the conversion to u32 cannot fail.
     .ok()?;
     // `eligible_for_the_device_scale` established that the space is `DeviceGray`, which is the
     // one this reads a byte out of.

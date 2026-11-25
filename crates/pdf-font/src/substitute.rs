@@ -412,6 +412,9 @@ impl Collection {
                     .any(|id| preferred.iter().any(|p| primary(*p) == primary(*id)))
                     .then_some(preferred.len())
             })
+            // not a repair: the rank is a position among a face's languages on this machine, with
+            // one past the last as the answer for a face naming none of them; no value of the
+            // document is replaced.
             .unwrap_or(preferred.len().saturating_add(1))
     }
 }
@@ -1174,6 +1177,8 @@ impl FaceStyle {
     /// Reads a face's statement of its style, or `None` for bytes that are not an `sfnt`.
     #[cfg(test)]
     fn read(bytes: &[u8]) -> Option<Self> {
+        // not a repair: a decline: test-only reader of a face's style, `None` for bytes that are
+        // not an `sfnt`.
         Some(Self::of(&skrifa::FontRef::new(bytes).ok()?))
     }
 
@@ -1186,6 +1191,8 @@ impl FaceStyle {
         use read_fonts::TableProvider;
         let attributes = skrifa::MetadataProvider::attributes(font);
         let fixed_pitch = font.post().is_ok_and(|post| post.is_fixed_pitch() != 0);
+        // not a repair: the face is one this machine offers, not the document's; a face without an
+        // `OS/2` table is read through `skrifa`'s attributes, as the comment above states.
         let os2 = font.os2().ok();
         let serif = os2.as_ref().and_then(|os2| {
             let class = os2.s_family_class().to_be_bytes();
@@ -1210,11 +1217,16 @@ impl FaceStyle {
             reason = "skrifa's weight is a usWeightClass, 1..=1000"
         )]
         let weight = os2.as_ref().map_or_else(
+            // not a repair: the weight is a machine face's own, from `skrifa`'s reading of its
+            // `head` style bits, kept in the range of `usWeightClass`; no value of the document is
+            // replaced.
             || attributes.weight.value().clamp(1.0, 1000.0) as u16,
             read_fonts::tables::os2::Os2::us_weight_class,
         );
         let width = os2
             .as_ref()
+            // not a repair: the width is a machine face's own `usWidthClass`, kept in the nine
+            // classes the request ranks against; no value of the document is replaced.
             .map_or(Style::NORMAL_WIDTH, |os2| os2.us_width_class().clamp(1, 9));
         Self {
             weight,
@@ -1287,6 +1299,8 @@ fn style_of(face: &MachineFace) -> Option<FaceStyle> {
     if !machine_fonts() {
         return None;
     }
+    // not a repair: a machine face's file that cannot be read or opened is a face with no style
+    // (`StyleRead`'s `None`); it is not the document's.
     let style = std::fs::read(&face.path).ok().and_then(|bytes| {
         skrifa::FontRef::from_index(&bytes, face.index)
             .ok()
@@ -1722,6 +1736,9 @@ pub fn machine_face(
     wanted: &[char],
     skip: u32,
 ) -> Option<MachineFace> {
+    // not a repair: `skip` is the caller's count of answers to pass over, not the file's; the
+    // conversion fails only where `usize` is narrower than 32 bits, and the answer is then `None`,
+    // no face.
     let index = usize::try_from(skip).ok()?;
     if wanted.is_empty() {
         return preferred_faces(request, style).nth(index).cloned();
@@ -1785,6 +1802,9 @@ fn covering_candidate(
         let (bytes, _name) = crate::provider::offered(request, style, wanted, skip)?;
         return covers(&bytes, wanted).then_some(bytes);
     }
+    // not a repair: `skip` is the caller's count of answers to pass over, not the file's; the
+    // conversion fails only where `usize` is narrower than 32 bits, and the answer is then `None`,
+    // no face.
     let index = usize::try_from(skip).ok()?;
     covering_faces(request, style, wanted)
         .nth(index)
@@ -2034,6 +2054,8 @@ fn repertoires() -> &'static [Repertoire] {
             let face = &candidate.face;
             if file.as_ref().is_none_or(|(path, _)| *path != face.path) {
                 file = std::fs::read(&face.path)
+                    // not a repair: a decline: a machine font file that cannot be read gives that
+                    // face no repertoire (the `continue` below), so it is not offered.
                     .ok()
                     .map(|bytes| (face.path.as_path(), bytes));
             }
@@ -2140,6 +2162,9 @@ fn read_cached(face: &MachineFace) -> Option<Arc<[u8]>> {
     if !machine_fonts() {
         return None;
     }
+    // not a repair: a decline: a machine font file that cannot be read is a face this machine does
+    // not offer, and `None` is the answer "no such face", which this module reports as failure
+    // rather than inventing a face.
     let bytes: Arc<[u8]> = face_program(std::fs::read(&face.path).ok()?, face.index)?.into();
     if let Ok(mut loaded) = cache.write() {
         loaded.push((face.clone(), Arc::clone(&bytes)));

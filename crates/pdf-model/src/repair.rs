@@ -197,6 +197,11 @@ classes! {
     FIELD_ENTRY_UNUSABLE = "model/field-entry-unusable", "ISO 32000-2 §12.7",
         "an /AcroForm, or a field entry, of a type or value its table does not give it was read \
          as absent, and an index naming no option dropped";
+    /// An optional content group's `/Name` absent or not a text string.
+    OPTIONAL_CONTENT_GROUP_NAME_UNUSABLE = "model/optional-content-group-name-unusable",
+        "ISO 32000-2 §8.11.2.1",
+        "an optional content group whose required /Name is absent or not a text string was named \
+         by the empty string";
     /// A form's `/Resources` present and not a dictionary.
     FORM_RESOURCES_NOT_A_DICTIONARY = "model/form-resources-not-a-dictionary",
         "ISO 32000-2 §8.10.2",

@@ -647,6 +647,9 @@ impl Walk {
         let style = stated("list-style-type")
             .and_then(|value| ListStyle::named(&value))
             .or_else(|| element.attribute("", "type").and_then(ListStyle::html_type))
+            // not a repair: *List Support* (page 1212) states the default when no type is named:
+            // "If omitted, the default for ordered lists is decimal (see below)", and disc, circle
+            // or square by level for an unordered list.
             .unwrap_or(if ordered {
                 ListStyle::Decimal
             } else {
@@ -1210,6 +1213,8 @@ fn alphabetic_in(number: i64, letters: &[char]) -> Option<String> {
     let mut rest = number;
     while rest > 0 {
         rest = rest.saturating_sub(1);
+        // not a repair: `base` is positive (checked above) so `rem_euclid` is non-negative and the
+        // conversion to `usize` cannot fail.
         let index = usize::try_from(rest.rem_euclid(base)).ok()?;
         out.push(*letters.get(index)?);
         rest = rest.checked_div(base)?;

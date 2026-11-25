@@ -1598,7 +1598,7 @@ fn opacity(document: &Document, annotation: &Dictionary, key: &'static str) -> O
 
 /// Table 166's `/F`, which defaults to 0 where absent; one that is not an integer is read the
 /// same way, and logged as `ANNOTATION_ENTRY_UNUSABLE`.
-fn flags_as_stated(document: &Document, annotation: &Dictionary) -> i64 {
+pub(crate) fn flags_as_stated(document: &Document, annotation: &Dictionary) -> i64 {
     let stated = document.get_key(annotation, "F");
     let flags = stated.as_integer();
     if flags.is_none() && !stated.is_null() {

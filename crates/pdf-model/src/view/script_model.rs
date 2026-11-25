@@ -1524,15 +1524,35 @@ impl ViewState {
         };
         let form = document
             .catalog()
+            // not a repair: a catalog that cannot be read is fatal to the document
+            // (`SyntaxError::TrailerMissing`), and nothing is read in its place.
             .ok()
             .and_then(|catalog| document.get_key(&catalog, "AcroForm").as_dict().cloned());
-        let char_limit = inherited(document, &field.chain(), form.as_ref(), "MaxLen")
+        let max_len = inherited(document, &field.chain(), form.as_ref(), "MaxLen");
+        let char_limit = max_len
             .as_integer()
             .and_then(|limit| u32::try_from(limit).ok());
+        // Table 232's `/MaxLen` is a non-negative integer; one of another type or out of range is
+        // read as no limit, and logged.
+        if char_limit.is_none() && !max_len.is_null() {
+            document.record_repair(
+                &crate::repair::FIELD_ENTRY_UNUSABLE,
+                pdf_syntax::Site::Object(first),
+            );
+        }
+        let value = self.text_of(document, first);
+        // Table 226's `/V` stated in a type no field value takes is read as no value, which a
+        // script reads as the empty string, and logged; an absent one is no value.
+        if value.is_none() && field.value.is_some() {
+            document.record_repair(
+                &crate::repair::FIELD_ENTRY_UNUSABLE,
+                pdf_syntax::Site::Object(first),
+            );
+        }
         let mut state = FieldState {
             name: name.to_owned(),
             kind,
-            value: self.text_of(document, first).unwrap_or_default(),
+            value: value.unwrap_or_default(),
             // not a repair: a flag word masked to 32 bits by this program, not a value the file
             //   states.
             flags: u32::try_from(field.flags & 0xFFFF_FFFF).unwrap_or(0),
@@ -1605,7 +1625,7 @@ impl ViewState {
                 b"U" => BorderStyle::Underline,
                 _ => BorderStyle::Solid,
             });
-        let annotation_flags = document.get_key(widget, "F").as_integer().unwrap_or(0);
+        let annotation_flags = crate::annotation::flags_as_stated(document, widget);
         let mut display = Display::of_flags(annotation_flags);
         match self.annotation_hidden(id) {
             Some(true) => display = Display::Hidden,
@@ -1713,6 +1733,8 @@ impl ViewState {
         let opened = crate::optional_content::OptionalContent::read(document);
         let properties = document
             .catalog()
+            // not a repair: a catalog that cannot be read is fatal to the document
+            // (`SyntaxError::TrailerMissing`), and nothing is read in its place.
             .ok()
             .map(|catalog| document.get_key(&catalog, "OCProperties"));
         let groups = properties
@@ -1730,14 +1752,25 @@ impl ViewState {
             let Some(on) = content.state(group) else {
                 continue;
             };
+            // Table 96's `/Name` is required, a text string; a group stating none is named by the
+            // empty string, and logged.
+            let name = content.name(document, group).unwrap_or_else(|| {
+                document.record_repair(
+                    &crate::repair::OPTIONAL_CONTENT_GROUP_NAME_UNUSABLE,
+                    pdf_syntax::Site::Object(group),
+                );
+                String::new()
+            });
             state.layers.push(Layer {
                 number: group.number,
                 generation: group.generation,
-                name: content.name(document, group).unwrap_or_default(),
+                name,
                 on,
                 initially_on: opened
                     .as_ref()
                     .and_then(|opened| opened.state(group))
+                    // not a repair: `opened` is a reading of the same `/OCProperties` the viewer's
+                    // state began from, so it holds every group `content` holds.
                     .unwrap_or(on),
                 locked: content.is_locked(group),
                 intent: intent_of(document, group),
@@ -1774,15 +1807,19 @@ fn page_states(document: &Document) -> Vec<PageState> {
 
 /// Table 192's three captions of a widget's `/MK`, in [`Face`] order, each empty where it states
 /// none.
+///
+/// A caption of another type is read as none, and logged as `ANNOTATION_ENTRY_UNUSABLE`.
 fn captions_of(document: &Document, characteristics: &Object) -> [String; 3] {
-    Face::ALL.map(|face| {
-        characteristics
-            .as_dict()
-            .and_then(|mk| match document.get_key(mk, face.key()) {
-                Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
-                _ => None,
-            })
-            .unwrap_or_default()
+    let Some(mk) = characteristics.as_dict() else {
+        return Face::ALL.map(|_| String::new());
+    };
+    Face::ALL.map(|face| match document.get_key(mk, face.key()) {
+        Object::String(bytes) => pdf_syntax::text_string(&bytes),
+        Object::Null => String::new(),
+        _ => {
+            crate::annotation::annotation_entry_unusable(document);
+            String::new()
+        }
     })
 }
 
@@ -1844,22 +1881,34 @@ fn text_colour(bytes: &[u8]) -> Option<Colour> {
 /// §12.5.4: "If neither the Border nor the BS entry is present, the border shall be drawn as a
 /// solid line with a width of 1 point"; and Table 166's note on `/Border` makes `/BS` the one that
 /// counts where both are present: "If an annotation dictionary includes the BS entry, then the
-/// Border entry is ignored." A negative or non-finite width is no width and reads as the default.
+/// Border entry is ignored." A negative or non-finite width is no width and reads as the default,
+/// and is logged as `ANNOTATION_ENTRY_UNUSABLE`, as a `/W` of another type is.
 fn line_width_of(document: &Document, widget: &Dictionary) -> f64 {
-    let finite = |width: f64| (width.is_finite() && width >= 0.0).then_some(width);
+    let usable = |width: f64| -> f64 {
+        if width.is_finite() && width >= 0.0 {
+            width
+        } else {
+            crate::annotation::annotation_entry_unusable(document);
+            1.0
+        }
+    };
     if let Some(style) = document.get_key(widget, "BS").as_dict() {
-        return document
-            .get_key(style, "W")
-            .as_number()
-            .and_then(finite)
-            .unwrap_or(1.0);
+        // Table 168's `/W`: "Default value: 1."
+        return match document.get_key(style, "W") {
+            Object::Null => 1.0,
+            stated => match stated.as_number() {
+                Some(width) => usable(width),
+                // A `/W` of another type is no width, which `usable` refuses and logs.
+                None => usable(f64::NAN),
+            },
+        };
     }
     if let Object::Array(border) = document.get_key(widget, "Border")
         && let Some(width) = border
             .get(2)
             .and_then(|item| document.resolve(item).as_number())
     {
-        return finite(width).unwrap_or(1.0);
+        return usable(width);
     }
     1.0
 }
@@ -1923,13 +1972,25 @@ fn intent_of(document: &Document, group: ObjectId) -> Vec<String> {
 }
 
 /// A widget's Table 166 `/Rect`, or the empty rectangle where it states none readably.
+///
+/// `/Rect` is required, an array of four numbers; one absent, of another shape or holding another
+/// type is read as far as it reads, the rest as zero, and logged as `ANNOTATION_ENTRY_UNUSABLE`.
 fn rect_of(document: &Document, widget: &Dictionary) -> [f64; 4] {
-    let Object::Array(items) = document.get_key(widget, "Rect") else {
-        return [0.0; 4];
-    };
     let mut rect = [0.0; 4];
-    for (slot, item) in rect.iter_mut().zip(items.iter()) {
-        *slot = document.resolve(item).as_number().unwrap_or_default();
+    let stated = document.get_key(widget, "Rect");
+    let items: &[Object] = match &stated {
+        Object::Array(items) => items,
+        _ => &[],
+    };
+    let mut whole = items.len() == 4;
+    for (slot, item) in rect.iter_mut().zip(items) {
+        match document.resolve(item).as_number() {
+            Some(number) => *slot = number,
+            None => whole = false,
+        }
+    }
+    if !whole {
+        crate::annotation::annotation_entry_unusable(document);
     }
     rect
 }

@@ -111,6 +111,9 @@ pub(crate) fn length(value: &str) -> Option<Length> {
     let (number, unit) = value.split_at(split);
     let number: f32 = number
         .parse()
+        // not a repair: a value that does not read leaves `None` and the declaration is not
+        // applied, CSS2 section 4.2's rule for an invalid value, which the module comment states;
+        // chapter 27 has a processor ignore markup it does not understand (XFA 3.3 page 1187).
         .ok()
         .filter(|number: &f32| number.is_finite())?;
     let points = |per: f32| Some(Length::Points(number * per));
@@ -140,6 +143,10 @@ pub(crate) fn colour(value: &str) -> Option<[f32; 3]> {
         }
         let component = |at: usize| {
             hex.get(at..at.saturating_add(2))
+                // not a repair: a value that does not read leaves `None` and the declaration is not
+                // applied, CSS2 section 4.2's rule for an invalid value, which the module comment
+                // states; chapter 27 has a processor ignore markup it does not understand (XFA 3.3
+                // page 1187).
                 .and_then(|pair| u8::from_str_radix(pair, 16).ok())
                 .map(|byte| f32::from(byte) / 255.0)
         };
@@ -149,6 +156,9 @@ pub(crate) fn colour(value: &str) -> Option<[f32; 3]> {
         .strip_prefix("rgb(")
         .or_else(|| value.strip_prefix("RGB("))?
         .strip_suffix(')')?;
+    // not a repair: a value that does not read leaves `None` and the declaration is not applied,
+    // CSS2 section 4.2's rule for an invalid value, which the module comment states; chapter 27
+    // has a processor ignore markup it does not understand (XFA 3.3 page 1187).
     let mut components = inner.split(',').map(|part| part.trim().parse::<u8>().ok());
     let mut next = || {
         components
@@ -218,6 +228,8 @@ fn split_outside_quotes(text: &str, separator: char) -> Vec<&str> {
             Some(_) | None => {}
         }
     }
+    // not a repair: a slice of the style text from a position this program found, not a value the
+    // file states.
     parts.push(text.get(start..).unwrap_or_default());
     parts
 }
@@ -833,6 +845,8 @@ fn tab_stops(value: &str, size: Linear) -> (Vec<TabStop>, bool) {
             rest = rest.get(end..).unwrap_or_default().trim_start();
             continue;
         }
+        // not a repair: the last word of the value has nothing after it, which is a fact about
+        // the text being read, not a value the file states.
         let (word, after) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
         rest = after.trim_start();
         match word.to_ascii_lowercase().as_str() {
@@ -871,6 +885,8 @@ fn read_leader(stated: &str, size: Linear) -> (Option<Leader>, bool) {
         .map(str::trim_start)
         .and_then(|rest| rest.strip_prefix('('))
         .and_then(|rest| rest.strip_suffix(')'))
+        // not a repair: a stated leader that is not `leader(...)` reads as no pattern, and the `_`
+        // arm below returns no leader, the ignore this function's comment cites from page 1187.
         .unwrap_or_default()
         .trim();
     // The pattern runs to its own balancing parenthesis, or to the first space for a bare name.
@@ -904,6 +920,8 @@ fn read_leader(stated: &str, size: Linear) -> (Option<Leader>, bool) {
     let (name, arguments) = pattern
         .split_once('(')
         .map_or((pattern, ""), |(name, arguments)| {
+            // not a repair: with no closing parenthesis the arguments are the text as written to
+            // its end; nothing the file states is replaced.
             (name, arguments.strip_suffix(')').unwrap_or(arguments))
         });
     let pattern = match name.trim().to_ascii_lowercase().as_str() {
@@ -990,6 +1008,10 @@ fn weight(value: &str, inherited: u16) -> Option<u16> {
         "lighter" => Some(inherited.saturating_sub(300).max(100)),
         number => number
             .parse::<u16>()
+            // not a repair: a value that does not read leaves `None` and the declaration is not
+            // applied, CSS2 section 4.2's rule for an invalid value, which the module comment
+            // states; chapter 27 has a processor ignore markup it does not understand (XFA 3.3
+            // page 1187).
             .ok()
             .filter(|weight| (100..=900).contains(weight) && weight % 100 == 0),
     }

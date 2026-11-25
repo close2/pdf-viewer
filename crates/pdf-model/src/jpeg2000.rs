@@ -307,6 +307,8 @@ impl ColourSpecification<'_> {
         Some(
             self.parameters
                 .get(RANGES..RANGES.saturating_add(4))
+                // not a repair: T.801 M.11.7.4.1 makes an omitted `IL` field its default, CIE
+                // Illuminant D50, as this function's documentation says.
                 .and_then(|field| <[u8; 4]>::try_from(field).ok())
                 .map_or(Illuminant::D50, Illuminant::from_field),
         )
@@ -1376,6 +1378,9 @@ fn read_collection(stream: &[u8]) -> Collection {
     let read_u16 = |at: usize| {
         stream
             .get(at..at.saturating_add(2))
+            // not a repair: the absence is carried in the result: `Collection::kind` and
+            // `reversible` are `None` where the series ends before the field, and nothing is
+            // substituted.
             .and_then(|bytes| <[u8; 2]>::try_from(bytes).ok())
             .map(u16::from_be_bytes)
     };

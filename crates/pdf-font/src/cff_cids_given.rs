@@ -135,6 +135,8 @@ fn given_with(
 
     // Glyph 0's Font DICT: its Private DICT's nominal width and its local subroutines are what
     // the copied charstring was written against.
+    // not a repair: glyph 0's Font DICT: `glyphs_read` pushed one entry per charstring and the
+    // INDEX was checked above to hold glyph 0, so `first` is `Some`.
     let notdefs_dict = *glyphs.font_dicts.first().unwrap_or(&0);
     let font_dict_bytes = index_items(data, stated.fd_array_at)
         .ok_or_else(|| malformed("the FDArray could not be read"))?;
@@ -142,6 +144,10 @@ fn given_with(
         .iter()
         .map(|dict| {
             (
+                // not a repair: this builds the expectation `read_back` compares the rebuilt
+                // program against; the program's own Private DICT bytes are copied, and nothing is
+                // written from this default, so a Font DICT naming no Private DICT is compared as
+                // it was found.
                 private_dict(data, dict).unwrap_or_default().to_vec(),
                 local_subroutines(data, dict),
             )
@@ -159,6 +165,9 @@ fn given_with(
     let nominal = nominal_widths(data, &layout, true)
         .get(usize::from(notdefs_dict))
         .copied()
+        // not a repair: Adobe Technical Note #5176's default for `nominalWidthX` is 0, and
+        // `nominal_widths` holds one entry per Font DICT, which the check above found
+        // `notdefs_dict` to index.
         .unwrap_or(0);
     let global = global_subroutines(data);
     let local = index_item(data, stated.fd_array_at, usize::from(notdefs_dict))
@@ -173,6 +182,8 @@ fn given_with(
         .iter()
         .map(|asked| i64::from(asked.cid).saturating_add(1))
         .max()
+        // not a repair: `cids` is the caller's list, not the file's; with none asked for nothing is
+        // needed, and `needed.max(stated.cid_count)` leaves `CIDCount` as stated.
         .unwrap_or(0);
     if needed > stated.cid_count {
         cid_count_raised(&mut layout, needed);
@@ -239,6 +250,8 @@ fn located(data: &[u8]) -> Result<(Layout, Stated), CffError> {
     };
     let offset = |wanted: u16| -> Option<usize> {
         match stated(wanted)?.as_slice() {
+            // not a repair: a decline: a negative offset is `None`, and the callers below return
+            // `malformed` for an offset that is not stated.
             [only] => usize::try_from(*only).ok(),
             _ => None,
         }
@@ -307,12 +320,17 @@ fn glyphs_read(
         charstrings,
     };
     for glyph in 0..glyphs.charstrings.len() {
+        // not a repair: `glyph` counts the charstrings of an INDEX, whose count is 16 bits (the "as
+        // many glyphs as an INDEX counts" refusal in `copies_appended`), so the conversion cannot
+        // fail.
         let id = GlyphId::from(u32::try_from(glyph).unwrap_or(u32::MAX));
         let cid = charset
             .string_id(id)
             .ok_or_else(|| malformed("the charset names no CID for a glyph the program holds"))?;
         let font_dict = font
             .subfont_index(id)
+            // not a repair: a decline: a Font DICT index past a byte is refused by the `ok_or_else`
+            // below as `malformed`.
             .and_then(|index| u8::try_from(index).ok())
             .ok_or_else(|| malformed("the FDSelect names no Font DICT for a glyph"))?;
         glyphs.cids.push(cid.to_u16());
@@ -367,6 +385,8 @@ fn copies_appended(
     subroutines: &Subroutines<'_>,
 ) -> Result<Vec<u16>, CffError> {
     let (notdefs_dict, nominal) = notdef;
+    // not a repair: glyph 0 exists: `with_cids_given` refuses a program whose CharStrings INDEX
+    // holds none, above.
     let outline = glyphs.charstrings.first().cloned().unwrap_or_default();
     let mut added = Vec::with_capacity(cids.len());
     let mut appended = 0usize;
@@ -426,6 +446,8 @@ fn fd_select_written(format: u8, font_dicts: &[u8]) -> Option<Vec<u8>> {
             let mut ranges: Vec<(u16, u8)> = Vec::new();
             for (glyph, font_dict) in font_dicts.iter().enumerate() {
                 if ranges.last().map(|(_, last)| last) != Some(font_dict) {
+                    // not a repair: a decline: a glyph index past 16 bits returns `None`, which
+                    // `given_with` refuses as "the FDSelect could not be restated".
                     ranges.push((u16::try_from(glyph).ok()?, *font_dict));
                 }
             }
@@ -434,6 +456,7 @@ fn fd_select_written(format: u8, font_dicts: &[u8]) -> Option<Vec<u8>> {
                 out.extend_from_slice(&first.to_be_bytes());
                 out.push(font_dict);
             }
+            // not a repair: a decline: the same refusal as above, for a count past 16 bits.
             out.extend_from_slice(&u16::try_from(font_dicts.len()).ok()?.to_be_bytes());
         }
         _ => return None,
@@ -475,6 +498,9 @@ fn read_back(rebuilt: &[u8], expected: &Expected<'_>) -> Result<(), CffError> {
         return Err(differs());
     }
     for (dict, (private, local)) in dicts.iter().zip(expected.privates) {
+        // not a repair: the comparison with `private`, built by the same default at its own site; a
+        // Private DICT missing from the rebuilt program is read as empty and differs from any
+        // non-empty one, and `differs` is returned.
         if private_dict(rebuilt, dict).unwrap_or_default() != private.as_slice()
             || local_subroutines(rebuilt, dict) != *local
         {

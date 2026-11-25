@@ -88,15 +88,19 @@ impl Document {
         // Table 21 makes `/R`, `/O`, `/U` and `/P` required of the standard handler, an integer,
         // two strings and an integer; `Encryption::new` reads one that is absent or of another
         // type as its zero, which is a repair — `/P` read as 0 states permissions (2194-T06).
-        if self.get_key(&dict, "Filter").as_name().map(Name::as_bytes) == Some(&b"Standard"[..]) {
-            let integer = |key| self.get_key(&dict, key).as_integer().is_some();
-            let string = |key| self.get_key(&dict, key).as_string().is_some();
-            if !(integer("R") && integer("P") && string("O") && string("U")) {
-                self.record_repair(
-                    &crate::repair::ENCRYPTION_ENTRY,
-                    crate::repair::Site::WholeFile,
-                );
-            }
+        // Table 20 makes `/V` required of every handler, an integer, and `Encryption::new` reads
+        // one that is absent or of another type as 0, the undocumented algorithm.
+        let integer = |key| self.get_key(&dict, key).as_integer().is_some();
+        let string = |key| self.get_key(&dict, key).as_string().is_some();
+        let standard =
+            self.get_key(&dict, "Filter").as_name().map(Name::as_bytes) == Some(&b"Standard"[..]);
+        if !integer("V")
+            || (standard && !(integer("R") && integer("P") && string("O") && string("U")))
+        {
+            self.record_repair(
+                &crate::repair::ENCRYPTION_ENTRY,
+                crate::repair::Site::WholeFile,
+            );
         }
         let encryption = Encryption::new(&dict, &id_first, password, recipient, &|object| {
             self.resolve(object)

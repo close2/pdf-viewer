@@ -257,6 +257,10 @@ fn abridged(transformation: &Node, target: &GeographicSystem) -> Result<DatumShi
             what: "a method",
             of: transformation.to_string(),
         })?;
+    // not a repair: a decline: a nameless `METHOD` gives "", which `shift_method` matches to no
+    // method where no EPSG code is stated, so the `ok_or_else` below returns
+    // `Refusal::UnsupportedTransformation`; `from_wkt` hands it to `Geospatial::reference_system`
+    // (`geospatial/mod.rs`), which returns it.
     let method_name = method_node.name().unwrap_or("").to_owned();
     let method = shift_method(&method_name, epsg_code(method_node))
         .ok_or_else(|| Refusal::UnsupportedTransformation(method_name.clone()))?;
@@ -266,6 +270,9 @@ fn abridged(transformation: &Node, target: &GeographicSystem) -> Result<DatumShi
     }
     let mut values: [Option<f64>; 7] = [None; 7];
     for parameter in transformation.children("PARAMETER") {
+        // not a repair: a decline: a nameless parameter gives "", which `shift_parameter` matches
+        // to no parameter where no EPSG code is stated, so the `ok_or_else` below returns
+        // `Refusal::UnknownParameter`, which `Geospatial::reference_system` returns.
         let name = parameter.name().unwrap_or("");
         let index = shift_parameter(name, epsg_code(parameter))
             .filter(|index| method != Shift::Translations || *index < 3)
@@ -327,6 +334,7 @@ fn unit_factor(node: Option<&Node>, default: f64) -> Result<f64, Refusal> {
     };
     match node.number(1) {
         Some(factor) if factor.is_finite() && factor > 0.0 => Ok(factor),
+        // not a repair: the name only labels the `Refusal::Unit` returned on this line.
         _ => Err(Refusal::Unit(node.name().unwrap_or("").to_owned())),
     }
 }
@@ -579,6 +587,9 @@ fn projected(node: &Node) -> Result<ProjectedSystem, Refusal> {
             .ok_or_else(|| missing("a projection"))?;
         (node, method)
     };
+    // not a repair: a decline: a nameless `METHOD` gives "", which `named` matches to no method
+    // where no EPSG code is stated, so the `ok_or_else` below returns
+    // `Refusal::UnsupportedMethod`, which `Geospatial::reference_system` returns.
     let method_name = method_node.name().unwrap_or("").to_owned();
     let family = named(&method_name, epsg_code(method_node))
         .ok_or_else(|| Refusal::UnsupportedMethod(method_name.clone()))?;
@@ -595,6 +606,9 @@ fn projected(node: &Node) -> Result<ProjectedSystem, Refusal> {
     let mut parameters = Parameters::default();
     let mut auxiliary_sphere = None;
     for parameter in holder.children("PARAMETER") {
+        // not a repair: a decline: a nameless parameter gives "", which `role` matches to no role
+        // where no EPSG code is stated, so the `let ... else` below returns
+        // `Refusal::UnknownParameter`, which `Geospatial::reference_system` returns.
         let name = parameter.name().unwrap_or("");
         let Some(role) = role(name, epsg_code(parameter)) else {
             // A parameter whose meaning this reader does not know is not silently dropped: the
