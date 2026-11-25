@@ -1,0 +1,86 @@
+[
+ {
+  "id": "2248-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "10.5",
+   "10.6.1",
+   "11.7.5.2"
+  ],
+  "summary": "The window's own route to the device draws a page without its transfer functions. pdf_model carries them beside the display list as §11.7.5.2's channel (DisplayList::transfers) and pdf_render::resolve_transfers applies it, but only render-cpu's rasterize and render-raster's Rasterizer::rasterize call it. The window's present (render-raster present.rs, QuorraWindowRenderer::render -> FrameSlot::render -> scene_for, which viewer-device's renderer/device.rs draws every frame the device is asked for) translates the list's commands and never reads the channel, and nothing on viewer-device's or viewer-host's route sends such a page to the processor or refuses it (render-gpu refuses it by name; the window's backend neither applies nor refuses). A page filled red under /TR = 1 - x shows red in the window where rasterize of the same list shows cyan: by the same route issue6931_reduced.pdf's heart would be drawn black in the window (by reading; not run).",
+  "source": "ISO 32000-2 §10.5: \"In the sequence of steps for processing colours, the PDF processor shall apply the transfer function after performing any needed conversions between colour spaces.\" and \"The output shall be the transformed component value to be transmitted to the device (after halftoning, if necessary).\" §10.6.1: \"Halftoning is not required for such devices; after gamma correction by the transfer functions, the colour components shall be transmitted directly to the device.\"",
+  "code": "crates/render-raster/src/present.rs:454-480 (FrameSlot::render), scene_for (no transfers()); crates/render-raster/src/lib.rs:445 (rasterize_frame, the read-back form of the same present) against lib.rs:714 (rasterize applies resolve_transfers); crates/viewer-device/src/renderer/device.rs:84 (renderer.render(frame, into)); crates/pdf-render/src/reach.rs:385 (the only predicate on the route that names transfers(), and it only declines the cull); crates/render-gpu/src/lib.rs:936 (the comparison backend refuses by name); crates/render-raster/src/lib.rs:700-720's comment and render-gpu's say the shipping backends apply it",
+  "change": "Apply the channel on the present route: either resolve_transfers over the window's own rendering of each placed page (its shapes rasterised through the same slot, as rasterize does over its read-back), or refuse a page with transfers() on the present route by name so that viewer-device draws it through the processor (CLAUDE.md's refusal lane), reported. Hold both lanes with this test at every coverage.",
+  "execution": "Executed on the RX 580: crates/render-raster/tests/window_frame_10_5_10_8_spec_audit.rs::the_window_frame_applies_a_pages_transfer_function_spec_audit — control (rasterize) cyan passes; rasterize_frame shows [255, 0, 0]. The viewer-device route was read (renderer/device.rs, thread.rs, processor.rs) and has no predicate on transfers().",
+  "status": "open"
+ },
+ {
+  "id": "2248-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "10.8.3",
+   "11.4.7"
+  ],
+  "summary": "The window's own route draws §10.8.3's simulated press without its black ink. Under the reader's simulation the page composites on the simulated device and pdf_model hands the backends the process inks as two lists on one geometry: the complements of cyan, magenta and yellow on the list and black beside it (DisplayList::black, with blending()), plus any spot planes (separation()). rasterize draws the second list and multiplies the two back (pdf_render::resolve_blending / resolve_separation); the window's present translates the first list alone. A page filled 0 0 0 1 k under the simulation is [35, 31, 32] through rasterize and white [255, 255, 255] in the window's frame. By reading, the same route also drops a spot plane and a four-component page group's black list without the simulation (§11.4.7, outside this audit's clauses; the fix is the same).",
+  "source": "ISO 32000-2 §10.8.3: \"The results of the simulation should match those produced by the following steps\" — c) \"Blend the resulting separations into a single result using a multiply blend (see \\\"Table 133 -Variables used in the basic compositing formula\\\").\" d) \"Convert the result to the actual device colour space and output it.\"",
+  "code": "crates/render-raster/src/lib.rs:594-660 (rasterize: four_components = list.blending().zip(list.black()), spot_planes, resolve_separation); crates/render-raster/src/present.rs scene_for (no black(), blending() or separation()); crates/viewer-device/src/renderer/device.rs:84",
+  "change": "The same decision as B01's, for blending()/black()/separation(): draw the planes beside the page on the present route and resolve them as rasterize does, or refuse such a page there by name so that the processor draws it.",
+  "execution": "Executed on the RX 580: crates/render-raster/tests/window_frame_10_5_10_8_spec_audit.rs::the_window_frame_draws_the_simulated_press_s_black_ink_spec_audit — control (rasterize) [35, 31, 32] passes; rasterize_frame [255, 255, 255].",
+  "status": "open"
+ },
+ {
+  "id": "2248-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "10.5",
+   "10.8.3"
+  ],
+  "summary": "On §10.8.3's simulated press, whose device is a CMYK one, the transfer function is applied as an RGB device's: Transfer::read keeps the first three functions of Table 57's array of four and drops the gray/black one, and the channel maps the finished sRGB pixel after step d). §10.5 makes a CMYK device use all four, on the subtractive components converted to additive form, before the separations are made. /TR [identity identity identity zero] over 0 0 0 0 k is full black ink on the simulated device and stays white here.",
+  "source": "ISO 32000-2 §10.5: \"An RGB device shall use the first three, a monochrome device shall use the gray transfer function only, and a CMYK device shall use all four.\" \"Transfer functions shall always operate in the native colour space of the output device, regardless of the colour space in which colours were originally specified.\" \"If the component is subtractive (cyan, magenta, yellow, black, or a spot colour), it shall be converted to additive form by subtracting it from 1.0 before it is passed to the transfer function.\" §10.8.3 a): \"Process the PDF as if separations were to be created for a simulated device that supports subtractive process colourants and possibly spot colours.\"",
+  "code": "crates/pdf-colour/src/transfer.rs:88-107 (take(3); the doc comment: \"this device is RGB, so the fourth is read and never asked\"); crates/pdf-model/src/content/marked.rs:205-212 and transfer_map (three tables); crates/pdf-render/src/transfer_channel.rs (TransferMap: three additive tables over the finished raster); crates/pdf-model/src/content.rs:712 and 878 (separate_drawn, draw_separated)",
+  "change": "Keep all four functions in Transfer; under the simulation apply them to each process plane (cyan, magenta, yellow, black, and the gray function or the halftone's own to each spot plane, §10.5's second bullet) in additive form before steps b) to d), per §11.7.5.2's topmost-object choice on the separations; the screen keeps the first three after compositing.",
+  "execution": "Executed on the CPU oracle: crates/pdf-model/tests/rendering_10_5_10_8_spec_audit.rs::the_simulated_press_takes_all_four_transfer_functions_spec_audit (content_suite) — control (screen) white passes; press [255, 255, 255].",
+  "status": "open"
+ },
+ {
+  "id": "2248-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "10.5",
+   "10.8.3"
+  ],
+  "summary": "On the simulated CMYK press a DeviceGray colour is passed through the red, green and blue functions of the finished sRGB pixel, where §10.5's special case gives it the gray function alone and renders the cyan, magenta and yellow 0 of DeviceGray-to-DeviceCMYK directly. /TR [zero zero zero identity] over 1 g is white on the simulated device and black here.",
+  "source": "ISO 32000-2 §10.5: \"When the current colour space is DeviceGray and the output device's native colour space is DeviceCMYK , a PDF processor shall use only the gray transfer function. The normal conversion from DeviceGray to DeviceCMYK produces 0.0 for the cyan, magenta, and yellow components. These components shall not be passed through their respective transfer functions but are rendered directly, producing output containing no coloured inks.\"",
+  "code": "as 2248-B03; crates/pdf-model/src/output_intent.rs grey_reading and intent_grey (where DeviceGray reaches the press)",
+  "change": "With B03's fix: a mark whose colour space is DeviceGray carries the gray function alone on the black plane and none on the other three.",
+  "execution": "Executed on the CPU oracle: crates/pdf-model/tests/rendering_10_5_10_8_spec_audit.rs::a_grey_on_the_simulated_press_takes_the_gray_transfer_function_alone_spec_audit — control (screen, zero functions) black passes; press [0, 0, 0].",
+  "status": "open"
+ },
+ {
+  "id": "2248-B05",
+  "kind": "behavior-gap",
+  "clauses": [
+   "10.7.5"
+  ],
+  "summary": "Stroke adjustment is applied only to a stroke under 1.5 device pixels (pdf_render::grid_fit::FIT_BELOW). The clause's first requirement binds every stroke /SA enables, and the tree's own reading of uniform thickness (ADR 2530: a whole number of pixel rows the same at every placement) is broken for a wider rule: two points wide centred at device y 49.75 it covers a quarter row, a row and three quarters of a row (3 rows) where the same rule on a pixel boundary covers 2. Rounding the width to whole pixels (within half a pixel) and moving the edges to pixel boundaries is the same construction at every width; ADR 2530 states the 1.5 bound as the construction's domain and gives no clause for it.",
+  "source": "ISO 32000-2 §10.7.5: \"When stroke adjustment is enabled, the line width and the coordinates of a stroke shall automatically be adjusted as necessary to produce lines of uniform thickness. The thickness shall be as near as possible to the requested line width -no more than half a pixel different.\" and \"A line of a given width can intersect with different numbers of device pixels, depending on where it is positioned.\"",
+  "code": "crates/pdf-render/src/grid_fit.rs:20-23, 43 (FIT_BELOW = 1.5, \"its bounds are the clause's\"); raster/crates/raster-gpu/src/raster/grid_fit.rs (the lanes' copy); doc/adr/2530",
+  "change": "Fit every axis-aligned stroke under /SA true: width rounded to the nearest whole number of device pixels (at least one), edges on pixel boundaries, in render-cpu and every raster lane at once (A714's construction); correct grid_fit's module comment and the 10.7.5 ledger note.",
+  "execution": "Executed on the CPU oracle: crates/pdf-model/tests/rendering_10_5_10_8_spec_audit.rs::stroke_adjustment_reaches_a_rule_two_pixels_wide_spec_audit — control (one point, one whole row) passes; two points [.., 191, 0, 63, ..].",
+  "status": "open"
+ },
+ {
+  "id": "2248-D01",
+  "kind": "documentation-gap",
+  "clauses": [
+   "10.5",
+   "10.8.3"
+  ],
+  "summary": "Transfer's doc comment (\"this device is RGB, so the fourth is read and never asked\") and draw_mark's overprint paragraph (\"The components §10.5's function maps are the device's three\") state the screen as the only device; under §10.8.3's simulation the device is CMYK. render-gpu's and render-raster's comments say the shipping backends apply the channel, which the window's present does not (B01). Left for the fix rounds of B01 and B03, which rewrite those lines.",
+  "source": "ISO 32000-2 §10.5 (quoted under 2248-B03).",
+  "code": "crates/pdf-colour/src/transfer.rs:29-31; crates/pdf-model/src/content/marked.rs:183-192; crates/render-gpu/src/lib.rs:927-930",
+  "change": "State the device each sentence is true of, citing §10.8.3 for the simulated one.",
+  "execution": "Read, not executed.",
+  "status": "open"
+ }
+]

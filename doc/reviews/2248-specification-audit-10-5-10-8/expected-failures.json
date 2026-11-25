@@ -1,0 +1,36 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2248 on main 9ad7f2f1",
+ "failures": [
+  {
+   "binary": "render-raster::window_frame_10_5_10_8_spec_audit",
+   "test": "the_window_frame_applies_a_pages_transfer_function_spec_audit",
+   "finding": "2248-B01",
+   "log": "round-2248 nextest of render-raster"
+  },
+  {
+   "binary": "render-raster::window_frame_10_5_10_8_spec_audit",
+   "test": "the_window_frame_draws_the_simulated_press_s_black_ink_spec_audit",
+   "finding": "2248-B02",
+   "log": "round-2248 nextest of render-raster"
+  },
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "rendering_10_5_10_8_spec_audit::the_simulated_press_takes_all_four_transfer_functions_spec_audit",
+   "finding": "2248-B03",
+   "log": "round-2248 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "rendering_10_5_10_8_spec_audit::a_grey_on_the_simulated_press_takes_the_gray_transfer_function_alone_spec_audit",
+   "finding": "2248-B04",
+   "log": "round-2248 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "rendering_10_5_10_8_spec_audit::stroke_adjustment_reaches_a_rule_two_pixels_wide_spec_audit",
+   "finding": "2248-B05",
+   "log": "round-2248 nextest of pdf-model"
+  }
+ ]
+}

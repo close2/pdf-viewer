@@ -26,6 +26,36 @@
    "test": "an_object_identifier_outside_the_amended_grammar_is_not_read_in_silence_spec_audit",
    "finding": "2243-B04",
    "log": "round-2243 nextest of pdf-syntax"
+  },
+  {
+   "binary": "render-raster::window_frame_10_5_10_8_spec_audit",
+   "test": "the_window_frame_applies_a_pages_transfer_function_spec_audit",
+   "finding": "2248-B01",
+   "log": "round-2248 nextest of render-raster"
+  },
+  {
+   "binary": "render-raster::window_frame_10_5_10_8_spec_audit",
+   "test": "the_window_frame_draws_the_simulated_press_s_black_ink_spec_audit",
+   "finding": "2248-B02",
+   "log": "round-2248 nextest of render-raster"
+  },
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "rendering_10_5_10_8_spec_audit::the_simulated_press_takes_all_four_transfer_functions_spec_audit",
+   "finding": "2248-B03",
+   "log": "round-2248 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "rendering_10_5_10_8_spec_audit::a_grey_on_the_simulated_press_takes_the_gray_transfer_function_alone_spec_audit",
+   "finding": "2248-B04",
+   "log": "round-2248 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "rendering_10_5_10_8_spec_audit::stroke_adjustment_reaches_a_rule_two_pixels_wide_spec_audit",
+   "finding": "2248-B05",
+   "log": "round-2248 nextest of pdf-model"
   }
  ],
  "no_longer_failing": [
