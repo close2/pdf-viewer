@@ -1,0 +1,87 @@
+[
+ {
+  "id": "2229-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "14.7.5.3",
+   "14.7.5.4",
+   "14.8.2.2.2",
+   "14.8.2.5.1"
+  ],
+  "summary": "An element whose content item is a whole form XObject, named by an /OBJR and found through the form's own /StructParent (14.7.5.4's EXAMPLE 1), gets none of the form's text. by_absence builds the ranges included in the structure tree from MCID sequences, declared artifacts and annotations claimed by /StructParent, so the form's text is reported as an artifact by absence; Tree::logical_text reads only MarkedContent children, so the logical text omits it; and viewer-core's walk records an /OBJR only through names_object, which matches the page's annotations, so the element's accessibility node has an empty name. The same form drawn inside the element's own MCID sequence is real content on all three routes.",
+  "source": "ISO 32000-2 §14.7.5.3: \"When a structure element's content consists of an entire PDF object, such as an XObject directly or indirectly referenced by a page description or an annotation, the object shall be identified in the structure element's K entry by an object reference dictionary\". §14.8.2.2.2: \"Any content that is not included in the structure tree is an artifact even when not enclosed in a markedcontent sequence using the tag Artifact .\" §14.7.5.4: \"For consistency, content items that are entire PDF objects, such as XObjects, shall also use the parent tree to refer to their parent structure elements.\"",
+  "code": "crates/pdf-model/src/content.rs:2589 (by_absence: MCID spans, declared artifacts and annotations only); crates/pdf-model/src/structure.rs:2582 (artifacts_by_absence's doc, the same three routes); crates/pdf-model/src/structure/logical.rs:75 (logical_text skips Child::Object); crates/viewer-core/src/accessibility.rs:1358 (Child::Object arm) and :1542 (names_object, annotations only)",
+  "change": "Record the readback range of a form or image XObject that states /StructParent as an object span beside the annotations' (the interpreter already reads Table 359 for forms' /StructParents), subtract it in by_absence, give it to logical_text where an /OBJR names the object, and let viewer-core's walk attribute it to the element like an /MCID sequence.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/structure_14_6_14_9_spec_audit.rs::a_form_named_by_an_object_reference_is_the_elements_real_content_spec_audit and crates/viewer-core/tests/structure_objr_xobject_spec_audit.rs::an_element_whose_content_is_a_form_xobject_is_spoken_with_its_text_spec_audit — round 2229; each control (the same form drawn inside /P <</MCID 0>> BDC … EMC) passes",
+  "status": "open"
+ },
+ {
+  "id": "2229-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "14.9.2.3",
+   "14.9.2.1"
+  ],
+  "summary": "A structured marked-content sequence nested in a Span that states /Lang takes the Span's language when no structure element above it states one, instead of the document's default. ContentStream::accessibility sets the sequence's language to structure::enclosing's, which is None when no ancestor element has /Lang, and accessibility::speech then lets the enclosing Span's Described cover it. Where an ancestor element states a language it wins correctly; only the inheritance that ends at the catalog loses to the Span.",
+  "source": "ISO 32000-2 §14.9.2.3: \"A language identifier attached to a marked-content sequence with the Span tag specifies the language for all text in the sequence except for nested marked-content that is contained in the structure hierarchy (in which case the structure element's language applies) and except where overridden by language specifications for other nested marked-content.\" and \"The Lang entry in the document catalog dictionary shall specify the default natural language for all text in the document.\"",
+  "code": "crates/pdf-model/src/content/marked.rs:543 (described.language = described.language.or(enclosing.language)); crates/pdf-model/src/accessibility.rs:135 (speech: an inner Described without a language inherits the outer one)",
+  "change": "Give a sequence that names a structure element a language that stops the enclosing Span's: the element chain's, else the document's default (or a marker meaning 'the structure's, which is the default'), so speech does not fall through to the Span.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/structure_14_6_14_9_spec_audit.rs::a_span_language_stops_at_structured_content_inside_it_spec_audit — round 2229; its control (a Sect above the P stating /Lang) passes",
+  "status": "open"
+ },
+ {
+  "id": "2229-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "14.9.3",
+   "12.7.4.2"
+  ],
+  "summary": "Sentences that identify a field to the person reading them name it by its fully qualified name although the field states /TU. FieldName::shown exists and the accessibility tree's Form nodes use it, but submission::compose's owed sentences (Table 227 bit 2's Required report and nine more, each 'field {name}: …'), viewer-core's script question subject ('the calculate script of {event.field}') and view::fields::field_name_of's edit-log notes all print the qualified name; viewer-core reports every owed sentence as Event::Reported.",
+  "source": "ISO 32000-2 §14.9.3: \"An alternative name may be specified for an interactive form field (see 12.7, \"Forms\") which, if present, shall be used in place of the actual field name when an interactive PDF processor identifies the field in a user-interface. This alternative name, if provided, shall be specified using the TU entry of the field dictionary.\"",
+  "code": "crates/pdf-model/src/submission.rs:917 (and :735, :785, :791, :858, :870, :1148, :1167, :1239, :1259); crates/viewer-core/src/scripting.rs:263; crates/pdf-model/src/view/fields.rs:1004",
+  "change": "Name the field by FieldName::shown (/TU, else the qualified name) in every sentence meant for a person, keeping the qualified name where a sentence addresses the field for a program.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/structure_14_6_14_9_spec_audit.rs::a_report_about_a_field_names_it_by_its_alternative_name_spec_audit — round 2229; its control (the same field without /TU is named in the report) passes",
+  "status": "open"
+ },
+ {
+  "id": "2229-B04",
+  "kind": "implementation-consumer-gap",
+  "clauses": [
+   "14.9.2.1"
+  ],
+  "summary": "The outline panel's rows carry no language. viewer_host::outline_rows builds every toolkit's outline tree from Outline alone, and PanelRow has no field for the catalog's /Lang, so a German document's outline is presented to a screen reader in the desktop's language. layer_rows has the same shape for optional content group names, which the clause names in the same sentence.",
+  "source": "ISO 32000-2 §14.9.2.1: \"This applies to both content within content streams and any text strings, including text strings not included in the structure hierarchy such as, for example, entries in metadata, outline entries and names for optional content groups.\"",
+  "code": "crates/viewer-host/src/panel.rs:86 (PanelRow), :338 (outline_rows), :380 (layer_rows)",
+  "change": "Carry the document's language (and a title's own §7.9.2.2.2 escape) to the panel or each row, and have each toolkit set it on the accessible item.",
+  "execution": "FAIL (expected): crates/viewer-host/tests/outline_language_spec_audit.rs::an_outline_row_carries_the_documents_language_spec_audit — round 2229; its control (a different title gives a different row) passes",
+  "status": "open"
+ },
+ {
+  "id": "2229-B05",
+  "kind": "behavior-gap",
+  "clauses": [
+   "14.9.3",
+   "14.7.2"
+  ],
+  "summary": "Interpretation::speech, pdf-model's public vocalisation of a page, applies a structure element's /Alt per marked-content sequence and only to sequences the element owns directly. A Figure owning two MCIDs is spoken 'A star A star'; a Figure whose one sequence belongs to a child Span element is spoken as its letters, with no description. ContentStream::accessibility reads /Alt (and /E) from the sequence's own parent element, once per sequence. viewer-core's accessibility tree reads an element's /Alt itself and is not affected; no production caller uses Interpretation::speech today.",
+  "source": "ISO 32000-2 Table 355, Alt: \"An alternative description of the structure element and its children in human-readable form\". §14.9.3: \"When applied to structure elements, the alternate description text (see 7.9.2.2, \"Text string type\") is a complete (or whole) word or phrase substitution for the current element.\"",
+  "code": "crates/pdf-model/src/content/marked.rs:536 (described.alt from the sequence's element); crates/pdf-model/src/content/report.rs:1442 (Interpretation::speech)",
+  "change": "Read /Alt and /E through the same walk up /P that structure::enclosing makes for /ActualText (2038-B12's fix), so one description covers all an element encloses and is spoken once.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/structure_14_6_14_9_spec_audit.rs::an_elements_alternate_description_is_spoken_once_over_all_it_encloses_spec_audit — round 2229; its control (a Figure owning one sequence directly) passes",
+  "status": "open"
+ },
+ {
+  "id": "2229-D01",
+  "kind": "documentation-gap",
+  "clauses": [
+   "14.7.5.4",
+   "14.8.2.2.2"
+  ],
+  "summary": "by_absence's and artifacts_by_absence's docs say three routes reach the structure tree (an /MCID sequence, an annotation's /StructParent, a declared artifact). Table 359 names a fourth, \"the stream dictionary of a form or image XObject\", which is B01's cause.",
+  "source": "ISO 32000-2 §14.7.5.4: \"Depending on the type of content item, this entry may appear in the page object of a page containing marked-content sequences, in the stream dictionary of a form or image XObject, or in an annotation dictionary.\"",
+  "code": "crates/pdf-model/src/content.rs:2583; crates/pdf-model/src/structure.rs:2563",
+  "change": "Restate both with B01's fix.",
+  "execution": "Read, not executed.",
+  "status": "open"
+ }
+]

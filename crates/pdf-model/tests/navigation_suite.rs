@@ -52,6 +52,7 @@ mod page_labels;
 mod reference_page_label_limit_spec_audit;
 mod rendition_scripts;
 mod structure;
+mod structure_14_6_14_9_spec_audit;
 mod structure_attribute_stream_audit;
 mod structure_limit_reporting_audit;
 mod structure_mcr_page_spec_audit;
