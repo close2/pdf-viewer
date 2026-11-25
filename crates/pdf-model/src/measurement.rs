@@ -212,6 +212,60 @@ impl Viewport {
         Some([(x - x0) / width, (y - y0) / height])
     }
 
+    /// A point of default user space taken along this viewport's **measuring axes**, still in
+    /// default user space units, which is what Table 267's `/X` converts from.
+    ///
+    /// Table 265's `/BBox` corner order "shall determine the orientation of the measuring
+    /// coordinate system (that is, the direction of the positive x and y axes) in this
+    /// viewport", and Table 267's `/X` says the same from the other side: "\[t]he directions of
+    /// the x and y axes are in the measuring coordinate system and are independent of the page
+    /// rotation. These directions shall be determined by the `BBox` entry of the containing
+    /// viewport". So a `/VP` entry stated `[0 400 400 0]` has its positive y running down the
+    /// page, and a coordinate is negated along each axis whose corners are stated high first.
+    ///
+    /// An image's or a form's own measure has no `/BBox` to order; its measuring axes are the
+    /// edges of the unit square Table 269 maps "to the rectangular bounds of the `Viewport`, image
+    /// `XObject`, or forms `XObject` that contains the measure dictionary", as the `Do` drew
+    /// them, each normalised to unit length so that a coordinate stays a user space length
+    /// (ADR 3665).
+    ///
+    /// Only a **signed** quantity can see the difference for a `/VP` entry — a slope, and
+    /// Table 267's change in x or y — because a corner order can only reverse an axis; a placed
+    /// object can also rotate or shear its axes, which every quantity sees where `/X` and `/Y`
+    /// differ. `None` for a placement that squeezed the object to a line or a point, which
+    /// [`Self::contains`] already never matches.
+    fn along_measuring_axes(&self, [x, y]: [f32; 2]) -> Option<[f32; 2]> {
+        let Some(Placement {
+            square: [xx, xy, yx, yy, ..],
+            ..
+        }) = self.placement
+        else {
+            let [x0, y0, x1, y1] = self.bbox;
+            let x = if x1 < x0 { -x } else { x };
+            let y = if y1 < y0 { -y } else { y };
+            return Some([x, y]);
+        };
+        let (along_u, along_v) = (xx.hypot(xy), yx.hypot(yy));
+        if along_u == 0.0 || along_v == 0.0 {
+            return None;
+        }
+        let [ux, uy, vx, vy] = [xx / along_u, xy / along_u, yx / along_v, yy / along_v];
+        let determinant = ux.mul_add(vy, -(uy * vx));
+        if determinant == 0.0 || !determinant.is_finite() {
+            return None;
+        }
+        let (x, y) = (f64::from(x), f64::from(y));
+        let across = [
+            vy.mul_add(x, -(vx * y)) / determinant,
+            ux.mul_add(y, -(uy * x)) / determinant,
+        ];
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a page coordinate read as f32 and turned through unit vectors is an f32 again"
+        )]
+        Some(across.map(|value| value as f32))
+    }
+
     /// The point in default user space at a point of the unit square — [`Self::unit_square`]
     /// run backwards, with the corners as stated for that method's reason.
     #[must_use]
@@ -425,9 +479,13 @@ impl Viewports {
     /// string, which is [`format()`]'s documented answer to an array stating no units.
     #[must_use]
     pub fn distance(&self, from: (f32, f32), to: (f32, f32)) -> Option<String> {
-        self.at(from)
-            .and_then(|viewport| viewport.measure.as_ref())
-            .and_then(|measure| measure.distance(from, to))
+        let viewport = self.at(from)?;
+        let from = viewport.along_measuring_axes([from.0, from.1])?;
+        let to = viewport.along_measuring_axes([to.0, to.1])?;
+        viewport
+            .measure
+            .as_ref()
+            .and_then(|measure| measure.distance((from[0], from[1]), (to[0], to[1])))
     }
 
     /// What a path a person traced across the page comes to, in the document's own units.
@@ -441,7 +499,9 @@ impl Viewports {
     /// So the whole path is measured in the first point's viewport even where it leaves that
     /// rectangle, which is the clause choosing one answer over two rather than this reader
     /// choosing convenience. The points are in default user space, which is where Table 265
-    /// states a `/BBox`.
+    /// states a `/BBox`, and each is taken along that viewport's measuring axes before any
+    /// quantity is computed, so a slope's sign is the measuring system's and not the page's
+    /// (`Viewport::along_measuring_axes`).
     ///
     /// # Which quantity each number is, and why all of them come back together
     ///
@@ -468,16 +528,24 @@ impl Viewports {
         let measure = viewport.measure.as_ref();
         // The last three points and the last two, taken as windows rather than by index: a path
         // shorter than either has no such leg, and `windows` is the expression of that.
-        let vertex = points.windows(3).next_back();
-        let leg = points.windows(2).next_back();
+        //
+        // Every quantity is taken along the viewport's measuring axes (Table 265's corner
+        // order); the geographic reading below keeps the page's points, because §12.10 maps
+        // them through the unit square itself.
+        let along: Vec<[f32; 2]> = points
+            .iter()
+            .map(|point| viewport.along_measuring_axes(*point))
+            .collect::<Option<_>>()?;
+        let vertex = along.windows(3).next_back();
+        let leg = along.windows(2).next_back();
         Some(Traced {
             viewport: viewport.name.clone(),
             ratio: measure
                 .and_then(Measure::rectilinear)
                 .map(|scale| scale.ratio.clone())
                 .filter(|ratio| !ratio.is_empty()),
-            length: stated(measure.and_then(|measure| measure.length(points))),
-            area: stated(measure.and_then(|measure| measure.area(points))),
+            length: stated(measure.and_then(|measure| measure.length(&along))),
+            area: stated(measure.and_then(|measure| measure.area(&along))),
             angle: stated(
                 measure
                     .zip(vertex)
@@ -777,6 +845,9 @@ impl Measure {
     /// why a plot of temperature against time, the clause's own example of such a drawing, has a
     /// gradient and no distance.
     ///
+    /// The two points are taken along the measuring axes, which is where the sign of a slope is
+    /// decided; [`Viewports::traced`] turns a page's points into them.
+    ///
     /// `None` where `/X` states no number format, and for a vertical line: a change of nothing
     /// along x has no ratio, and the standard states no slope for one. A caller is told that
     /// rather than handed an infinity with a unit on it.
@@ -901,7 +972,9 @@ pub struct NumberFormat {
     pub keep_denominator: bool,
     /// `/RT`, "\[t]ext that shall be used between orders of thousands". Default `,`.
     pub thousands: String,
-    /// `/RD`, "\[t]ext that shall be used as the decimal position". Default `.`.
+    /// `/RD`, "\[t]ext that shall be used as the decimal position". Default `.`, which an empty
+    /// string also means: unlike `/RT`, `/PS` and `/SS`, Table 268 gives `/RD`'s empty string
+    /// the default.
     pub decimal_point: String,
     /// `/PS`, text concatenated to the left of the label. Default a single space.
     pub prefix_spacing: String,
@@ -1023,18 +1096,36 @@ fn fractional_text(value: f64, format: &NumberFormat) -> String {
             // not a repair: the number of places is an arithmetic conversion of a nonzero
             // denominator, not a file value.
             let places = usize::try_from(format.denominator.max(1).ilog10()).unwrap_or(2);
-            let text = format!("{:.*}", places, value.abs().fract());
-            let digits = text.split_once('.').map_or(String::new(), |(_, rest)| {
-                if format.keep_denominator {
-                    rest.to_owned()
-                } else {
-                    rest.trim_end_matches('0').to_owned()
-                }
-            });
-            if digits.is_empty() {
-                integer(whole, format)
+            // The value is rounded to that precision **once, whole part included**, and only
+            // then split: 2.999 to hundredths is 3.00, so a fraction that rounds up to a whole
+            // unit carries into the whole part exactly as the `F` arm's does, rather than being
+            // printed as "1.00" beside an untouched 2. The product is finite because this arm
+            // only runs on a value with a fractional part, which an `f64` has only below 2^52,
+            // and a `u32` precision has at most nine places.
+            // not a repair: at most nine places for a u32 precision, so the conversion cannot fail.
+            let scale = 10f64.powi(i32::try_from(places).unwrap_or(2));
+            let in_places = (value.abs() * scale).round();
+            let carried = (in_places / scale).trunc();
+            let fraction = carried.mul_add(-scale, in_places);
+            // A precision under ten has no decimal places, and `{:.0}` would still print a 0.
+            let text = if places == 0 {
+                String::new()
             } else {
-                format!("{}{}{digits}", integer(whole, format), format.decimal_point)
+                format!("{fraction:0>places$.0}")
+            };
+            let digits = if format.keep_denominator {
+                text.as_str()
+            } else {
+                text.trim_end_matches('0')
+            };
+            if digits.is_empty() {
+                integer(carried, format)
+            } else {
+                format!(
+                    "{}{}{digits}",
+                    integer(carried, format),
+                    format.decimal_point
+                )
             }
         }
     }
@@ -1695,12 +1786,22 @@ fn number_format(document: &Document, dict: &Dictionary) -> Option<NumberFormat>
         },
         None => Fraction::Decimal,
     };
+    // `/RT`, `/PS` and `/SS`: each cell says "\[a]n empty string indicates that no text shall be
+    // added" — a *stated* value and not the default, so an absent entry and an empty one differ.
     let text = |key: &str, default: &str| match document.get_key(dict, key) {
-        // "An empty string indicates that no text shall be added" — which is a *stated* value
-        // and not the default, so an absent entry and an empty one differ here.
         Object::String(bytes) => pdf_syntax::text_string(&bytes),
         _ => default.to_owned(),
     };
+    // `/RD` is the one entry of the same shape whose empty string means the opposite. Table 268:
+    //
+    // > Text that shall be used as the decimal position in displaying numerical values. An empty
+    // > string indicates that the default shall be used. Default value: PERIOD (2Eh).
+    //
+    // So an empty `/RD` and an absent one are both the period.
+    // not a repair: Table 268's own default for an empty `/RD`, quoted above.
+    let decimal_point = Some(text("RD", "."))
+        .filter(|stated| !stated.is_empty())
+        .unwrap_or_else(|| ".".to_owned());
     Some(NumberFormat {
         unit,
         conversion,
@@ -1716,7 +1817,7 @@ fn number_format(document: &Document, dict: &Dictionary) -> Option<NumberFormat>
             }),
         keep_denominator: matches!(document.get_key(dict, "FD"), Object::Boolean(true)),
         thousands: text("RT", ","),
-        decimal_point: text("RD", "."),
+        decimal_point,
         prefix_spacing: text("PS", " "),
         suffix_spacing: text("SS", " "),
         label_before_value: document
@@ -1874,8 +1975,8 @@ pub fn annotation_measurement(document: &Document, annotation: &Dictionary) -> O
 #[cfg(test)]
 mod tests {
     use super::{
-        CoordinateSystem, Fraction, Geospatial, Measure, NumberFormat, Placement, Viewport,
-        Viewports, format,
+        CoordinateSystem, Fraction, Geospatial, Measure, NumberFormat, Placement, Rectilinear,
+        Viewport, Viewports, format,
     };
     use crate::geospatial::{GeographicPosition, Refusal};
     use pdf_syntax::Document;
@@ -2031,6 +2132,102 @@ mod tests {
         );
         assert_eq!(format(7.5, &[with(Fraction::Round, 100, false)]), "8 in");
         assert_eq!(format(7.5, &[with(Fraction::Truncate, 100, false)]), "7 in");
+        // A decimal is rounded to /D's precision once, whole part included, so the leading
+        // zero of a small fraction is kept and a rounding up carries into the whole unit.
+        assert_eq!(
+            format(7.004, &[with(Fraction::Decimal, 1000, true)]),
+            "7.004 in"
+        );
+        assert_eq!(
+            format(7.996, &[with(Fraction::Decimal, 100, true)]),
+            "8.00 in",
+            "7.996 to hundredths is 8.00"
+        );
+        assert_eq!(
+            format(7.6, &[with(Fraction::Decimal, 1, true)]),
+            "8 in",
+            "a precision of one has no decimal places, so the value rounds to a whole unit"
+        );
+    }
+
+    /// One unit of `label` per `conversion` user space units, with Table 268's defaults.
+    fn unit_format(label: &str, conversion: f64) -> NumberFormat {
+        NumberFormat {
+            unit: label.to_owned(),
+            conversion,
+            fraction: Fraction::Decimal,
+            denominator: 100,
+            keep_denominator: false,
+            thousands: ",".to_owned(),
+            decimal_point: ".".to_owned(),
+            prefix_spacing: " ".to_owned(),
+            suffix_spacing: " ".to_owned(),
+            label_before_value: false,
+        }
+    }
+
+    /// Table 265's corner order reverses a measuring axis, and only the signed quantity sees it.
+    #[test]
+    fn a_reversed_axis_changes_the_slope_and_no_unsigned_quantity() {
+        let measure = Measure::Rectilinear(Box::new(Rectilinear {
+            x: vec![unit_format("u", 1.0)],
+            distance: vec![unit_format("u", 1.0)],
+            area: vec![unit_format("u2", 1.0)],
+            angle: vec![unit_format("deg", 1.0)],
+            slope: vec![unit_format("rise", 1.0)],
+            ..Rectilinear::default()
+        }));
+        let traced = |bbox: [f32; 4], path: &[[f32; 2]]| {
+            Viewports {
+                viewports: vec![Viewport {
+                    bbox,
+                    name: None,
+                    measure: Some(measure.clone()),
+                    has_point_data: false,
+                    placement: None,
+                }],
+            }
+            .traced(path)
+            .expect("the first point is inside")
+        };
+        let path = [[10.0, 10.0], [40.0, 10.0], [40.0, 50.0]];
+        let upright = traced([0.0, 0.0, 100.0, 100.0], &path);
+        let reversed = traced([0.0, 100.0, 100.0, 0.0], &path);
+        assert_eq!(upright.length, reversed.length);
+        assert_eq!(upright.area, reversed.area);
+        assert_eq!(upright.angle, reversed.angle);
+        let leg = [[10.0, 10.0], [40.0, 40.0]];
+        let slope = |bbox| traced(bbox, &leg).slope;
+        assert_eq!(slope([0.0, 0.0, 100.0, 100.0]).as_deref(), Some("1 rise"));
+        assert_eq!(
+            slope([100.0, 100.0, 0.0, 0.0]).as_deref(),
+            Some("1 rise"),
+            "both axes reversed"
+        );
+        assert_eq!(slope([100.0, 0.0, 0.0, 100.0]).as_deref(), Some("-1 rise"));
+    }
+
+    /// An object's own measure takes its axes from its unit square as the `Do` drew it: an image
+    /// turned a quarter turn has its measuring x along the page's y (ADR 3665).
+    #[test]
+    fn a_placed_objects_measuring_axes_turn_with_it() {
+        let viewport = Viewport {
+            bbox: [0.0, 0.0, 100.0, 100.0],
+            name: None,
+            measure: None,
+            has_point_data: false,
+            placement: Some(Placement {
+                square: [0.0, 100.0, -100.0, 0.0, 100.0, 0.0],
+                bounds: [0.0, 0.0, 1.0, 1.0],
+            }),
+        };
+        let along = viewport
+            .along_measuring_axes([30.0, 20.0])
+            .expect("a quarter turn is not singular");
+        assert!(
+            (along[0] - 20.0).abs() < 1e-4 && (along[1] + 30.0).abs() < 1e-4,
+            "{along:?}"
+        );
     }
 
     /// Overlapping viewports: the **last** one containing the point wins.

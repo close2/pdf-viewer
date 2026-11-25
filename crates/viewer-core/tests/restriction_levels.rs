@@ -477,13 +477,13 @@ fn an_override_of_nothing_is_the_windows_own_policy() {
 /// and then opens everything; `Warn` opens it and says so afterwards. ADR 1167.
 #[test]
 fn a_document_over_the_penalty_threshold_is_processed_at_the_level_the_reader_set() {
-    // Two requirements `Kind::unmet` answers — ECMAScript is excluded by `CLAUDE.md` principle 5
-    // and `Markup`'s modification and deletion are not built — and one it meets, priced at 100 to
+    // Two requirements `Kind::unmet` answers — a form `XObject` media clip is not presented and
+    // `Markup`'s modification and deletion are not built — and one it meets, priced at 100 to
     // show that a *met* requirement costs nothing: Table 273 prices "the penalty value to be
     // applied when this requirement cannot be met by a PDF processor".
     let bytes: Vec<u8> = b"%PDF-2.0\n\
          1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Requirements [\
-         << /S /EnableJavaScripts /Penalty 60 >> << /S /Markup /Penalty 55 >> \
+         << /S /Multimedia /Penalty 60 >> << /S /Markup /Penalty 55 >> \
          << /S /Navigation /Penalty 100 >>] >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n\
@@ -608,7 +608,7 @@ fn answering_the_processing_question_opens_the_document_or_forgets_it() {
     // *total* — a limit on one entry could never fire.
     let bytes: Vec<u8> = b"%PDF-2.0\n\
          1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Requirements [\
-         << /S /EnableJavaScripts /Penalty 60 >> << /S /Markup /Penalty 55 >>] >>\nendobj\n\
+         << /S /Multimedia /Penalty 60 >> << /S /Markup /Penalty 55 >>] >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n\
          trailer\n<< /Root 1 0 R /Size 4 >>\n"

@@ -1941,7 +1941,7 @@ fn a_document_whose_unmet_requirements_pass_the_clauses_threshold_says_the_total
     // sum of the *unmet* two, which is what Table 273 prices — "the penalty value to be applied
     // when this requirement cannot be met by a PDF processor".
     let over = about(
-        "<< /S /EnableJavaScripts /Penalty 60 >> << /S /Markup /Penalty 55 >> \
+        "<< /S /Multimedia /Penalty 60 >> << /S /Markup /Penalty 55 >> \
          << /S /Navigation /Penalty 100 >>",
     );
     assert!(
@@ -1951,7 +1951,7 @@ fn a_document_whose_unmet_requirements_pass_the_clauses_threshold_says_the_total
     );
     assert!(
         over.iter()
-            .any(|note| note.contains("this document requires EnableJavaScripts (penalty 60)")),
+            .any(|note| note.contains("this document requires Multimedia (penalty 60)")),
         "and each requirement is still named beside the total: {over:?}"
     );
     // Annex I gives requirements a processor "is not prepared to process" the same warning as a
@@ -1970,7 +1970,7 @@ fn a_document_whose_unmet_requirements_pass_the_clauses_threshold_says_the_total
         "{over:?}"
     );
 
-    let at_the_limit = about("<< /S /EnableJavaScripts /Penalty 100 >> << /S /Navigation >>");
+    let at_the_limit = about("<< /S /Multimedia /Penalty 100 >> << /S /Navigation >>");
     assert!(
         !at_the_limit
             .iter()
@@ -1980,7 +1980,7 @@ fn a_document_whose_unmet_requirements_pass_the_clauses_threshold_says_the_total
     assert!(
         at_the_limit
             .iter()
-            .any(|note| note.contains("this document requires EnableJavaScripts")),
+            .any(|note| note.contains("this document requires Multimedia")),
         "though the requirement itself is still named: {at_the_limit:?}"
     );
 }

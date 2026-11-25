@@ -269,7 +269,7 @@ impl Kind {
     /// against §12.11.2's ledger row.
     ///
     /// `None` means met. The three shapes of "not met" are all here on purpose — a feature this
-    /// project *excludes* (`CLAUDE.md` principle 5), a feature that is a viewer's rather than a
+    /// project *excludes* (`CLAUDE.md`'s closed list), a feature that is a viewer's rather than a
     /// renderer's and is not built, and a feature nobody has written yet.
     ///
     /// **A reason names what is missing, never a clause as unread** — "§12.8 is unread" is a claim
@@ -327,6 +327,15 @@ impl Kind {
             // its report says so and one painting operation's colourants take the same steps (ADR
             // 1229). The GPU backend refuses a separated page by name and the CPU backend draws
             // it, which is the job `CLAUDE.md` keeps that backend for.
+            //
+            // **`EnableJavaScripts` is met**, on Table 275's words, "support for execution of
+            // ECMAScripts appearing in ECMAScript actions and in the ECMAScript name tree for
+            // document-level ECMAScripts": both are executed (`view::script_sites`, RFC 0008),
+            // in the confined `pdf-script-worker` at the level the reader sets, which is `off`
+            // until a host says otherwise (ADR 1616). A level the reader chose is the reader's
+            // restriction on a capability the program has, as with `SeparationSimulation` above
+            // (`doc/questions/A100`), and what a script may not reach — every call that leaves
+            // the process — is an API Table 275 does not name (ADR 3666).
             Self::OcAutoStates
             | Self::Navigation
             | Self::Encryption
@@ -335,7 +344,8 @@ impl Kind {
             | Self::Attachment
             | Self::Collection
             | Self::Transitions
-            | Self::SeparationSimulation => return None,
+            | Self::SeparationSimulation
+            | Self::EnableJavaScripts => return None,
             // **Each reason below says the part that is genuinely missing**, never a clause as
             // *unread*: that is the cheapest of `doc/todo/01`'s shapes to check and the one
             // nothing fires on.
@@ -409,16 +419,48 @@ impl Kind {
                  and §12.8.2.2.2's comparison of the signed revision with the current one is not \
                  performed"
             }
-            Self::Geospatial2D | Self::Geospatial3D => {
-                // §12.10's dictionaries are all read (§12.10.2, §12.10.3); the projection needs
-                // the EPSG registry and ISO 19162's WKT, both outside this standard.
-                "no geospatial projection: §12.10's dictionaries are read, and turning a page \
-                 point into a coordinate needs the EPSG registry"
+            Self::Geospatial2D => {
+                // "Requires support for processing provided geospatial information in the page
+                // content and associated resources." A point in a `GEO` viewport, or in an image
+                // or a form drawn with its own measure, is answered with a latitude and a
+                // longitude (`crate::geospatial`, `viewer_core::located`) for a system stated in
+                // ISO 19162's WKT. Two of Table 270's statements are not processed: a system
+                // named by its `/EPSG` code alone, because no registry is carried, and a
+                // projection or datum method outside those `geospatial::system` carries; each is
+                // refused by name (`geospatial::Refusal`).
+                "a geographic position is answered for a system stated in WKT; a system named \
+                 by its EPSG code alone, or by a projection or datum method this program does \
+                 not carry, is refused by name"
             }
-            // Excluded by CLAUDE.md principle 5's closed list.
-            Self::EnableJavaScripts => "ECMAScript is excluded by this project's principle 5",
-            Self::Multimedia | Self::RichMedia | Self::ThreeDMarkup | Self::U3d | Self::Prc => {
-                "clause 13's multimedia and 3D are excluded by this project's principle 5"
+            Self::Geospatial3D => {
+                // "This type requires provision within the 3D Annotation, and also applies 3D
+                // requirements to Geospatial information" — and rendering 3D artwork is on the
+                // closed list of exclusions.
+                "rendering 3D artwork is excluded by this project's scope, and with it the \
+                 geospatial information 3D annotations carry"
+            }
+            Self::Multimedia => {
+                // "Requires support for multimedia ( Screen ) annotations", and "[t]he support
+                // that is required is for the general multimedia framework". Rendition actions are
+                // performed, §13.2.2's viability is judged with `MH` and `BE` (ADR 1960), audio
+                // is played (A946) and H.264 video in an MP4 file is played in the screen
+                // annotation's rectangle (A1006); a media clip that is a form `XObject`, whose
+                // "associated player is implicitly the interactive PDF processor" (Table 285), is
+                // named and not presented.
+                "the multimedia framework's renditions are judged and played, audio and H.264 \
+                 video by this program; a media clip that is a form XObject is named and not \
+                 presented"
+            }
+            Self::RichMedia => {
+                // "Requires support for playing rich media annotations as specified in 13.7.2".
+                // An annotation's assets are listed and saved as attachments (ADR 2399); its
+                // configurations are not played.
+                "rich media annotations are not played: their assets are listed and saved as \
+                 attachments"
+            }
+            // On the closed list of exclusions in `CLAUDE.md`: the rendering of 3D artwork.
+            Self::ThreeDMarkup | Self::U3d | Self::Prc => {
+                "rendering 3D artwork is excluded by this project's scope"
             }
             Self::Other(_) => "a requirement type this reader does not recognise",
         })
@@ -814,24 +856,25 @@ mod tests {
 
     /// What this program cannot meet is named, and what it can is not.
     ///
-    /// `Navigation` and `AcroFormInteract` are met — links, outlines and the three actions the
-    /// clause names, and a field a person can type into and save — and the other two are not,
-    /// for two different reasons the strings say. `AcroFormInteract` is met because
-    /// `ViewState::set_field` edits the value (ADR 0120).
+    /// `Navigation`, `AcroFormInteract`, `EnableJavaScripts` and `SeparationSimulation` are met —
+    /// links, outlines and the three actions the clause names, a field a person can type into and
+    /// save (`ViewState::set_field`, ADR 0120), document scripts run at the reader's level (ADR
+    /// 3666) — and `Markup` and `U3D` are not, for the two different reasons the strings say: a
+    /// verb not built, and an exclusion.
     #[test]
     fn the_requirements_this_program_cannot_meet_are_named() {
         let doc = document(
             "<< /Type /Catalog /Pages 2 0 R /Requirements [ \
              << /S /Navigation >> << /S /EnableJavaScripts >> << /S /AcroFormInteract >> \
-             << /S /Markup >> << /S /SeparationSimulation >> ] >>",
+             << /S /Markup >> << /S /SeparationSimulation >> << /S /U3D >> ] >>",
         );
         let unmet = unmet(&doc);
         let kinds: Vec<&str> = unmet.iter().map(|(r, _)| r.kind.as_str()).collect();
-        assert_eq!(kinds, vec!["EnableJavaScripts", "Markup"]);
+        assert_eq!(kinds, vec!["Markup", "U3D"]);
         assert!(
             unmet
-                .first()
-                .is_some_and(|(_, reason)| reason.contains("principle 5")),
+                .last()
+                .is_some_and(|(_, reason)| reason.contains("excluded by this project's scope")),
             "an exclusion says so: {unmet:?}"
         );
     }
@@ -839,7 +882,7 @@ mod tests {
     /// §12.11.3's threshold, over the total §12.11.6 asks a processor to compute.
     ///
     /// The fixture prices four requirements and this program meets two of them, so the two that
-    /// decide the total are `EnableJavaScripts` at 60 and `Markup` at 55. Three things are
+    /// decide the total are `Multimedia` at 60 and `Markup` at 55. Three things are
     /// pinned at once and each is a sentence of the clause rather than a convenience:
     ///
     /// - the total is a **sum**, so 115 rather than 60 — Table 273 bounds one entry at 100 and
@@ -855,7 +898,7 @@ mod tests {
     fn the_penalty_total_sums_the_requirements_this_program_cannot_meet() {
         let doc = document(
             "<< /Type /Catalog /Pages 2 0 R /Requirements [ \
-             << /S /Navigation /Penalty 100 >> << /S /EnableJavaScripts /Penalty 60 >> \
+             << /S /Navigation /Penalty 100 >> << /S /Multimedia /Penalty 60 >> \
              << /S /Collection /Penalty 100 >> << /S /Markup /Penalty 55 >> ] >>",
         );
         assert_eq!(penalty_total(&doc), 115);
@@ -863,7 +906,7 @@ mod tests {
 
         let defaulted = document(
             "<< /Type /Catalog /Pages 2 0 R /Requirements [ \
-             << /S /Navigation /Penalty 100 >> << /S /EnableJavaScripts >> \
+             << /S /Navigation /Penalty 100 >> << /S /Multimedia >> \
              << /S /Collection /Penalty 100 >> << /S /Markup >> ] >>",
         );
         assert_eq!(

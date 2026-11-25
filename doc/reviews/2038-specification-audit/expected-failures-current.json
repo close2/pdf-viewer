@@ -8,26 +8,7 @@
   "engine.log": "cargo nextest run -p pdf-script --features engine -E binary(matrix2d_reference_spec_audit): 1 failed"
  },
  "logs_directory": "/home/quorra/scratch/agent/r2070/",
- "failures": [
-  {
-   "binary": "pdf-model::navigation_suite",
-   "test": "measurement_12_9_spec_audit::a_decimal_that_rounds_up_to_a_whole_unit_carries_into_it_spec_audit",
-   "finding": "2239-B01",
-   "log": "round-2239 nextest of pdf-model"
-  },
-  {
-   "binary": "pdf-model::navigation_suite",
-   "test": "measurement_12_9_spec_audit::an_empty_decimal_position_is_the_default_period_spec_audit",
-   "finding": "2239-B02",
-   "log": "round-2239 nextest of pdf-model"
-  },
-  {
-   "binary": "pdf-model::navigation_suite",
-   "test": "measurement_12_9_spec_audit::a_slope_is_taken_along_the_axes_the_viewport_orders_spec_audit",
-   "finding": "2239-B03",
-   "log": "round-2239 nextest of pdf-model"
-  }
- ],
+ "failures": [],
  "no_longer_failing": [
   {
    "binary": "pdf-model::fixed_documents",

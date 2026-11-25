@@ -11,7 +11,7 @@
   "code": "crates/pdf-model/src/measurement.rs:1020-1038 (fractional_text, Fraction::Decimal: places from ilog10, format!(\"{:.*}\", places, value.abs().fract()), the integer part from value.trunc() printed separately); the Fractional arm beside it carries at :1006-1010",
   "change": "Round the value to the stated precision once (value * D, rounded, as an integer of D-ths), then split that into the whole part and the digits, so a rounding up to D/D carries into the whole part as the Fractional arm already does.",
   "execution": "FAIL (expected): crates/pdf-model/tests/measurement_12_9_spec_audit.rs::a_decimal_that_rounds_up_to_a_whole_unit_carries_into_it_spec_audit (navigation_suite) \u2014 round 2239: got \"2 u\" for 2.999; its control (2.5 \u2192 \"2.5 u\") passes.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2239-B02",
@@ -24,7 +24,7 @@
   "code": "crates/pdf-model/src/measurement.rs:1698-1703 (the text closure: an empty string kept as stated) and :1719 (decimal_point: text(\"RD\", \".\"))",
   "change": "Read /RD so that an empty string (and an absent entry) is the period; keep /RT, /PS and /SS as they are, and correct the closure's comment to say which of the four it describes.",
   "execution": "FAIL (expected): crates/pdf-model/tests/measurement_12_9_spec_audit.rs::an_empty_decimal_position_is_the_default_period_spec_audit (navigation_suite) \u2014 round 2239: got \"125 u\"; its control (/RD (,) \u2192 \"12,5 u\") passes.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2239-B03",
@@ -37,7 +37,7 @@
   "code": "crates/pdf-model/src/measurement.rs:784-795 (Measure::slope: dx, dy straight from default user space) and :465-497 (Viewports::traced hands the measure the page's points without the viewport's orientation); the reading that honours the order: Viewport::unit_square_at :189-213",
   "change": "Carry the viewport's axis directions (the signs of x1 - x0 and y1 - y0, or the object's placement for an image or form measure) into the measuring computation, so that Measure::slope (and any later signed quantity, such as Table 267's change in x or y) is taken in the measuring system; the unsigned quantities are unchanged.",
   "execution": "FAIL (expected): crates/pdf-model/tests/measurement_12_9_spec_audit.rs::a_slope_is_taken_along_the_axes_the_viewport_orders_spec_audit (navigation_suite) \u2014 round 2239: got \"1 rise\" in [0 400 400 0]; its control ([0 0 400 400] \u2192 \"1 rise\") passes.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2239-D01",
@@ -51,6 +51,6 @@
   "code": "crates/pdf-model/src/requirements.rs:412-422 (the three arms); crates/pdf-model/src/view/script_sites.rs:113-147 (scripts run); crates/viewer-core/src/located.rs:53 (positions answered); crates/pdf-model/src/geospatial/mod.rs:1-31",
   "change": "Re-read each of the three arms against the tree as the method's own doc comment asks: state what is missing in each (the calls a script may not make; video and 3D; a system named by EPSG code alone), and decide met or unmet by Table 275's wording.",
   "execution": "Read, not executed.",
-  "status": "open"
+  "status": "fixed"
  }
 ]
