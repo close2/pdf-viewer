@@ -126,7 +126,7 @@ static DEVICE_INK: OnceLock<Arc<Press>> = OnceLock::new();
 ///   `1 − (0.3 R + 0.59 G + 0.11 B)`, because the black it adds is the black it removes from
 ///   weights summing to one. That is the grey the one-channel route paints the same colour in, so
 ///   under `Normal` the two routes composite to one mask value; a grey comes in as black alone,
-///   which is §10.4.2.2's conversion. A `DeviceCMYK` colour keeps its numbers.
+///   which is §10.4.2.3's conversion. A `DeviceCMYK` colour keeps its numbers.
 /// - **Out**, §11.5.3's `Y` is EXAMPLE 2's, [`pdf_render::Luminance::device_ink`], read off the
 ///   composited four. The grid it carries is the assumed press's, for a caller that asks; a mask
 ///   converts nothing to the device.

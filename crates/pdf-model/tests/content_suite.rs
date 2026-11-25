@@ -21,6 +21,7 @@ mod content_streams;
 mod content_window;
 mod contents_q_stack_cross_part_spec_audit;
 mod coordinate_graphics_state_spec_audit;
+mod coordinates_8_3_10_4_spec_audit;
 mod damaged_content_streams;
 mod degenerate_shading_bbox_spec_audit;
 mod degenerate_shading_geometry_spec_audit;

@@ -1,0 +1,24 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2237 on main b0f478b8",
+ "failures": [
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "coordinates_8_3_10_4_spec_audit::a_device_gray_colour_never_paints_a_spot_colourant_spec_audit",
+   "finding": "2237-B02",
+   "log": "round-2237 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "coordinates_8_3_10_4_spec_audit::a_grey_is_black_ink_alone_on_the_assumed_simulated_press_spec_audit",
+   "finding": "2237-B03",
+   "log": "round-2237 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "coordinates_8_3_10_4_spec_audit::a_pattern_in_a_type3_glyph_is_placed_in_the_glyphs_space_spec_audit",
+   "finding": "2237-B01",
+   "log": "round-2237 nextest of pdf-model"
+  }
+ ]
+}

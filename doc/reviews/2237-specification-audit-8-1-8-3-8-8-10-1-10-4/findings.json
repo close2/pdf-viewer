@@ -1,0 +1,76 @@
+[
+ {
+  "id": "2237-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "8.3.2.4",
+   "8.7.2",
+   "9.6.4",
+   "11.6.7"
+  ],
+  "summary": "A pattern a Type 3 glyph description paints with, stated in the font's (or the glyph stream's own) /Resources, is placed against the page's default coordinate space (or the enclosing form's), not against the glyph description's own. The interpreter swaps Interpreter::base, the space a pattern matrix maps to, at a form's Do, an imported page, an annotation appearance, a tiling cell and a soft mask's group, but not where a glyph description begins, although run() does reset the companion pattern_initial (\u00a711.6.7) there. A glyph filling its square with a shading pattern draws the pattern's x 50 at the page's centre instead of its x 500.",
+  "source": "ISO 32000-2 \u00a78.7.2: \"Every pattern has a pattern matrix , a transformation matrix that maps the pattern's internal coordinate system to the default coordinate system of the pattern's parent content stream (the content stream in which the pattern is defined as a resource).\" \u00a78.3.2.4: \"The transformation from pattern space to user space shall be specified by a pattern matrix contained in the pattern.\" Table 110 /Resources: the named resources \"required by the glyph descriptions in this font\"; \u00a79.6.4: \"When the glyph description begins execution, the current transformation matrix (CTM) shall be the concatenation of the font matrix ( FontMatrix in the current font dictionary) and the text space that was in effect at the time the text-showing operator was invoked\". Errata Collection 3 Issue #128 (H7.8.3) puts the glyph stream's own /Resources first.",
+  "code": "crates/pdf-model/src/content/text/type3.rs:96 (inner.transform set; self.base left as the caller's); crates/pdf-model/src/content/pattern.rs:441-464 (transform: matrix.then(self.base)); crates/pdf-model/src/content/pattern/tiling.rs:228; the right sites: crates/pdf-model/src/content/xobject.rs:274, annotations.rs:554, pattern/cell.rs:156, transparency/soft_mask.rs:411; crates/pdf-model/src/content/run.rs:103 (pattern_initial reset for every nested run, glyphs included)",
+  "change": "In draw_type3_glyph, swap self.base for inner.transform (FontMatrix x text space) around the glyph's run and restore it after, where the glyph's resources are the glyph stream's or the font's own; a Type 3 font stating no /Resources reads the page's (Issue #128's last step), whose parent content stream is the page, and the fix round decides that case by the same sentence.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/coordinates_8_3_10_4_spec_audit.rs::a_pattern_in_a_type3_glyph_is_placed_in_the_glyphs_space_spec_audit (content_suite) \u2014 round 2237: [242, 0, 13] at the centre, where half blue is expected; its control (the same pattern and square through a form XObject with the same 1/10 /Matrix) passes.",
+  "status": "open"
+ },
+ {
+  "id": "2237-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "10.2",
+   "10.3.2",
+   "10.4.2.3",
+   "10.8.3"
+  ],
+  "summary": "On \u00a710.8.3's simulated press under a CMYK output intent, DeviceGray is read as a one-component Separation whose colourant is named DeviceGray (intent_grey.rs, ADR 2758). A page may name a spot colourant /DeviceGray; the simulated device then has a plane of that name, SpotSet::available finds the construction's name among the planes, and every DeviceGray colour (fills, strokes, images, shadings) paints that spot plate at the grey value instead of the process black 1 - gray. With a cyan spot named /DeviceGray, '0.5 g' draws [128, 214, 247] where '0 0 0 0.5 k' draws [145, 143, 144].",
+  "source": "ISO 32000-2 \u00a710.2: \"Colours specified in any device or CIE-based colour space shall be rendered as process colours.\" and \"A device may also support additional spot colourants, which shall be painted only by means of Separation or DeviceN colour spaces that define such spot colourants.\" \u00a710.3.2's DeviceGray to CMYK via \u00a710.4.2.3.",
+  "code": "crates/pdf-colour/src/colour/intent_grey.rs:56-64 (NAMES: 'no spot colourant a page can name collides'); crates/pdf-colour/src/colour/spots.rs:401 (available) and :425 (named: Separation whose names are available paints Direct)",
+  "change": "Make the grey construction unable to name a plane: SpotSet::named (and reach/overprint) answer Named::Process for a space is_grey_as_intent_black() reports, before the names are compared; or give Tints::GreyAsBlack its own ColourSpace arm rather than a Separation's name.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/coordinates_8_3_10_4_spec_audit.rs::a_device_gray_colour_never_paints_a_spot_colourant_spec_audit (content_suite) \u2014 round 2237; its control (the same page with the spot named /Gold) passes.",
+  "status": "open"
+ },
+ {
+  "id": "2237-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "10.3.2",
+   "10.4.2.3",
+   "10.8.3"
+  ],
+  "summary": "\u00a710.8.3's simulation of a page with no CMYK output intent composites in the assumed inks (simulated_press and PagePress fall back to assumed_press), a device whose native colour space is CMYK, but output_intent::grey_reading answers GreyReading::Device there, so DeviceGray is separated into all four inks as a neutral by rgb_to_ink rather than converted by \u00a710.4.2.3's method. '0.5 g' draws [128, 128, 128] on that press where '0 0 0 0.5 k' draws [145, 143, 144]; under a CMYK intent the two draw alike.",
+  "source": "ISO 32000-2 \u00a710.3.2: \"If the native device colour space is CMYK, then converting colours in the DeviceGray colour space to that CMYK should follow the method described in 10.4.2.3 , ' Conversion between DeviceGray and DeviceCMYK\".\" \u00a710.4.2.3 (formula as Errata Collection 3 respells it, H10.4.2.3): cyan = magenta = yellow = 0.0, black = 1.0 - gray. \u00a710.8.3 a): \"The PDF processor determines what process colours and possible spot colours the simulated device is to have.\"",
+  "code": "crates/pdf-model/src/output_intent.rs:156-162 (grey_reading keys on the intent alone); crates/pdf-model/src/content.rs:1484-1494 (simulated_press: the assumed press without an intent); crates/pdf-model/src/content/transparency/press.rs:298; crates/pdf-colour/src/colour/intent_grey.rs:66 (grey_as_intent_black needs an Icc intent)",
+  "change": "Where the reader asks for the simulation and the page has no four-component intent, read DeviceGray as the assumed press's black ink alone too (ADR 2712's construction over the assumed inks profile), keeping the screen view's neutral grey; a 'should', so a fix round that declines it records the departure and why.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/coordinates_8_3_10_4_spec_audit.rs::a_grey_is_black_ink_alone_on_the_assumed_simulated_press_spec_audit (content_suite) \u2014 round 2237; its control (the same grey under a CMYK intent) passes.",
+  "status": "open"
+ },
+ {
+  "id": "2237-D01",
+  "kind": "documentation-gap",
+  "clauses": [
+   "10.4.2.2",
+   "10.4.2.3"
+  ],
+  "summary": "device_ink_press's documentation said a grey entering the device-ink press as black alone 'is \u00a710.4.2.2's conversion'; DeviceGray to black 1 - gray is \u00a710.4.2.3's (\u00a710.4.2.2 is gray to RGB).",
+  "source": "ISO 32000-2 \u00a710.4.2.3, as Errata Collection 3 respells its formula (H10.4.2.3).",
+  "code": "crates/pdf-colour/src/colour/press.rs:129",
+  "change": "Cite \u00a710.4.2.3.",
+  "execution": "Read, not executed. Fixed in round 2237 (a one-line doc slip).",
+  "status": "fixed"
+ },
+ {
+  "id": "2237-D02",
+  "kind": "documentation-gap",
+  "clauses": [
+   "8.7.2"
+  ],
+  "summary": "Interpreter::base's field documentation and the comment above a shading pattern's placement say a pattern is placed against 'the page's default coordinates/space'; \u00a78.7.2 places it against its parent content stream's default space, which is what the code does for forms, patterns, annotation appearances and soft masks (and, B01, not for Type 3 glyphs). Left for B01's fix round, which rewrites the same lines.",
+  "source": "ISO 32000-2 \u00a78.7.2 (quoted under B01).",
+  "code": "crates/pdf-model/src/content.rs:2897-2902; crates/pdf-model/src/content/pattern.rs:438-440",
+  "change": "State the parent content stream's default space, citing \u00a78.7.2.",
+  "execution": "Read, not executed.",
+  "status": "open"
+ }
+]
