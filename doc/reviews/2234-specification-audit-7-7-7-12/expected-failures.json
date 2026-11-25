@@ -1,0 +1,30 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2234 on main 6116e221",
+ "failures": [
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "resources_7_8_3_spec_audit::a_type3_glyphs_own_resources_name_its_spot_colourant_spec_audit",
+   "finding": "2234-B01",
+   "log": "round-2234 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "resources_7_8_3_spec_audit::a_group_marked_inside_a_pattern_is_referenced_by_the_page_spec_audit",
+   "finding": "2234-B02",
+   "log": "round-2234 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::content_suite",
+   "test": "resources_7_8_3_spec_audit::a_group_marked_inside_an_annotation_appearance_is_referenced_by_the_page_spec_audit",
+   "finding": "2234-B02",
+   "log": "round-2234 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-syntax::text_string_prefix_spec_audit",
+   "test": "a_text_beginning_with_a_prefix_spelling_is_written_in_a_unicode_form_spec_audit",
+   "finding": "2234-B03",
+   "log": "round-2234 nextest of pdf-syntax"
+  }
+ ]
+}

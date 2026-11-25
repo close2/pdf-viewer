@@ -1,0 +1,59 @@
+[
+ {
+  "id": "2234-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.8.3",
+   "9.6.4",
+   "10.8.3",
+   "11.6.3"
+  ],
+  "summary": "A Type 3 glyph description's own /Resources is not walked by the two pdf-model readers that search a page's resources ahead of interpretation. colourants::spot_colourants (the spot planes of 10.8.3's simulation) follows a Type 3 font into the font dictionary's /Resources only, so a Separation space stated in the glyph stream's own /Resources gets no plane although the interpreter paints the glyph from that dictionary; content/ext_gstate.rs's resources_blend (whether a soft mask's group can reach a non-Normal blend mode, which picks the CMYK group's construction) has the same omission. The same space stated in the font dictionary's /Resources is found.",
+  "source": "ISO 32000-2 \u00a77.8.3 as Errata Collection 3's Issue #128 restates it (Review/Completed; doc/errata/site/docs/32000-2-2020/clause07.md H7.8.3): a glyph description's named resources shall be present in the resource dictionary designated by the first Resources entry found in the glyph stream dictionary, then the Type 3 font dictionary, then the page and its inheritance. \u00a77.8.2: \"Content streams shall also be used to package sequences of instructions as self-contained graphical elements, such as forms (see 8.10, \"Form XObjects\"), patterns (8.7, \"Patterns\"), certain fonts (9.6.4, \"Type 3 fonts\"), and annotation appearances (12.5.5, \"Appearance streams\").\"",
+  "code": "crates/pdf-model/src/colourants.rs:515 (Role::Font pushes the font dictionary's /Resources only; module doc 'a Type 3 font's own /Resources'); crates/pdf-model/src/content/ext_gstate.rs:714 (blends_under: the Font arm reads the font dictionary's /Resources only); the interpreter's route that is right: crates/pdf-model/src/content/text/type3.rs:101 and crates/pdf-model/src/type3.rs:463 (Type3Font::resources)",
+  "change": "In both walks, beneath a Type 3 font, also push the /Resources of each /CharProcs stream that states one (bounded by the walks' existing seen-set and budgets), so the search reaches every dictionary the interpreter can draw a glyph from.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/resources_7_8_3_spec_audit.rs::a_type3_glyphs_own_resources_name_its_spot_colourant_spec_audit (content_suite) \u2014 round 2234; its control (the space in the font dictionary's /Resources) passes. resources_blend has no public observable short of a CMYK luminosity mask's raster and is not tested separately.",
+  "status": "open"
+ },
+ {
+  "id": "2234-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.8.2",
+   "7.8.3",
+   "8.11.4.3"
+  ],
+  "summary": "optional_content::groups_referenced_by, Table 99's ListMode VisiblePages answer, follows a page's resources into form XObjects only. A group named by a BDC /OC inside a tiling pattern's cell (the pattern's own /Resources /Properties) or inside an annotation's normal appearance stream is not listed, although the page paints both; the same group marked inside a form the page draws is listed. A Type 3 glyph description's resources are not followed either.",
+  "source": "ISO 32000-2 \u00a77.8.3: \"A content stream's named resources shall be defined by a resource dictionary, which shall enumerate the named resources needed by the operators in the content stream and the names by which they can be referred to.\" \u00a77.8.2's list of content streams (forms, patterns, Type 3 fonts, annotation appearances). Table 99 ListMode: \"VisiblePages Display only those groups in the Order array that are referenced by one or more visible pages.\"",
+  "code": "crates/pdf-model/src/optional_content.rs:912 (gather_from_resources: /Properties and /XObject only) and :878 (groups_referenced_by: an annotation's own /OC, not its appearance's resources)",
+  "change": "Walk the content-stream resource dictionaries \u00a77.8.2 lists: a tiling pattern's /Resources under /Pattern, a Type 3 font's and its glyph streams' /Resources under /Font, and each annotation's normal appearance streams' /Resources, under the existing depth bound and visited set.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/resources_7_8_3_spec_audit.rs::a_group_marked_inside_a_pattern_is_referenced_by_the_page_spec_audit and ::a_group_marked_inside_an_annotation_appearance_is_referenced_by_the_page_spec_audit (content_suite) \u2014 round 2234; each control (the group marked inside a form the page draws) passes",
+  "status": "open"
+ },
+ {
+  "id": "2234-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "7.9.2.2.1"
+  ],
+  "summary": "pdf_syntax::text_string::encode_text_string writes a text that begins with \u00fe\u00ff or with \u00ef\u00bb\u00bf in PDFDocEncoding, because every character has a Table D.3 code; the bytes then begin FE FF or EF BB BF and text_string reads them back as UTF-16BE or UTF-8 ('\u00fe\u00ff names' returns as CJK-range garbage). The function's own doc says the round trip through text_string is what 'fits' means. It is the writer behind field values, annotation text and attachment names in pdf-model, pdf-transform and the archive (37 call sites).",
+  "source": "ISO 32000-2 \u00a77.9.2.2.1: \"For text strings encoded in UTF-16BE, the first two bytes shall be 254 followed by 255.\" \"For text strings encoded in UTF-8, the first three bytes shall be 239 followed by 187, followed by 191.\" NOTE 3: \"This mechanism precludes beginning a string using PDFDocEncoding with the two characters thorn ydieresis\"; NOTE 4 likewise for idieresis, guillemotright, questiondown (Errata Collection 3 Issue #161 corrects dieresis to idieresis).",
+  "code": "crates/pdf-syntax/src/text_string.rs:93 (encode_text_string returns pdf_doc_encoded(text) whenever it is Some)",
+  "change": "Accept the PDFDocEncoding form only when its bytes do not begin with either Unicode prefix (equivalently, when text_string of the bytes is the text); otherwise write UTF-16BE.",
+  "execution": "FAIL (expected): crates/pdf-syntax/tests/text_string_prefix_spec_audit.rs::a_text_beginning_with_a_prefix_spelling_is_written_in_a_unicode_form_spec_audit \u2014 round 2234; its control (the same characters not at the start) passes",
+  "status": "open"
+ },
+ {
+  "id": "2234-D01",
+  "kind": "documentation-gap",
+  "clauses": [
+   "7.9.2.2.1"
+  ],
+  "summary": "text_string.rs's module documentation spelled the UTF-8 prefix EF BB BF as '\u00a8\u00bb\u00bf' in PDFDocEncoding; byte 239 is \u00ef (idieresis), as Errata Collection 3's Issue #161 corrects NOTE 4 to say.",
+  "source": "ISO 32000-2 \u00a77.9.2.2.1 NOTE 4 as corrected by Issue #161; Annex D Table D.2/D.3 code 239.",
+  "code": "crates/pdf-syntax/src/text_string.rs:14",
+  "change": "Spell it '\u00ef\u00bb\u00bf'.",
+  "execution": "Read, not executed. Fixed in round 2234 (a one-line doc slip).",
+  "status": "fixed"
+ }
+]

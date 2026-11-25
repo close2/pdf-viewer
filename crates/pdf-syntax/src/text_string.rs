@@ -11,7 +11,7 @@
 //!
 //! Anything else is `PDFDocEncoding`, whose 256 code points are Table D.3 and are compiled in
 //! below. The clause's own NOTE 3 and NOTE 4 say why a prefix is enough to decide: the byte
-//! sequences that introduce the two Unicode forms spell `þÿ` and `¨»¿` in `PDFDocEncoding`,
+//! sequences that introduce the two Unicode forms spell `þÿ` and `ï»¿` in `PDFDocEncoding`,
 //! "which is unlikely to be a meaningful beginning of a word or phrase".
 //!
 //! # Why this is in the syntax crate

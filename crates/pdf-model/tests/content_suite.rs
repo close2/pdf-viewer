@@ -49,6 +49,7 @@ mod path_painting_audit;
 mod reference_xobjects;
 mod render_real_pdf;
 mod repair_classes;
+mod resources_7_8_3_spec_audit;
 mod scan_conversion_collapsed_by_transform;
 mod scan_conversion_shapes_without_area;
 mod shading_continuations_spec_audit;
