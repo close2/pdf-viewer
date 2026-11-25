@@ -290,6 +290,28 @@ fn drawn_after(
     if overlays.is_empty() {
         return Drawn::Untouched(edited, None);
     }
+    // Each `/RO`'s origin, in §7.3.3's syntax through `pdf_syntax::write`'s formatter: the
+    // `/Rect` and `/Matrix` it comes from are finite, and their difference can still leave `f64`'s
+    // range, which no number can state (ADR 3686).
+    let mut origins = Vec::with_capacity(overlays.len());
+    for overlay in overlays {
+        let written = pdf_syntax::write::real_number(overlay.at[0]).and_then(|x| {
+            Ok(format!(
+                "{x} {}",
+                pdf_syntax::write::real_number(overlay.at[1])?
+            ))
+        });
+        let Ok(origin) = written else {
+            return Drawn::Untouched(
+                edited,
+                Some(
+                    "Table 195's /RO was not drawn, because its /Rect less its /Matrix's \
+                     translation is past what a §7.3.3 number can state",
+                ),
+            );
+        };
+        origins.push(origin);
+    }
     let Some(open) = open_depth(document, &edited, resources) else {
         return Drawn::Untouched(
             edited,
@@ -311,10 +333,9 @@ fn drawn_after(
     for _ in 0..=open {
         out.extend_from_slice(b"Q\n");
     }
-    for (overlay, (name, _)) in overlays.iter().zip(&named) {
+    for (origin, (name, _)) in origins.iter().zip(&named) {
         let mut line = String::new();
-        // Rust's `Display` for `f64` never writes an exponent, which §7.3.3's reals do not admit.
-        let _ = write!(line, "q 1 0 0 1 {} {} cm /", overlay.at[0], overlay.at[1]);
+        let _ = write!(line, "q 1 0 0 1 {origin} cm /");
         out.extend_from_slice(line.as_bytes());
         out.extend_from_slice(name);
         out.extend_from_slice(b" Do Q\n");

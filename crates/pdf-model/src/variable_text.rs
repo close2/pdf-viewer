@@ -56,6 +56,7 @@
 //! leaves whatever appearance stream the file itself states standing, which is why it is the
 //! right answer where a wrong axis or a wrong glyph would be the alternative.
 
+use pdf_syntax::write::NonFinite;
 use pdf_syntax::{Dictionary, Document, Lexer, Object, Token};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -506,6 +507,15 @@ pub(crate) enum Owed {
     /// a filling render mode, glyphs that enclose no area and so mark nothing. The report is how
     /// a reader learns why a field with a value is blank.
     SingularTextMatrix,
+    /// An operand the layout computed has no §7.3.3 syntax — an infinity or a NaN its arithmetic
+    /// reached — so no appearance is written (ADR 3686).
+    NonFinite(NonFinite),
+}
+
+impl From<NonFinite> for Owed {
+    fn from(refused: NonFinite) -> Self {
+        Self::NonFinite(refused)
+    }
 }
 
 impl Owed {
@@ -576,6 +586,9 @@ impl Owed {
                                          space and the matrix flattens every glyph onto one line, \
                                          where it encloses no area"
                 .to_owned(),
+            Self::NonFinite(refused) => {
+                format!("the layout reached an operand with no number to write: {refused}")
+            }
         }
     }
 }
@@ -2070,8 +2083,8 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     };
 
     let mut stream = String::new();
-    let behind = selection_highlight(request.selected, &lines, size, stack, frame);
-    open_marked_content(&mut stream, &appearance, (&font_name, size), box_, &behind);
+    let behind = selection_highlight(request.selected, &lines, size, stack, frame)?;
+    open_marked_content(&mut stream, &appearance, (&font_name, size), box_, &behind)?;
 
     // One value for both branches, because everything but the matrix is the same in each and two
     // spellings of it would be two chances to leave a question out of one of them.
@@ -2092,9 +2105,9 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         owed = Some(Owed::SingularTextMatrix);
     }
     let marks = if let Shape::Comb(count) = request.shape {
-        comb(&mut stream, &measure, written, size, count, request, stack)
+        comb(&mut stream, &measure, written, size, count, request, stack)?
     } else {
-        write_lines(&mut stream, &lines, &measure, size, request, stack, written)
+        write_lines(&mut stream, &lines, &measure, size, request, stack, written)?
     };
     let marks = frame.grow(marks);
 
@@ -2136,13 +2149,13 @@ fn open_marked_content(
     font: (&pdf_syntax::Name, f32),
     box_: [f32; 4],
     behind: &str,
-) {
+) -> Result<(), NonFinite> {
     let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
     stream.push_str("/Tx BMC\nq\n");
     let _ = writeln!(
         stream,
-        "{} {} {} {} re W n",
-        box_[0], box_[1], width, height
+        "{} re W n",
+        operands(&[box_[0], box_[1], width, height])?
     );
     stream.push_str(behind);
     stream.push_str("BT\n");
@@ -2151,7 +2164,8 @@ fn open_marked_content(
     // §7.3.5's escaping, on the way *out*. A `/DA` font name holding a space, a delimiter or a
     // number sign written raw here would name a different resource — or end the token early and
     // leave the size as an operand of nothing — which is what this stream did before ADR 0453.
-    let _ = writeln!(stream, "/{} {size} Tf", name.escaped());
+    let _ = writeln!(stream, "/{} {} Tf", name.escaped(), operands(&[size])?);
+    Ok(())
 }
 
 /// The colour a list box's selected option is highlighted in, `DeviceRGB`.
@@ -2178,7 +2192,7 @@ fn selection_highlight(
     size: f32,
     stack: Stack,
     frame: Frame,
-) -> String {
+) -> Result<String, NonFinite> {
     let mut out = String::new();
     let ascent = stack.metrics.ascent * size;
     let leading = stack.leading(size);
@@ -2194,13 +2208,21 @@ fn selection_highlight(
         ]
         .map(|corner| frame.place(corner));
         let [[x0, y0], [x1, y1], [x2, y2], [x3, y3]] = corners;
-        let _ = writeln!(out, "{x0} {y0} m {x1} {y1} l {x2} {y2} l {x3} {y3} l h");
+        let _ = writeln!(
+            out,
+            "{} m {} l {} l {} l h",
+            operands(&[x0, y0])?,
+            operands(&[x1, y1])?,
+            operands(&[x2, y2])?,
+            operands(&[x3, y3])?
+        );
     }
     if out.is_empty() {
-        return out;
+        return Ok(out);
     }
+    // A constant of this module, so finite by construction.
     let [r, g, b] = SELECTION_HIGHLIGHT;
-    format!("q\n{r} {g} {b} rg\n{out}f\nQ\n")
+    Ok(format!("q\n{r} {g} {b} rg\n{out}f\nQ\n"))
 }
 
 /// Where the lines of one value sit inside the box, and how much room each of them has.
@@ -2975,7 +2997,7 @@ fn write_lines(
     request: &Request,
     stack: Stack,
     written: Written,
-) -> Marks {
+) -> Result<Marks, NonFinite> {
     let frame = written.frame;
     let ascent = stack.metrics.ascent * size;
     let descent = stack.metrics.descent * size;
@@ -3089,13 +3111,13 @@ fn write_lines(
         let linear = frame.linear;
         let _ = writeln!(
             stream,
-            "{} {} {} {} {tx} {ty} Tm",
-            linear[0], linear[1], linear[2], linear[3]
+            "{} Tm",
+            operands(&[linear[0], linear[1], linear[2], linear[3], tx, ty])?
         );
         show(stream, &shown);
     }
     marks.offset = nearest.map(|(_, _, code)| written.byte(code));
-    marks
+    Ok(marks)
 }
 
 /// The order one line's codes are displayed in: UAX #9's rules L1 and L2 over the levels of the
@@ -3478,7 +3500,7 @@ fn comb(
     cell_count: u32,
     request: &Request,
     stack: Stack,
-) -> Marks {
+) -> Result<Marks, NonFinite> {
     let frame = written.frame;
     let cells = count(usize::try_from(cell_count).unwrap_or(usize::MAX)).max(1.0);
     let codes = written.codes;
@@ -3523,8 +3545,8 @@ fn comb(
         let [tx, ty] = frame.place([x, baseline]);
         let _ = writeln!(
             stream,
-            "{} {} {} {} {tx} {ty} Tm",
-            linear[0], linear[1], linear[2], linear[3]
+            "{} Tm",
+            operands(&[linear[0], linear[1], linear[2], linear[3], tx, ty])?
         );
         show(stream, std::slice::from_ref(code));
     }
@@ -3588,7 +3610,7 @@ fn comb(
             .unwrap_or(displayed.len());
         offset = Some(written.byte(order.logical_boundary(boundary)));
     }
-    Marks {
+    Ok(Marks {
         caret,
         offset,
         selection,
@@ -3596,7 +3618,7 @@ fn comb(
         // A comb occupies the cells Table 231 bit 25 divides the box into rather than the sum of
         // its advances, so the width it fills is the box's own up to the last cell it reached.
         advance: edge(slot_of(codes.len())) - start,
-    }
+    })
 }
 
 /// A comb's glyphs, each the cell `cell` gives for its count of drawn characters before it.
@@ -3649,7 +3671,15 @@ pub(crate) fn show(stream: &mut String, codes: &[Placed]) {
 
 /// The same codes as §9.4.3's `TJ`, each after the number `before` holds for it — the rich text
 /// layout's pair kerning (ADR 1682) — a zero written as nothing.
-pub(crate) fn show_adjusted(stream: &mut String, codes: &[Placed], before: &[f32]) {
+///
+/// # Errors
+///
+/// [`NonFinite`] for an adjustment §7.3.3 has no syntax for.
+pub(crate) fn show_adjusted(
+    stream: &mut String,
+    codes: &[Placed],
+    before: &[f32],
+) -> Result<(), NonFinite> {
     stream.push('[');
     let mut open = false;
     for (index, code) in codes.iter().filter_map(|placed| placed.code()).enumerate() {
@@ -3659,7 +3689,7 @@ pub(crate) fn show_adjusted(stream: &mut String, codes: &[Placed], before: &[f32
                 stream.push(')');
                 open = false;
             }
-            let _ = write!(stream, " {number} ");
+            let _ = write!(stream, " {} ", operands(&[number])?);
         }
         if !open {
             stream.push('(');
@@ -3671,6 +3701,21 @@ pub(crate) fn show_adjusted(stream: &mut String, codes: &[Placed], before: &[f32
         stream.push(')');
     }
     stream.push_str("] TJ\n");
+    Ok(())
+}
+
+/// Operands in §7.3.3's syntax, through `pdf_syntax::write`'s formatter, separated by spaces.
+///
+/// The layout's numbers come from a `/Rect`, a `/DA` and a font's metrics that [`lay_out`] reads
+/// as finite, and its arithmetic can still leave `f32`'s range — an edge at `f32::MAX` less one at
+/// `-f32::MAX` — so an infinity or a NaN refuses the layout ([`Owed::NonFinite`]) rather than
+/// being written as `inf` (ADR 3686).
+pub(crate) fn operands(values: &[f32]) -> Result<String, NonFinite> {
+    let written = values
+        .iter()
+        .map(|value| pdf_syntax::write::real_number_f32(*value))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(written.join(" "))
 }
 
 /// One code's bytes as a literal string's, escaped where §7.3.4.2 requires.

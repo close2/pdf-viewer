@@ -198,12 +198,40 @@ impl std::fmt::Write for HexSink<'_> {
 /// which is what Rust's `Display` for `f64` produces and which never uses an exponent — so the
 /// clause's prohibition is met by the same formatting that fixes the precision.
 fn real(value: f64) -> String {
+    // §7.3.3 has no spelling for an infinity or a NaN, and a file containing one would be a file
+    // this program wrote and could not read. An `Object::Real` the parser built is finite — the
+    // lexer holds a literal past `f64`'s range at `±f64::MAX` (ADR 3683) — so this is a value a
+    // caller synthesised, and zero is the only one certainly writable; a writer that builds
+    // operands itself goes through [`real_number`], which refuses instead.
+    real_number(value).unwrap_or_else(|_| "0".to_owned())
+}
+
+/// A real value §7.3.3 has no syntax for: an infinity or a NaN.
+///
+/// §7.3.3 writes a real as "one or more decimal digits optionally preceded by a sign and
+/// containing a period", which no infinity and no NaN can be; written as Rust prints them, `inf`
+/// and `NaN` would be read back as names or as nothing. A writer that meets one has a value its
+/// own arithmetic produced, and says so rather than writing a number nobody stated (ADR 3686).
+#[derive(Debug, Clone, Copy, PartialEq, thiserror::Error)]
+#[error("§7.3.3 has no syntax for the real value {value}")]
+pub struct NonFinite {
+    /// The value, as the writer held it.
+    pub value: f64,
+}
+
+/// §7.3.3's real number for an operand or an entry this program builds, written so that it reads
+/// back as itself — the one formatter every writer of a number it computed goes through.
+///
+/// An integral value is written as an integer, which §7.3.3 permits "\[w]herever a real number is
+/// expected", and any other as the shortest decimal that reads back as the same `f64`, which is
+/// what [`object`] writes for an `Object::Real` and never uses the exponent the clause forbids.
+///
+/// # Errors
+///
+/// [`NonFinite`] for an infinity or a NaN.
+pub fn real_number(value: f64) -> Result<String, NonFinite> {
     if !value.is_finite() {
-        // §7.3.3 has no spelling for an infinity or a NaN, and a file containing one would be
-        // a file this program wrote and could not read. Zero is the only value that is
-        // certainly writable, and the alternative — refusing — would fail a save over a value
-        // no document states.
-        return "0".to_owned();
+        return Err(NonFinite { value });
     }
     if value.fract() == 0.0 && value.abs() < 1e15 {
         let mut text = String::new();
@@ -213,9 +241,27 @@ fn real(value: f64) -> String {
         )]
         let integral = value as i64;
         let _ = write!(text, "{integral}");
-        return text;
+        return Ok(text);
     }
-    format!("{value}")
+    Ok(format!("{value}"))
+}
+
+/// [`real_number`] for a value this program holds as an `f32`: the shortest decimal that reads
+/// back as the same `f32`, so that an operand computed in single precision is not written with
+/// the seventeen digits its widening to `f64` would show.
+///
+/// # Errors
+///
+/// [`NonFinite`] for an infinity or a NaN.
+pub fn real_number_f32(value: f32) -> Result<String, NonFinite> {
+    if !value.is_finite() {
+        return Err(NonFinite {
+            value: f64::from(value),
+        });
+    }
+    // `f32`'s `Display` writes an integral value without a fraction and never writes an
+    // exponent, which is §7.3.3's syntax as it stands.
+    Ok(format!("{value}"))
 }
 
 /// Appends ISO 32000-2 §7.5.6's incremental update to a document's own bytes.

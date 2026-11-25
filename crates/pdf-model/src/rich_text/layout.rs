@@ -23,6 +23,7 @@
 
 use std::fmt::Write as _;
 
+use pdf_syntax::write::NonFinite;
 use pdf_syntax::{Dictionary, Document, Name, Object};
 
 use super::markup::{ListIndent, Piece, RichText};
@@ -31,7 +32,7 @@ use super::style::{
 };
 use crate::variable_text::{
     self, Asked, Caret, DefaultAppearance, Face, Glyph, LaidOut, Order, Owed, Placed, Quadding,
-    Resolution,
+    Resolution, operands,
 };
 use pdf_font::shaping::{Paragraphs as Levels, Shaped};
 
@@ -147,8 +148,8 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     stream.push_str("/Tx BMC\nq\n");
     let _ = writeln!(
         stream,
-        "{} {} {width} {height} re W n",
-        request.box_[0], request.box_[1]
+        "{} re W n",
+        operands(&[request.box_[0], request.box_[1], width, height])?
     );
     stream.push_str("BT\n");
     stream.push_str(&appearance.operators);
@@ -162,7 +163,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
             &measure,
             line,
             root,
-        );
+        )?;
     }
     stream.push_str("ET\n");
     stream.push_str(&decorations);
@@ -2453,7 +2454,7 @@ fn write_line(
     measure: &Measure,
     line: &Line,
     root: f32,
-) {
+) -> Result<(), NonFinite> {
     // A tag is written a face at a time: its characters can be drawn by more than one, a
     // generated numeral in a machine's face and its full stop in the run's.
     if let Some((atoms, x)) = &line.tag {
@@ -2468,7 +2469,7 @@ fn write_line(
                 at,
                 line.baseline,
                 root,
-            );
+            )?;
             at += measure.widths(group, root);
         }
     }
@@ -2484,9 +2485,9 @@ fn write_line(
                 *x,
                 line.baseline,
                 root,
-            );
+            )?;
         }
-        return;
+        return Ok(());
     }
     let mut start = 0_usize;
     while start < line.atoms.len() {
@@ -2513,7 +2514,7 @@ fn write_line(
                     (from, to, line.margin),
                     line.baseline,
                     root,
-                );
+                )?;
             }
             start = start.saturating_add(1);
             continue;
@@ -2547,9 +2548,10 @@ fn write_line(
             x,
             line.baseline,
             root,
-        );
+        )?;
         start = end;
     }
+    Ok(())
 }
 
 /// The share of a leader's room a dot or a dash of a rule takes in each cycle, and the cycle's
@@ -2580,10 +2582,10 @@ fn write_leader(
     (from, to, margin): (f32, f32, f32),
     baseline: f32,
     root: f32,
-) {
+) -> Result<(), NonFinite> {
     use super::style::{LeaderPattern, RuleStyle};
     let Some(style) = measure.style(tab.style) else {
-        return;
+        return Ok(());
     };
     let size = size_at(style, root);
     let stated_width = leader.width.map_or(0.0, |width| width.at(root));
@@ -2610,7 +2612,7 @@ fn write_leader(
                 _ => ".",
             };
             let Some(atoms) = leader_atoms(measure, tab, text) else {
-                return;
+                return Ok(());
             };
             let inherent = measure.widths(&atoms, root);
             for x in cycles(inherent) {
@@ -2623,7 +2625,7 @@ fn write_leader(
                     x,
                     baseline,
                     root,
-                );
+                )?;
             }
         }
         LeaderPattern::Rule {
@@ -2634,7 +2636,7 @@ fn write_leader(
                 .map_or(DECORATION_THICKNESS * size, |thickness| thickness.at(root))
                 .max(0.0);
             if thickness <= 0.0 || to <= from {
-                return;
+                return Ok(());
             }
             let y = baseline - thickness * 0.5;
             let pieces: Vec<(f32, f32)> = match rule {
@@ -2650,16 +2652,17 @@ fn write_leader(
             };
             decorations.push_str("q\n");
             if let Some([r, g, b]) = style.colour {
-                let _ = writeln!(decorations, "{r} {g} {b} rg");
+                let _ = writeln!(decorations, "{} rg", operands(&[r, g, b])?);
             } else {
                 decorations.push_str(&measure.appearance.operators);
             }
             for (x, width) in pieces {
-                let _ = writeln!(decorations, "{x} {y} {width} {thickness} re");
+                let _ = writeln!(decorations, "{} re", operands(&[x, y, width, thickness])?);
             }
             decorations.push_str("f\nQ\n");
         }
     }
+    Ok(())
 }
 
 /// A leader's characters as glyphs of the tab's own face, or of the `/DA`'s where that one lacks
@@ -2705,23 +2708,23 @@ fn write_group(
     x: f32,
     baseline: f32,
     root: f32,
-) {
+) -> Result<(), NonFinite> {
     let Some(first) = group.first().copied() else {
-        return;
+        return Ok(());
     };
     let (Some(style), Some(held)) = (measure.style(first.style), measure.faces.get(first.face))
     else {
-        return;
+        return Ok(());
     };
     let size = size_at(style, root);
     if state.font != Some((first.face, bits(size))) {
-        let _ = writeln!(stream, "/{} {size} Tf", held.name.escaped());
+        let _ = writeln!(stream, "/{} {} Tf", held.name.escaped(), operands(&[size])?);
         state.font = Some((first.face, bits(size)));
     }
     let colour = colour_key(style.colour);
     if state.colour != Some(colour) {
         if let Some([r, g, b]) = style.colour {
-            let _ = writeln!(stream, "{r} {g} {b} rg");
+            let _ = writeln!(stream, "{} rg", operands(&[r, g, b])?);
         } else {
             // The `/DA`'s own colour, by replaying its operators: they are what set it.
             stream.push_str(&measure.appearance.operators);
@@ -2732,27 +2735,26 @@ fn write_group(
     }
     let spacing = measure.character_spacing(first, root);
     if state.spacing != Some(bits(spacing)) {
-        let _ = writeln!(stream, "{spacing} Tc");
+        let _ = writeln!(stream, "{} Tc", operands(&[spacing])?);
         state.spacing = Some(bits(spacing));
     }
     let scale = measure.horizontal_scale(first) * 100.0;
     if state.scale != Some(bits(scale)) {
-        let _ = writeln!(stream, "{scale} Tz");
+        let _ = writeln!(stream, "{} Tz", operands(&[scale])?);
         state.scale = Some(bits(scale));
     }
     let rise = style.rise.at(root);
     let _ = writeln!(
         stream,
-        "1 0 0 {} {x} {} Tm",
-        style.vertical_scale,
-        baseline + rise
+        "1 0 0 {} Tm",
+        operands(&[style.vertical_scale, x, baseline + rise])?
     );
-    show_group(stream, group);
+    show_group(stream, group)?;
 
     // Chapter 27's underline and line through, in the run's own colour (page 1208).
     let underline = style.underline;
     if underline == Underline::None && !style.line_through {
-        return;
+        return Ok(());
     }
     let thickness = DECORATION_THICKNESS * size;
     let mut spans: Vec<(f32, f32)> = Vec::new();
@@ -2775,7 +2777,7 @@ fn write_group(
     let whole = (x, at);
     decorations.push_str("q\n");
     if let Some([r, g, b]) = style.colour {
-        let _ = writeln!(decorations, "{r} {g} {b} rg");
+        let _ = writeln!(decorations, "{} rg", operands(&[r, g, b])?);
     } else {
         decorations.push_str(&measure.appearance.operators);
     }
@@ -2789,33 +2791,38 @@ fn write_group(
             vec![whole]
         };
         for (from, to) in parts {
-            let _ = writeln!(decorations, "{from} {y} {} {thickness} re", to - from);
+            let _ = writeln!(
+                decorations,
+                "{} re",
+                operands(&[from, y, to - from, thickness])?
+            );
         }
     }
     if style.line_through {
         let y = LINE_THROUGH_ABOVE.mul_add(size, base);
         let _ = writeln!(
             decorations,
-            "{} {y} {} {thickness} re",
-            whole.0,
-            whole.1 - whole.0
+            "{} re",
+            operands(&[whole.0, y, whole.1 - whole.0, thickness])?
         );
     }
     decorations.push_str("f\nQ\n");
+    Ok(())
 }
 
 /// A group's codes, as `Tj` where nothing kerns them and as `TJ` with the adjustments where
 /// pair kerning does.
-fn show_group(stream: &mut String, group: &[Atom]) {
+fn show_group(stream: &mut String, group: &[Atom]) -> Result<(), NonFinite> {
     let placed: Vec<Placed> = group.iter().map(|atom| atom.placed()).collect();
     if group
         .iter()
         .any(|atom| atom.kern != 0.0 || atom.shift != 0.0)
     {
-        variable_text::show_adjusted(stream, &placed, &adjustments(group));
+        variable_text::show_adjusted(stream, &placed, &adjustments(group))?;
     } else {
         variable_text::show(stream, &placed);
     }
+    Ok(())
 }
 
 /// The `TJ` number before each displayed glyph of a group, which pair kerning puts there:
@@ -2907,11 +2914,16 @@ pub(crate) fn one_style(document: &Document, request: &Request) -> Result<OneSty
         };
         let _ = write!(
             ByteWriter(&mut default_appearance),
-            " /{} {size} Tf",
-            held.name.escaped()
+            " /{} {} Tf",
+            held.name.escaped(),
+            operands(&[size])?
         );
         if let Some([r, g, b]) = style.colour {
-            let _ = write!(ByteWriter(&mut default_appearance), " {r} {g} {b} rg");
+            let _ = write!(
+                ByteWriter(&mut default_appearance),
+                " {} rg",
+                operands(&[r, g, b])?
+            );
         }
         if index != 0 && held.invented {
             font = Some((held.name.clone(), held.face.dict.clone()));

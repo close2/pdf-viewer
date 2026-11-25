@@ -1679,6 +1679,12 @@ fn colour_of(value: &JsValue, context: &mut Context) -> JsResult<Option<Colour>>
         *slot = array
             .get(index.saturating_add(1), context)?
             .to_number(context)?;
+        // A component is a number in 0 to 1 (Table 192's colour arrays); an infinity or a NaN —
+        // what `ToNumber` makes of `"x"` or `undefined` — names no colour, and §7.3.3 has no
+        // syntax to write one in (ADR 3686).
+        if !slot.is_finite() {
+            return Ok(None);
+        }
     }
     let [first, second, third, _] = components;
     Ok(Some(match count {

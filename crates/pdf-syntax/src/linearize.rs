@@ -852,14 +852,7 @@ fn write_linearized<W: Write>(
     let mut tally = Written::default();
     let mut objects = Vec::with_capacity(assembly.slots.len());
     for index in 0..assembly.slots.len() {
-        let object = assembly
-            .resolved(index, options.streams, &mut tally)
-            .ok_or_else(|| {
-                let number = u32::try_from(index.saturating_add(1)).unwrap_or(u32::MAX);
-                SerializeError::Unplaced {
-                    id: ObjectId::new(number, 0),
-                }
-            })?;
+        let object = assembly.written(index, options.streams, &mut tally)?;
         objects.push(object);
     }
     let pages = pages_of(plan, &objects)?;

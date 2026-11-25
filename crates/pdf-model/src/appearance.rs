@@ -563,6 +563,9 @@ enum Refusal {
     PosterPlacementChosen,
     /// §12.7.4.3's variable text could not be laid out, or not entirely.
     Text(Owed),
+    /// An operand the construction computed has no §7.3.3 syntax — an infinity or a NaN its
+    /// arithmetic reached — so the appearance is not drawn (ADR 3686).
+    NonFinite(pdf_syntax::write::NonFinite),
     /// Two of the above for one annotation: a line whose ending and whose caption are each
     /// named, in that construction's order.
     Both(Box<[Refusal; 2]>),
@@ -599,6 +602,10 @@ impl Refusal {
                  in a third of it — a share this program chose rather than the document"
             ),
             Self::Text(owed) => owed.detail(),
+            Self::NonFinite(refused) => format!(
+                "no appearance stream, and the one this program would construct has an operand \
+                 with no number to write: {refused}"
+            ),
             Self::Both(pair) => format!("{}; {}", pair[0].detail(), pair[1].detail()),
         }
     }
@@ -772,13 +779,19 @@ pub(crate) fn construct(
         )),
     };
 
-    let painted = match outcome {
+    let mut painted = match outcome {
         Ok(painted) => painted,
         Err(refusal) => Painted {
             drawn: false,
             report: Some(refusal),
         },
     };
+    if let Some(refused) = stream.refused.take() {
+        painted = Painted {
+            drawn: false,
+            report: Refusal::both(painted.report, Some(Refusal::NonFinite(refused))),
+        };
+    }
     let content = painted.drawn.then(|| stream.text.clone().into_bytes());
     let stood_in = match &painted.report {
         Some(Refusal::Text(Owed::FontNotInResources(name))) => Some(name.clone()),
@@ -1894,30 +1907,28 @@ fn colour_array(colour: crate::view::Colour) -> Object {
 
 /// An Adobe colour as the nonstroking colour operator §8.6.8 gives its device space, or `None` for
 /// no colour.
+///
+/// A component is finite by construction — `pdf-script`'s `colour_of` answers no colour for an
+/// infinity or a NaN — and is written through `pdf_syntax::write::real_number` at four places, so a
+/// non-finite one that arrived by another route is no operator rather than `NaN g` (ADR 3686).
 fn colour_operator(colour: crate::view::Colour) -> Option<String> {
     let number = |value: f64| {
         // not a repair: a colour a script or the user supplied, not an entry the file states.
-        let mut text = format!("{:.4}", value.clamp(0.0, 1.0));
-        while text.ends_with('0') {
-            text.pop();
-        }
-        if text.ends_with('.') {
-            text.pop();
-        }
-        text
+        let places = (value.clamp(0.0, 1.0) * 10_000.0).round() / 10_000.0;
+        pdf_syntax::write::real_number(places).ok()
     };
     Some(match colour {
         crate::view::Colour::Transparent => return None,
-        crate::view::Colour::Gray(gray) => format!("{} g", number(gray)),
+        crate::view::Colour::Gray(gray) => format!("{} g", number(gray)?),
         crate::view::Colour::Rgb([red, green, blue]) => {
-            format!("{} {} {} rg", number(red), number(green), number(blue))
+            format!("{} {} {} rg", number(red)?, number(green)?, number(blue)?)
         }
         crate::view::Colour::Cmyk([cyan, magenta, yellow, black]) => format!(
             "{} {} {} {} k",
-            number(cyan),
-            number(magenta),
-            number(yellow),
-            number(black)
+            number(cyan)?,
+            number(magenta)?,
+            number(yellow)?,
+            number(black)?
         ),
     })
 }
@@ -3070,7 +3081,7 @@ impl CaptionMark {
     /// turn — the same reason [`Rotation::begin`] writes one for Table 192's `/R`.
     fn write(self, stream: &mut Stream) {
         let [a, b, c, d] = self.axes;
-        stream.rotate(&format!("{a} {b} {c} {d}"), self.origin);
+        stream.rotate([a, b, c, d], self.origin);
         stream.set_colour(self.colour, false);
         stream.text.push_str(&self.content);
         stream.text.push_str("Q\n");
@@ -4070,10 +4081,7 @@ impl Rotation {
             return;
         }
         let turn = self.transform(rect);
-        stream.rotate(
-            &format!("{} {} {} {}", turn.a, turn.b, turn.c, turn.d),
-            [turn.e, turn.f],
-        );
+        stream.rotate([turn.a, turn.b, turn.c, turn.d], [turn.e, turn.f]);
     }
 
     /// Closes it again.
@@ -6511,11 +6519,15 @@ impl Border {
 
 /// A content stream under construction, in the annotation's own default user space.
 ///
-/// Every number is written with `{value}`, Rust's shortest round-tripping form for an `f32`. A
-/// content stream's numbers are written in decimal, and a value with no decimal form never
-/// reaches here because [`number`] refuses anything but a finite one.
+/// Every number is written through [`Stream::real`], `pdf_syntax::write`'s §7.3.3 formatter.
+/// [`number`] refuses anything but a finite value read from the document, and the arithmetic
+/// after it can still overflow `f32` — a `/Rect` edge at `f32::MAX` less one at `-f32::MAX` — so
+/// the first value with no decimal form is held in [`Stream::refused`] and the appearance is not
+/// drawn rather than written with `inf` in it (ADR 3686).
 struct Stream {
     text: String,
+    /// The first operand §7.3.3 could not write, which makes the stream one not to draw.
+    refused: Option<pdf_syntax::write::NonFinite>,
     /// Table 224's `/DR`, set by whichever routine laid text out.
     ///
     /// Read from the document only where a `/DA` string is, rather than for every
@@ -6537,9 +6549,26 @@ impl Stream {
     fn new() -> Self {
         Self {
             text: String::new(),
+            refused: None,
             resources: None,
             icon: None,
         }
+    }
+
+    /// One operand in §7.3.3's syntax, or `0` with the refusal kept where it has none.
+    fn real(&mut self, value: f32) -> String {
+        // not a repair: a number this program computed; the refusal is kept, and the stream it
+        // would have gone into is not drawn.
+        pdf_syntax::write::real_number_f32(value).unwrap_or_else(|refused| {
+            self.refused.get_or_insert(refused);
+            "0".to_owned()
+        })
+    }
+
+    /// Several operands, each through [`Self::real`], separated by spaces.
+    fn reals(&mut self, values: &[f32]) -> String {
+        let written: Vec<String> = values.iter().map(|value| self.real(*value)).collect();
+        written.join(" ")
     }
 
     /// The resource dictionary this stream needs, with any icon added to its `/XObject`.
@@ -6582,15 +6611,17 @@ impl Stream {
             }
             name = Name::new(format!("Icon{suffix}").into_bytes());
         }
-        let _ = writeln!(
-            self.text,
-            "q {} {} {} {} {} {} cm /{} Do Q",
+        let operands = self.reals(&[
             placement.a,
             placement.b,
             placement.c,
             placement.d,
             placement.e,
             placement.f,
+        ]);
+        let _ = writeln!(
+            self.text,
+            "q {operands} cm /{} Do Q",
             // §7.3.5's escaping, the same one `variable_text` writes a `Tf` operand with. Today
             // this name is `Icon` or `Icon<n>` and needs none of it, and the `unwrap_or` it
             // replaces was the shape rather than the bug: a name that failed to be text used to
@@ -6613,23 +6644,19 @@ impl Stream {
             (_, false) => "k",
             (_, true) => "K",
         };
-        for value in values.iter().take(count) {
-            let _ = write!(self.text, "{value} ");
-        }
-        let _ = writeln!(self.text, "{operator}");
+        // not a repair: `count` is the colour's own component count, at most the array's four.
+        let operands = self.reals(values.get(..count).unwrap_or(&values));
+        let _ = writeln!(self.text, "{operands} {operator}");
     }
 
     /// Sets the line width (§8.4.3.2) and, where the style asks for one, the dash pattern.
     fn set_stroke(&mut self, width: f32, dash: &[f32]) {
+        let width = self.real(width);
         let _ = writeln!(self.text, "{width} w");
         if !dash.is_empty() {
-            let _ = write!(self.text, "[");
-            for (index, value) in dash.iter().enumerate() {
-                let separator = if index == 0 { "" } else { " " };
-                let _ = write!(self.text, "{separator}{value}");
-            }
+            let dash = self.reals(dash);
             // §12.5.4: "The dash phase shall not be specified and shall be assumed to be 0."
-            let _ = writeln!(self.text, "] 0 d");
+            let _ = writeln!(self.text, "[{dash}] 0 d");
         }
     }
 
@@ -6654,24 +6681,25 @@ impl Stream {
     }
 
     /// Opens a rotated space for Table 192's `/R`: `q a b c d e f cm`.
-    fn rotate(&mut self, matrix: &str, offset: [f32; 2]) {
-        let _ = writeln!(self.text, "q {matrix} {} {} cm", offset[0], offset[1]);
+    fn rotate(&mut self, matrix: [f32; 4], offset: [f32; 2]) {
+        let [a, b, c, d] = matrix;
+        let operands = self.reals(&[a, b, c, d, offset[0], offset[1]]);
+        let _ = writeln!(self.text, "q {operands} cm");
     }
 
     fn move_to(&mut self, point: [f32; 2]) {
-        let _ = writeln!(self.text, "{} {} m", point[0], point[1]);
+        let operands = self.reals(&point);
+        let _ = writeln!(self.text, "{operands} m");
     }
 
     fn line_to(&mut self, point: [f32; 2]) {
-        let _ = writeln!(self.text, "{} {} l", point[0], point[1]);
+        let operands = self.reals(&point);
+        let _ = writeln!(self.text, "{operands} l");
     }
 
     fn curve_to(&mut self, first: [f32; 2], second: [f32; 2], end: [f32; 2]) {
-        let _ = writeln!(
-            self.text,
-            "{} {} {} {} {} {} c",
-            first[0], first[1], second[0], second[1], end[0], end[1]
-        );
+        let operands = self.reals(&[first[0], first[1], second[0], second[1], end[0], end[1]]);
+        let _ = writeln!(self.text, "{operands} c");
     }
 
     fn close(&mut self) {
@@ -6710,14 +6738,8 @@ impl Stream {
 
     /// A rectangle, as `re` states one: a corner, then a width and a height.
     fn rectangle(&mut self, box_: [f32; 4]) {
-        let _ = writeln!(
-            self.text,
-            "{} {} {} {} re",
-            box_[0],
-            box_[1],
-            box_[2] - box_[0],
-            box_[3] - box_[1]
-        );
+        let operands = self.reals(&[box_[0], box_[1], box_[2] - box_[0], box_[3] - box_[1]]);
+        let _ = writeln!(self.text, "{operands} re");
     }
 
     /// A rectangle with the corner radii Table 166's `/Border` gives it.

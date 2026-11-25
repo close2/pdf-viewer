@@ -1,12 +1,13 @@
-//! ISO 32000-2 §13.2.2's viability, judged for a processor that plays nothing and hands a clip on.
+//! ISO 32000-2 §13.2.2's viability, judged for the players a host says it has.
 //!
-//! `CLAUDE.md`'s clause 13 entry excludes the *playing* of multimedia and admits what a still page
-//! owes a reader about a media object: §13.2.2's viability computed and reported in the clause's
-//! own terms, and the media file handed to this machine's own player at the reader's level
-//! (`doc/questions/A254`, ADR 1946). This module is the first half and the data for the second. It
-//! reads §13.2.3's rendition tree as dictionaries — nothing is decoded — and answers, for each
-//! media rendition the walk reaches, whether the clause would call it viable and, if not, every
-//! reason it would not.
+//! `CLAUDE.md`'s clause 13 entry admits what a still page owes a reader about a media object, the
+//! media file handed to this machine's own player at the reader's level (`doc/questions/A254`, ADR
+//! 1946), and audio and video decoded and presented by this program in a confined worker of its
+//! own (`doc/questions/A946`, `doc/questions/A1006`, RFC 0015). This module computes §13.2.2's
+//! viability and reports it in the clause's own terms, and is the data every player is handed. It
+//! reads §13.2.3's rendition tree as dictionaries — nothing is decoded here; the decoding is
+//! `pdf-media-worker`'s — and answers, for each media rendition the walk reaches, whether the
+//! clause would call it viable and, if not, every reason it would not.
 //!
 //! # Whose viability
 //!
@@ -16,22 +17,26 @@
 //!
 //! Viability is relative to a player and a system, so the question has to name both. **The system
 //! is [`Processor`]**, which carries what a host has said about its reader and nothing read off
-//! the machine. **The player is the hand-off**: the one player this program has is whichever
-//! program this machine starts for the clip's content type, and what this program can pass that
-//! player is the clip's bytes or its address and nothing else. So every entry whose honouring
-//! needs the player to be *told* something — a volume, a start offset past the clip's beginning, a
-//! base URL, a window — is an entry this player cannot honour, and the clause says exactly what
-//! that costs: in an `MH` dictionary, "otherwise, the containing object shall be considered
-//! non-viable"; in a `BE` dictionary, "the containing object is still considered viable". ADR 1960
-//! is the argument.
+//! the machine. **The players are [`Players`]**, what the host says it has (ADR 3350). The
+//! hand-off is the one every host has: whichever program this machine starts for the clip's
+//! content type, passed the clip's bytes or its address and nothing else, so every entry whose
+//! honouring needs the player to be *told* something — a volume, a start offset past the clip's
+//! beginning, a base URL, a window — is one the hand-off cannot honour, and the clause says
+//! exactly what that costs: in an `MH` dictionary, "otherwise, the containing object shall be
+//! considered non-viable"; in a `BE` dictionary, "the containing object is still considered
+//! viable" (ADR 1960). This program's own player — an embedded RIFF WAVE or MP4 clip of sound,
+//! and with [`Players::AlsoVideoHere`] an MP4 clip of H.264 pictures, decoded in the confined
+//! media worker and presented in the host's window — is told every play parameter, and is judged
+//! for what it honours.
 //!
 //! # What is not judged here
 //!
-//! The playing, which the entry excludes, and with it §13.2.5's and §13.2.6's options beyond the
-//! one question viability asks of them. Table 285's form-`XObject` clip is named, not handed: "the
-//! associated player is implicitly the interactive PDF processor, and the form `XObject` shall be
-//! rendered as if it were any other data type", which is presenting content over time in the
-//! screen annotation's rectangle — the playing the entry excludes, whatever the data is (ADR 1960).
+//! The playing itself, which is the media worker's and the host's, and with it §13.2.5's and
+//! §13.2.6's options beyond the one question viability asks of them. Table 285's form-`XObject`
+//! clip is named, not handed: "the associated player is implicitly the interactive PDF processor,
+//! and the form `XObject` shall be rendered as if it were any other data type", which is
+//! presenting content over time in the screen annotation's rectangle — neither a sound nor a
+//! picture stream the media worker decodes, and no player this program has (ADR 1960).
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;

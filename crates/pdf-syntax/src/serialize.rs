@@ -391,6 +391,26 @@ pub enum SerializeError {
         /// The name the stream's decode parameters state.
         name: String,
     },
+    /// A stream whose §7.6 decryption failed in its source, which the reader holds empty.
+    ///
+    /// [`Stream::decryption_failed`]: the data is not ciphertext and not plaintext, it is
+    /// nothing, and written it would be a stream of no bytes standing where the producer's
+    /// content was — a page drawn blank in silence (ADR 3685).
+    #[error(
+        "object {} of the output is {}a stream §7.6's decryption refused, so it holds no data to \
+         write",
+        .id.number,
+        .origin.map_or_else(String::new, |(from, id)| format!(
+            "source {from}'s object {} {}, ",
+            id.number, id.generation
+        ))
+    )]
+    Undecrypted {
+        /// Its number in the output.
+        id: ObjectId,
+        /// Which source and which object there, where the slot stands for one.
+        origin: Option<(usize, ObjectId)>,
+    },
 }
 
 /// What §7.5.5's `/Root` finds at the end of its chain, in the file about to be written.
@@ -819,7 +839,16 @@ impl<'a> Assembly<'a> {
         match self.slots.get(index)? {
             Slot::Copied { from, id } => {
                 let document = self.sources.get(*from)?;
-                let original = document.get(*id);
+                let original = match document.get(*id) {
+                    Object::Stream(stream) if document.is_encrypted() => {
+                        Object::Stream(std::sync::Arc::new(Stream {
+                            dict: carried_stream_dictionary(document, &stream.dict),
+                            data: std::sync::Arc::clone(&stream.data),
+                            decryption_failed: stream.decryption_failed,
+                        }))
+                    }
+                    other => other,
+                };
                 let carried = self.renumber(&original, *from, 0, tally);
                 // Recompression reads the **source's** stream rather than the renumbered copy,
                 // because `/Filter` and `/DecodeParms` may themselves be indirect and only the
@@ -835,6 +864,35 @@ impl<'a> Assembly<'a> {
             }
             Slot::Synthesised(object) => object.clone(),
         }
+    }
+
+    /// The object slot `index` holds, as [`serialize`] writes it: [`Self::resolved`], refused
+    /// where it is a reserved slot nobody filled or a stream whose decryption failed.
+    pub(crate) fn written(
+        &self,
+        index: usize,
+        streams: Streams,
+        tally: &mut Written,
+    ) -> Result<Object, SerializeError> {
+        let number = u32::try_from(index.saturating_add(1)).unwrap_or(u32::MAX);
+        let id = ObjectId::new(number, 0);
+        let value = self
+            .resolved(index, streams, tally)
+            .ok_or(SerializeError::Unplaced { id })?;
+        if let Object::Stream(stream) = &value
+            && stream.decryption_failed
+        {
+            let origin = match self.slots.get(index) {
+                Some(Slot::Copied { from, id }) => Some((*from, *id)),
+                _ => self
+                    .placed
+                    .iter()
+                    .find(|(_, placed)| **placed == id)
+                    .map(|(source, _)| *source),
+            };
+            return Err(SerializeError::Undecrypted { id, origin });
+        }
+        Ok(value)
     }
 
     /// One value with every reference mapped into the output's numbering.
@@ -1526,9 +1584,7 @@ fn write_file<W: Write>(
     for index in 0..assembly.slots.len() {
         let number = u32::try_from(index.saturating_add(1)).unwrap_or(u32::MAX);
         let id = ObjectId::new(number, 0);
-        let value = assembly
-            .resolved(index, options.streams, &mut tally)
-            .ok_or(SerializeError::Unplaced { id })?;
+        let value = assembly.written(index, options.streams, &mut tally)?;
 
         // Errata Collection 3's Issue #439 appends "[t]he document catalog … in an encrypted
         // document" to §7.5.7's list of what shall not be stored in an object stream, so an
@@ -2417,4 +2473,78 @@ impl std::fmt::Write for HexSink<'_> {
         self.0.extend_from_slice(text.as_bytes());
         Ok(())
     }
+}
+
+/// The dictionary a stream read out of `source` is written under in another file: the source's
+/// own, without the §7.4.10 `/Crypt` stage the reader has already applied.
+///
+/// Every verb that carries a stream out of one document into another reaches this — [`Assembly`]
+/// for every object it copies, and a caller that rebuilds a stream's dictionary before placing it
+/// (`pdf-transform`'s `merge`, `split` and insert-pages) — so the rule is stated once (ADRs 3682,
+/// 3685).
+///
+/// ISO 32000-2 §7.4.10:
+///
+/// > The Crypt filter shall be the first filter in the Filter array entry.
+///
+/// and Table 14's `/Name` is "\[t]he name of the crypt filter that shall be used to decrypt this
+/// stream", which "shall correspond to an entry in the CF entry of the encryption dictionary" or
+/// to one of Table 26's standard names. The reader has
+/// decrypted the data through that entry of the *source* document's `/CF`, and the destination's
+/// `/CF` is not that one: kept, the stage would name a filter an unencrypted destination does not
+/// define — its page read back empty — and in an encrypted one a filter of the same name under
+/// another key. So the stage goes, and the destination's own §7.6.2 decides how the bytes are
+/// written. Table 26's `Identity` (or no `/Name`, which Table 14 defaults to it) is kept: it is
+/// the producer's statement that the stream stays in the clear, and it reads the same in any
+/// document. A document with no encryption dictionary decrypts nothing, so its dictionary passes
+/// unchanged.
+#[must_use]
+pub fn carried_stream_dictionary(source: &Document, dict: &Dictionary) -> Dictionary {
+    if !source.is_encrypted() {
+        return dict.clone();
+    }
+    let filter = source.resolve(dict.get("Filter").unwrap_or(&Object::Null));
+    let first_is_crypt = match &filter {
+        Object::Name(name) => name.as_bytes() == b"Crypt",
+        Object::Array(stages) => stages
+            .first()
+            .map(|stage| source.resolve(stage))
+            .and_then(|stage| stage.as_name().map(|name| name.as_bytes() == b"Crypt"))
+            .unwrap_or(false),
+        _ => false,
+    };
+    if !first_is_crypt {
+        return dict.clone();
+    }
+    let parms = source.resolve(dict.get("DecodeParms").unwrap_or(&Object::Null));
+    let first_parms = match &parms {
+        Object::Array(entries) => entries
+            .first()
+            .map_or(Object::Null, |entry| source.resolve(entry)),
+        other => other.clone(),
+    };
+    let named = first_parms
+        .as_dict()
+        .map(|parms| source.get_key(parms, "Name"))
+        .and_then(|name| name.as_name().map(|name| name.as_bytes().to_vec()));
+    if named.as_deref().is_none_or(|name| name == b"Identity") {
+        return dict.clone();
+    }
+    let mut out = dict.clone();
+    let rest = |entries: &[Object]| entries.get(1..).unwrap_or_default().to_vec();
+    match (&filter, &parms) {
+        (Object::Array(stages), Object::Array(entries)) if stages.len() > 1 => {
+            out.insert(Name::new(&b"Filter"[..]), Object::Array(rest(stages)));
+            out.insert(Name::new(&b"DecodeParms"[..]), Object::Array(rest(entries)));
+        }
+        (Object::Array(stages), _) if stages.len() > 1 => {
+            out.insert(Name::new(&b"Filter"[..]), Object::Array(rest(stages)));
+            out.remove("DecodeParms");
+        }
+        _ => {
+            out.remove("Filter");
+            out.remove("DecodeParms");
+        }
+    }
+    out
 }

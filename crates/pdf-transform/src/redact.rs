@@ -3438,7 +3438,9 @@ fn privatise(
         }
         Object::Stream(stream) => {
             let mut out = Dictionary::new();
-            for (key, entry) in stream.dict.iter() {
+            // Out of the source's §7.6 encryption, so out of its `/Crypt` stage too (ADR 3685).
+            let dict = pdf_syntax::serialize::carried_stream_dictionary(document, &stream.dict);
+            for (key, entry) in dict.iter() {
                 out.insert(
                     key.clone(),
                     privatise(assembly, document, entry, private, next),

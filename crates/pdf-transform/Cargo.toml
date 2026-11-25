@@ -86,6 +86,11 @@ pdf-jpx-write.workspace = true
 # mupdf, and how those two are spawned — the flags, the budget, the version probe — is a reading
 # this tree has already paid for once (trap 3).
 [dev-dependencies]
+# `tests/encrypted_sources.rs` writes an RC4 source by §7.6.4's algorithms, which the serializer
+# does not write (it writes `/R` 6 only), so the test holds the two primitives those algorithms
+# name — the same crates `pdf-syntax`'s reader and its encryption fixtures take.
+md-5.workspace = true
+rc4.workspace = true
 pdfref.workspace = true
 raster-compare.workspace = true
 

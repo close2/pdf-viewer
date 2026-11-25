@@ -583,7 +583,13 @@ impl Merge<'_> {
                 self.carry(from, &Object::Dictionary(out), 0)
             }
             Object::Stream(stream) => {
-                let mut dict = stream.dict.clone();
+                // Out of the source's §7.6 encryption, so out of its `/Crypt` stage too (ADR 3685).
+                let mut dict = self.documents.get(from).map_or_else(
+                    || stream.dict.clone(),
+                    |document| {
+                        pdf_syntax::serialize::carried_stream_dictionary(document, &stream.dict)
+                    },
+                );
                 self.restate_structure_key(from, &mut dict);
                 let Object::Dictionary(dict) = self.carry(from, &Object::Dictionary(dict), 0)
                 else {

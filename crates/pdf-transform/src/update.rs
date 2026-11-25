@@ -837,74 +837,6 @@ fn insert_pages(
     ))
 }
 
-/// A carried stream's dictionary without the §7.4.10 `/Crypt` stage the reader has already
-/// applied.
-///
-/// ISO 32000-2 §7.4.10:
-///
-/// > The Crypt filter shall be the first filter in the Filter array entry.
-///
-/// and Table 14's `/Name` is "\[t]he name of the crypt filter that shall be used to decrypt this
-/// stream", which "shall correspond to an entry in the CF entry of the encryption dictionary" or
-/// to one of Table 26's standard names. The reader has
-/// decrypted the data through that entry of the *incoming* document's `/CF`, and the destination's
-/// `/CF` is not that one: kept, the stage would name a filter an unencrypted destination does not
-/// define — its page read back empty — and in an encrypted one a filter of the same name under
-/// another key. So the stage goes, and the destination's own §7.6.2 decides how the bytes are
-/// written. Table 26's `Identity` (or no `/Name`, which Table 14 defaults to it) is kept: it is
-/// the producer's statement that the stream stays in the clear, and it reads the same in any
-/// document. A document with no encryption dictionary decrypts nothing, so its dictionary passes
-/// unchanged.
-fn without_spent_crypt_stage(incoming: &Document, dict: &Dictionary) -> Dictionary {
-    if !incoming.is_encrypted() {
-        return dict.clone();
-    }
-    let filter = incoming.resolve(dict.get("Filter").unwrap_or(&Object::Null));
-    let first_is_crypt = match &filter {
-        Object::Name(name) => name.as_bytes() == b"Crypt",
-        Object::Array(stages) => stages
-            .first()
-            .map(|stage| incoming.resolve(stage))
-            .and_then(|stage| stage.as_name().map(|name| name.as_bytes() == b"Crypt"))
-            .unwrap_or(false),
-        _ => false,
-    };
-    if !first_is_crypt {
-        return dict.clone();
-    }
-    let parms = incoming.resolve(dict.get("DecodeParms").unwrap_or(&Object::Null));
-    let first_parms = match &parms {
-        Object::Array(entries) => entries
-            .first()
-            .map_or(Object::Null, |entry| incoming.resolve(entry)),
-        other => other.clone(),
-    };
-    let named = first_parms
-        .as_dict()
-        .map(|parms| incoming.get_key(parms, "Name"))
-        .and_then(|name| name.as_name().map(|name| name.as_bytes().to_vec()));
-    if named.as_deref().is_none_or(|name| name == b"Identity") {
-        return dict.clone();
-    }
-    let mut out = dict.clone();
-    let rest = |entries: &[Object]| entries.get(1..).unwrap_or_default().to_vec();
-    match (&filter, &parms) {
-        (Object::Array(stages), Object::Array(entries)) if stages.len() > 1 => {
-            out.insert(Name::new(&b"Filter"[..]), Object::Array(rest(stages)));
-            out.insert(Name::new(&b"DecodeParms"[..]), Object::Array(rest(entries)));
-        }
-        (Object::Array(stages), _) if stages.len() > 1 => {
-            out.insert(Name::new(&b"Filter"[..]), Object::Array(rest(stages)));
-            out.remove("DecodeParms");
-        }
-        _ => {
-            out.remove("Filter");
-            out.remove("DecodeParms");
-        }
-    }
-    out
-}
-
 /// Table 29's `/Version` raised to the inserted document's, where that one is the newer.
 ///
 /// ISO 32000-2 §I.2:
@@ -1126,7 +1058,8 @@ impl<'a> Carry<'a> {
                 // holds and `incremental_update` is what puts the target's own encryption back
                 // on the way out. A `/Crypt` stage naming the incoming document's crypt filter
                 // is that encryption, spent, and goes with it (ADR 3682).
-                let dict = without_spent_crypt_stage(self.incoming, &stream.dict);
+                let dict =
+                    pdf_syntax::serialize::carried_stream_dictionary(self.incoming, &stream.dict);
                 Object::Stream(std::sync::Arc::new(Stream {
                     dict: self.dictionary(&dict, depth)?,
                     data: stream.data.clone(),
