@@ -897,7 +897,11 @@ pub(super) fn sample_rgba(
         (ColourSpace::Resolved(_), _) if palette.is_some() => {
             let sample = index_of(row, x, bits);
             // The table already carries `/Decode`'s map, so the sample is the index and
-            // nothing else happens to it here.
+            // nothing else happens to it here. It holds an entry for every level the depth
+            // can write, each painted through `entry_of`, so a sample past `hival` is already
+            // §8.6.6.3's "adjusted to the nearest value within that range" in it (ADR 3613).
+            // not a repair: the table has `1 << bits` entries and `sample` is below that, so
+            // the default is unreachable and no value of the file's.
             opaque(
                 palette
                     .and_then(|table| table.get(sample))

@@ -73,10 +73,11 @@ impl Walk<'_> {
         // Where this stream found the marked-content stack. A stream that opens more sequences
         // than it closes leaves them here, and one that closes more would otherwise close its
         // caller's; §14.6.1 makes neither a thing a conforming stream does, so the depth is
-        // restored on the way out rather than the imbalance reported.
+        // restored on the way out, and the grammar below reports the imbalance.
         let base = self.marks.len();
-        // §7.8.2's operands, §8.4.2's balance, §9.4.1's text object and §8.6.8's component count,
-        // which the interpreter repairs where a stream breaks them and a validator that does not
+        // §7.8.2's operands, §8.4.2's balance, §9.4.1's text object, §8.6.8's component count and
+        // the balance of §14.6.1's marked content and §7.8.2's compatibility sections, which the
+        // interpreter repairs where a stream breaks them and a validator that does not
         // interpret reads off the tokens (ADR 3541). What it finds goes with the stream's lexical
         // repairs, which the caller records at the stream's content site.
         let mut grammar = Grammar::default();
@@ -107,6 +108,11 @@ impl Walk<'_> {
             }
             match step {
                 Step::End => {
+                    // What the stream left open, which the interpreter repairs at the same end
+                    // (`doc/adr/3614`).
+                    for class in grammar.end() {
+                        reader.note_repair(class);
+                    }
                     self.marks.truncate(base);
                     return;
                 }

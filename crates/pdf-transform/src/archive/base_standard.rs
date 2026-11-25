@@ -576,6 +576,14 @@ const IN_CONTENT_BY_CLASS: &[(&str, &str, &str)] = &[
         "model/colour-operands-do-not-fit-the-space",
         "ISO 32000-2 §8.6.8"
     ),
+    // Answered where the `BDC` naming the list is written out with its section (ADR 3615).
+    in_content_operator!("model/property-list-unresolved", "ISO 32000-2 §14.6.2"),
+    // What a stream leaves open, which the checker's grammar reads off the tokens (ADR 3614).
+    in_content!("model/marked-content-unbalanced", "ISO 32000-2 §14.6.1"),
+    in_content!(
+        "model/compatibility-sections-unbalanced",
+        "ISO 32000-2 §7.8.2"
+    ),
 ];
 
 /// The sentence for a class inside a content stream that [`IN_CONTENT_BY_CLASS`] does not list.

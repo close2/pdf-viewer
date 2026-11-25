@@ -8,12 +8,12 @@
 //! `DeviceGray` are read in `DeviceRGB` — and logs each repair where it makes it. A validator
 //! does not interpret: running the interpreter over every page and form to learn five facts
 //! about the token sequence would decode every image and load every font a second time, beside
-//! the walk the validator already makes. Every one of the five is a function of the tokens, the
+//! the walk the validator already makes. Every one of them is a function of the tokens, the
 //! `q`/`Q` and `BT`/`ET` nesting, and the number of components of the space a `cs` selected, so
 //! a walk that already reads the tokens can ask them here, of the same table the interpreter's
 //! operand counts are held to (`operand_counts_are_the_grammars`).
 //!
-//! The five, each under its clause:
+//! They are, each under its clause:
 //!
 //! - §7.8.2: "all of the operands needed by an operator shall immediately precede that
 //!   operator" — an operator short of its table's count, or given an operand of a type its table
@@ -21,7 +21,14 @@
 //! - §8.4.2: "Occurrences of the q and Q operators shall be balanced within a given content
 //!   stream" — a `Q` with nothing saved;
 //! - §9.4.1, Figure 9: text-showing and text-positioning operators appear inside a text object;
-//! - §8.6.8, Table 73: `sc` takes as many operands as the current colour space has components.
+//! - §8.6.8, Table 73: `sc` takes as many operands as the current colour space has components;
+//! - §14.6.1, Table 352: `BMC` and `BDC` each begin a sequence "terminated by a balancing EMC
+//!   operator" — an `EMC` with nothing open, or a stream ending inside a sequence;
+//! - §7.8.2: `BX` and `EX` "shall occur in pairs" — an `EX` with nothing open, or a stream ending
+//!   inside a section.
+//!
+//! The last two are what a stream leaves open as much as what one operator does, so
+//! [`Grammar::end`] answers them at the stream's end, where the interpreter makes the same repair.
 
 use pdf_syntax::{Document, Object, RepairClass};
 
@@ -86,6 +93,14 @@ enum Role {
     DeviceColour { stroking: bool, components: usize },
     /// `SC`, `sc`, `SCN` or `scn`.
     Colour { stroking: bool },
+    /// `BMC` or `BDC`.
+    BeginMarked,
+    /// `EMC`.
+    EndMarked,
+    /// `BX`.
+    BeginCompatibility,
+    /// `EX`.
+    EndCompatibility,
     /// Everything else.
     Plain,
 }
@@ -155,12 +170,28 @@ pub fn signature(word: &[u8]) -> Option<Signature> {
             role: Role::EndText,
         },
         b"h" | b"n" | b"f" | b"F" | b"f*" | b"S" | b"s" | b"B" | b"B*" | b"b" | b"b*" | b"W"
-        | b"W*" | b"EMC" | b"BX" | b"EX" | b"BI" => plain(NONE),
+        | b"W*" | b"BI" => plain(NONE),
+        b"EMC" => Signature {
+            wants: Some(NONE),
+            role: Role::EndMarked,
+        },
+        b"BX" => Signature {
+            wants: Some(NONE),
+            role: Role::BeginCompatibility,
+        },
+        b"EX" => Signature {
+            wants: Some(NONE),
+            role: Role::EndCompatibility,
+        },
         b"T*" => text(NONE),
         b"w" | b"J" | b"j" | b"M" | b"i" | b"Tc" | b"Tw" | b"Tz" | b"TL" | b"Ts" | b"Tr" => {
             plain(ONE_NUMBER)
         }
-        b"ri" | b"gs" | b"sh" | b"Do" | b"MP" | b"BMC" => plain(NAME),
+        b"ri" | b"gs" | b"sh" | b"Do" | b"MP" => plain(NAME),
+        b"BMC" => Signature {
+            wants: Some(NAME),
+            role: Role::BeginMarked,
+        },
         b"Tj" | b"'" => text(&[Wants::Text]),
         b"\"" => text(&[N, N, Wants::Text]),
         b"Td" | b"TD" => text(TWO_NUMBERS),
@@ -171,7 +202,11 @@ pub fn signature(word: &[u8]) -> Option<Signature> {
         },
         b"m" | b"l" | b"d0" => plain(TWO_NUMBERS),
         b"Tf" => plain(&[Wants::Name, N]),
-        b"DP" | b"BDC" => plain(&[Wants::Name, Wants::Properties]),
+        b"DP" => plain(&[Wants::Name, Wants::Properties]),
+        b"BDC" => Signature {
+            wants: Some(&[Wants::Name, Wants::Properties]),
+            role: Role::BeginMarked,
+        },
         b"v" | b"y" | b"re" => plain(FOUR_NUMBERS),
         b"cm" | b"c" | b"d1" => plain(SIX_NUMBERS),
         b"CS" | b"cs" => Signature {
@@ -205,10 +240,11 @@ pub fn signature(word: &[u8]) -> Option<Signature> {
 /// How many operands of one stretch the grammar keeps: the most any fixed list states.
 const KEPT: usize = 6;
 
-/// The five checks over one content stream's tokens, in the order the stream states them.
+/// The checks over one content stream's tokens, in the order the stream states them.
 ///
 /// Fed by [`Self::operand`] for every operand token and [`Self::operator`] for every operator, it
-/// answers each operator with the class of repair an interpreter would have made there, or none.
+/// answers each operator with the class of repair an interpreter would have made there, or none,
+/// and [`Self::end`] answers what the stream left open when it ends.
 /// A stream starts in §8.4.1's initial state — `DeviceGray`, one component, for both colours — and
 /// its own `q` and `Q` decide what a `Q` restores; a form `XObject` is a stream of its own.
 #[derive(Debug, Clone)]
@@ -226,6 +262,9 @@ pub struct Grammar {
     fill: Option<usize>,
     /// Whether a `BT` is open.
     in_text: bool,
+    /// How many `BMC` and `BDC` sections are open, and how many `BX` sections.
+    marked: usize,
+    compatibility: usize,
 }
 
 impl Default for Grammar {
@@ -238,6 +277,8 @@ impl Default for Grammar {
             stroke: Some(1),
             fill: Some(1),
             in_text: false,
+            marked: 0,
+            compatibility: 0,
         }
     }
 }
@@ -271,6 +312,13 @@ impl Grammar {
     /// any. Where it needs two, the operand's is answered, since that is the one that decides
     /// whether the operator runs at all.
     pub fn operator(&mut self, signature: Signature) -> Option<&'static RepairClass> {
+        // A section is opened whatever its operands are: the interpreter runs `BMC` and `BDC`
+        // with what it was given, so the `EMC` after one balances it either way.
+        match signature.role {
+            Role::BeginMarked => self.marked = self.marked.saturating_add(1),
+            Role::BeginCompatibility => self.compatibility = self.compatibility.saturating_add(1),
+            _ => {}
+        }
         let found = self
             .operands_found(signature)
             .or_else(|| self.state_found(signature));
@@ -348,8 +396,37 @@ impl Grammar {
                     .is_some_and(|components| components != self.numbers)
                     .then_some(&repair::COLOUR_OPERANDS_DO_NOT_FIT_THE_SPACE)
             }
-            Role::Plain => None,
+            // Table 352's `BMC` and `BDC` are each "terminated by a balancing EMC operator", and
+            // §7.8.2's `BX` and `EX` "shall occur in pairs": a closing operator with nothing open
+            // balances nothing.
+            Role::EndMarked => match self.marked.checked_sub(1) {
+                Some(open) => {
+                    self.marked = open;
+                    None
+                }
+                None => Some(&repair::MARKED_CONTENT_UNBALANCED),
+            },
+            Role::EndCompatibility => match self.compatibility.checked_sub(1) {
+                Some(open) => {
+                    self.compatibility = open;
+                    None
+                }
+                None => Some(&repair::COMPATIBILITY_SECTIONS_UNBALANCED),
+            },
+            Role::BeginMarked | Role::BeginCompatibility | Role::Plain => None,
         }
+    }
+
+    /// What the stream left open at its end: a marked-content section and a compatibility
+    /// section each read as if closed there, which the interpreter repairs at the end of the same
+    /// stream (`doc/adr/3614`).
+    pub fn end(&self) -> impl Iterator<Item = &'static RepairClass> {
+        [
+            (self.marked > 0).then_some(&repair::MARKED_CONTENT_UNBALANCED),
+            (self.compatibility > 0).then_some(&repair::COMPATIBILITY_SECTIONS_UNBALANCED),
+        ]
+        .into_iter()
+        .flatten()
     }
 }
 
@@ -491,5 +568,40 @@ mod tests {
     #[test]
     fn a_restore_brings_back_the_saved_space() {
         assert_eq!(run(&["q", "1", "0", "0", "rg", "Q", "0.5", "sc"]), [""; 0]);
+    }
+
+    /// Table 352's balancing `EMC` and §7.8.2's paired `BX` and `EX`: a closing operator with
+    /// nothing open is the class at once, and a stream that ends with a section open is the class
+    /// at its end (`doc/adr/3614`). A `BDC` whose tag is not a name still opens a section, because
+    /// the interpreter runs it with what it was given.
+    #[test]
+    fn a_marked_or_compatibility_section_left_open_or_closed_twice_is_the_class() {
+        let ended = |tokens: &[&str]| {
+            let mut grammar = Grammar::default();
+            for token in tokens {
+                let signature = signature(token.as_bytes()).expect("Table 50 operators");
+                let _ = grammar.operator(signature);
+            }
+            grammar.end().map(|class| class.name).collect::<Vec<_>>()
+        };
+        assert_eq!(run(&["/Tag", "BMC", "EMC", "BX", "EX"]), Vec::<&str>::new());
+        assert_eq!(run(&["EMC"]), [repair::MARKED_CONTENT_UNBALANCED.name]);
+        assert_eq!(
+            run(&["EX"]),
+            [repair::COMPATIBILITY_SECTIONS_UNBALANCED.name]
+        );
+        assert_eq!(
+            run(&["123", "/oc1", "BDC", "EMC"]),
+            [repair::OPERAND_OF_THE_WRONG_TYPE.name],
+            "the wrong tag is the BDC's class, and its EMC balances it"
+        );
+        assert_eq!(
+            ended(&["BMC", "BX"]),
+            [
+                repair::MARKED_CONTENT_UNBALANCED.name,
+                repair::COMPATIBILITY_SECTIONS_UNBALANCED.name
+            ]
+        );
+        assert_eq!(ended(&["BMC", "EMC", "BX", "EX"]), Vec::<&str>::new());
     }
 }

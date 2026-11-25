@@ -78,12 +78,18 @@ const NOT_DRAWN_THE_SAME: &str = "writing out the operators this reader repaired
 
 /// The repair classes an operator is written out for where the page draws the same without it
 /// (`doc/adr/3558`).
-pub(super) const WRITTEN_OUT_WHERE_DRAWN_THE_SAME: [&str; 5] = [
+///
+/// The last is no operator's own: a `BDC` naming a property list the resources do not hold
+/// (§14.6.2) is written out with its section where its operands are the wrong type, and its name
+/// goes with it (`doc/adr/3615`). A `BDC` the grammar finds nothing at keeps it, and the output's
+/// own check refuses the write.
+pub(super) const WRITTEN_OUT_WHERE_DRAWN_THE_SAME: [&str; 6] = [
     "model/operator-short-of-operands",
     "model/operand-of-the-wrong-type",
     "model/restore-with-nothing-saved",
     "model/text-operator-outside-a-text-object",
     "model/colour-operands-do-not-fit-the-space",
+    "model/property-list-unresolved",
 ];
 
 /// The most pages the proof draws twice; past it the operators are left.
@@ -534,7 +540,15 @@ struct Walk {
     operands_elsewhere: bool,
     /// The last name operand, which a `CS` or `cs` selects its space by.
     last_name: Option<Vec<u8>>,
+    /// Each open `BMC` or `BDC` section, innermost last: whether its opening operator is written
+    /// out, so that the `EMC` balancing it is written out with it (`doc/adr/3615`). At most
+    /// [`MOST_SECTIONS`]; past it a section is not followed and its operator is left.
+    sections: Vec<bool>,
 }
+
+/// How deep the open sections [`Walk`] follows may nest, so that a hostile stream of `BMC`s costs
+/// a bound rather than memory.
+const MOST_SECTIONS: usize = 1024;
 
 impl Walk {
     /// The walk at the start of the next stream of the same page's content.
@@ -604,9 +618,25 @@ impl Walk {
             self.grammar
                 .select_space(word == b"CS", space_components(document, resources, &name));
         }
-        (whole_here
-            && class.is_some_and(|class| WRITTEN_OUT_WHERE_DRAWN_THE_SAME.contains(&class.name)))
-        .then_some(from)
+        let written = whole_here
+            && class.is_some_and(|class| WRITTEN_OUT_WHERE_DRAWN_THE_SAME.contains(&class.name));
+        match word {
+            // Table 352's `BMC` and `BDC` each begin a sequence "terminated by a balancing EMC
+            // operator": a section whose opening operator is written out is written out whole,
+            // or the `EMC` left behind would balance nothing (`doc/adr/3615`).
+            b"BMC" | b"BDC" => {
+                if self.sections.len() < MOST_SECTIONS {
+                    self.sections.push(written);
+                    return written.then_some(from);
+                }
+                None
+            }
+            b"EMC" => self
+                .sections
+                .pop()
+                .and_then(|opened_written| opened_written.then_some(start)),
+            _ => written.then_some(from),
+        }
     }
 }
 

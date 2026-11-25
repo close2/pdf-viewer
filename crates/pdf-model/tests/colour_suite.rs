@@ -31,6 +31,7 @@ mod icc_alternate_range_spec_audit;
 mod icc_paint_context;
 mod indexed_lab_lookup_spec_audit;
 mod indexed_out_of_range;
+mod indexed_past_hival_routes;
 mod indexed_rounding_initial_spec_audit;
 mod mixed_paint_context;
 mod multitone_examples;

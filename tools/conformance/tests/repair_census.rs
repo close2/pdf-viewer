@@ -114,7 +114,7 @@ const HELD: &[(&str, usize)] = &[
     ("pdf-syntax/src/crypt/public_key.rs", 5),
     ("pdf-model/src/submission.rs", 5),
     ("pdf-model/src/inline_image.rs", 5),
-    ("pdf-model/src/image/unpack.rs", 5),
+    ("pdf-model/src/image/unpack.rs", 4),
     ("pdf-font/src/type1_to_cff.rs", 5),
     ("pdf-font/src/shaping/joining.rs", 5),
     ("pdf-font/src/sfnt.rs", 5),

@@ -148,3 +148,71 @@ fn a_media_box_that_is_no_rectangle_is_written_as_the_box_this_reader_drew() {
         );
     }
 }
+
+/// ISO 32000-2 Table 352's `BMC` begins a sequence "terminated by a balancing EMC operator", and
+/// §7.8.2's `BX` and `EX` "shall occur in pairs": a stream ending inside a section, or closing one
+/// it never opened, is read as if balanced, and the checker's grammar finds it before the fence
+/// asks which pages to photograph (`doc/adr/3614`). Under `as-shown` the row keeps its refusal by
+/// the class's name; under `as-if-printed` the page is photographed.
+#[test]
+fn a_section_left_open_or_closed_twice_is_found_before_the_photographs() {
+    let target = Target::Two(Level::B);
+    for (stream, class) in [
+        (
+            &b"/Tag BMC 0 0 10 10 re f"[..],
+            "model/marked-content-unbalanced",
+        ),
+        (
+            &b"0 0 10 10 re f EX"[..],
+            "model/compatibility-sections-unbalanced",
+        ),
+    ] {
+        let source = a_page_whose_stream_is(stream);
+        let (report, output) = convert_with_plan(&source, &under("as-shown", target));
+        assert!(output.is_none(), "{class}: as-shown writes no file");
+        let refused = refusals(&report);
+        assert!(
+            refused.iter().any(|sentence| sentence.contains(class)),
+            "refused by the class's name: {refused:?}"
+        );
+        let (report, output) = convert_with_plan(&source, &under("as-if-printed", target));
+        let output = output.expect("as-if-printed photographs the page");
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{class}"
+        );
+        assert_eq!(conversion(&report).photographed.len(), 1, "{class}");
+    }
+}
+
+/// A `BDC` whose tag is not a name (Table 352: "tag shall be a name object") and whose property
+/// list names nothing the resources hold (§14.6.2) draws nothing of its own, so it is written out
+/// where the page draws the same — and the `EMC` balancing it with it, or the `EMC` left would
+/// balance nothing (`doc/adr/3615`).
+#[test]
+fn a_section_opened_by_an_operator_written_out_is_written_out_whole() {
+    let source = a_page_whose_stream_is(b"123 /oc1 BDC 0 0 10 10 re f EMC");
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(&source, &under("as-shown", target));
+    let Decision::Authorised { losses, .. } = decision(&report, BASE_STANDARD) else {
+        panic!("{:?}", decision(&report, BASE_STANDARD));
+    };
+    assert!(
+        losses.iter().eq([Loss::ContentAsDrawn]),
+        "{}",
+        losses.words()
+    );
+    let output = output.expect("a file is written");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let written: Vec<&[u8]> = conversion(&report)
+        .runs_written_as_drawn
+        .iter()
+        .map(|written| written.run.as_slice())
+        .collect();
+    assert_eq!(written, [&b"123 /oc1 BDC"[..], b"EMC"]);
+    let contents = decoded_contents(&output);
+    let text = String::from_utf8_lossy(&contents);
+    assert!(text.contains("0 0 10 10 re f"), "{text}");
+    assert!(!text.contains("BDC") && !text.contains("EMC"), "{text}");
+}
