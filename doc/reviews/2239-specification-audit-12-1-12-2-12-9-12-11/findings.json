@@ -1,0 +1,56 @@
+[
+ {
+  "id": "2239-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.9.1",
+   "12.9.2"
+  ],
+  "summary": "A decimal display that rounds up to a whole unit drops the carry: format()'s Decimal arm prints the fractional part to /D's precision separately from the whole part, so 2.999 with /D 100 becomes the text '1.00', whose digits trim to nothing, and the whole part 2 is printed alone. A 2.999-unit distance reads '2 u' (and '2.00 u' with /FD true) instead of 3.00. Every quantity Table 267 formats (distance, length, area, angle, slope) on every last number format dictionary of /F D takes the same path.",
+  "source": "ISO 32000-2 \u00a712.9.1 Table 268 /F: \"D Show as decimal to the precision specified by the D entry.\" /D: \"When the value of F is D , this entry shall be the precision of a decimal display; it shall be a multiple of 10. Low-order zeros may be truncated unless FD is true . Default value: 100 (hundredths, corresponding to two decimal digits).\" \u00a712.9.2 d): \"format the fractional portion as specified by the RD , F , D , and FD entries of the last dictionary.\"",
+  "code": "crates/pdf-model/src/measurement.rs:1020-1038 (fractional_text, Fraction::Decimal: places from ilog10, format!(\"{:.*}\", places, value.abs().fract()), the integer part from value.trunc() printed separately); the Fractional arm beside it carries at :1006-1010",
+  "change": "Round the value to the stated precision once (value * D, rounded, as an integer of D-ths), then split that into the whole part and the digits, so a rounding up to D/D carries into the whole part as the Fractional arm already does.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/measurement_12_9_spec_audit.rs::a_decimal_that_rounds_up_to_a_whole_unit_carries_into_it_spec_audit (navigation_suite) \u2014 round 2239: got \"2 u\" for 2.999; its control (2.5 \u2192 \"2.5 u\") passes.",
+  "status": "open"
+ },
+ {
+  "id": "2239-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.9.1"
+  ],
+  "summary": "An empty /RD is read as an empty decimal position, so a number format dictionary stating /RD () formats 12.5 as '125 u'. Table 268 gives /RD's empty string the opposite meaning from /RT's, /PS's and /SS's: for those it is 'no text shall be added', for /RD it is 'the default shall be used', the period. number_format reads all four through one closure whose comment quotes /RT's sentence.",
+  "source": "ISO 32000-2 \u00a712.9.1 Table 268 /RD: \"Text that shall be used as the decimal position in displaying numerical values. An empty string indicates that the default shall be used. Default value: PERIOD (2Eh).\" (against /RT: \"An empty string indicates that no text shall be added.\")",
+  "code": "crates/pdf-model/src/measurement.rs:1698-1703 (the text closure: an empty string kept as stated) and :1719 (decimal_point: text(\"RD\", \".\"))",
+  "change": "Read /RD so that an empty string (and an absent entry) is the period; keep /RT, /PS and /SS as they are, and correct the closure's comment to say which of the four it describes.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/measurement_12_9_spec_audit.rs::an_empty_decimal_position_is_the_default_period_spec_audit (navigation_suite) \u2014 round 2239: got \"125 u\"; its control (/RD (,) \u2192 \"12,5 u\") passes.",
+  "status": "open"
+ },
+ {
+  "id": "2239-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "12.9.1"
+  ],
+  "summary": "A slope is taken along the page's axes, not along the measuring axes the viewport's /BBox orders. Table 265 makes the corner order of /BBox 'determine the orientation of the measuring coordinate system (that is, the direction of the positive x and y axes)', and Table 267's /X puts the measuring axes' directions on that entry; Viewport::unit_square honours the order, Measure::slope does not. In a viewport stated [0 400 400 0] (measuring y down the page) a line rising on the page reports '1 rise' where the measuring system's slope is -1. Distance, length, area and the unsigned angle are invariant under a reflection, so slope is the one signed quantity the order changes.",
+  "source": "ISO 32000-2 \u00a712.9.1 Table 265 /BBox: \"The two coordinate pairs of the rectangle shall be specified in normalised form; that is, lower-left followed by upper-right, relative to the measuring coordinate system. This ordering shall determine the orientation of the measuring coordinate system (that is, the direction of the positive x and y axes) in this viewport, which may have a different rotation from the page.\" Table 267 /X: \"The directions of the x and y axes are in the measuring coordinate system and are independent of the page rotation. These directions shall be determined by the BBox entry of the containing viewport\". /S: \"the conversion to the largest slope unit from units represented by the first element in Y divided by the first element in X\".",
+  "code": "crates/pdf-model/src/measurement.rs:784-795 (Measure::slope: dx, dy straight from default user space) and :465-497 (Viewports::traced hands the measure the page's points without the viewport's orientation); the reading that honours the order: Viewport::unit_square_at :189-213",
+  "change": "Carry the viewport's axis directions (the signs of x1 - x0 and y1 - y0, or the object's placement for an image or form measure) into the measuring computation, so that Measure::slope (and any later signed quantity, such as Table 267's change in x or y) is taken in the measuring system; the unsigned quantities are unchanged.",
+  "execution": "FAIL (expected): crates/pdf-model/tests/measurement_12_9_spec_audit.rs::a_slope_is_taken_along_the_axes_the_viewport_orders_spec_audit (navigation_suite) \u2014 round 2239: got \"1 rise\" in [0 400 400 0]; its control ([0 0 400 400] \u2192 \"1 rise\") passes.",
+  "status": "open"
+ },
+ {
+  "id": "2239-D01",
+  "kind": "documentation-gap",
+  "clauses": [
+   "12.11.2",
+   "12.11.3"
+  ],
+  "summary": "Three of Kind::unmet's reasons, which notes.rs shows the reader and penalty_total counts, are claims about this tree that have decayed: EnableJavaScripts says 'ECMAScript is excluded by this project's principle 5', while CLAUDE.md now runs a script at the reader's level in a confined worker and ViewState::run_open_scripts runs the /JavaScript name tree; Multimedia says clause 13's multimedia is excluded, while audio is opened (A946) and Command::PlaysHere plays a rendition's sound; Geospatial2D says 'turning a page point into a coordinate needs the EPSG registry', while pdf_model::geospatial projects from a system's WKT and viewer_core::located answers a position (only an EPSG-only system is refused). Whether each type is now met is the fix round's reading of Table 275 against the tree; the sentences are wrong either way.",
+  "source": "ISO 32000-2 \u00a712.11.2 Table 275 EnableJavaScripts: \"Requires support for execution of ECMAScripts appearing in ECMAScript actions and in the ECMAScript name tree for document-level ECMAScripts.\" Multimedia: \"Requires support for multimedia ( Screen ) annotations ... The support that is required is for the general multimedia framework, not for an external player\". Geospatial2D: \"Requires support for processing provided geospatial information in the page content and associated resources.\"",
+  "code": "crates/pdf-model/src/requirements.rs:412-422 (the three arms); crates/pdf-model/src/view/script_sites.rs:113-147 (scripts run); crates/viewer-core/src/located.rs:53 (positions answered); crates/pdf-model/src/geospatial/mod.rs:1-31",
+  "change": "Re-read each of the three arms against the tree as the method's own doc comment asks: state what is missing in each (the calls a script may not make; video and 3D; a system named by EPSG code alone), and decide met or unmet by Table 275's wording.",
+  "execution": "Read, not executed.",
+  "status": "open"
+ }
+]

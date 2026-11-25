@@ -1,0 +1,24 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2239 on main 600550c3",
+ "failures": [
+  {
+   "binary": "pdf-model::navigation_suite",
+   "test": "measurement_12_9_spec_audit::a_decimal_that_rounds_up_to_a_whole_unit_carries_into_it_spec_audit",
+   "finding": "2239-B01",
+   "log": "round-2239 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::navigation_suite",
+   "test": "measurement_12_9_spec_audit::an_empty_decimal_position_is_the_default_period_spec_audit",
+   "finding": "2239-B02",
+   "log": "round-2239 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-model::navigation_suite",
+   "test": "measurement_12_9_spec_audit::a_slope_is_taken_along_the_axes_the_viewport_orders_spec_audit",
+   "finding": "2239-B03",
+   "log": "round-2239 nextest of pdf-model"
+  }
+ ]
+}

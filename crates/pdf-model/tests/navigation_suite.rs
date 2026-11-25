@@ -38,6 +38,7 @@ mod indirect_file_parameters_spec_audit;
 mod logical_structure_example;
 mod marked_content_scope;
 mod measurement;
+mod measurement_12_9_spec_audit;
 mod media_screen_background;
 mod media_viability;
 mod missing_attribute_class_spec_audit;
