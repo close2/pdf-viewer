@@ -288,6 +288,33 @@ use rewrite::convert;
 /// either — ISO 19005 chose it.
 const COMPRESSION_LEVEL: u32 = 9;
 
+/// Why a stream this verb composes is not written: a number it computed for an operand is an
+/// infinity or a NaN, which ISO 32000-2 §7.3.3 has no real for (`doc/adr/3699`).
+const NUMBER_NOT_FINITE: &str = "a number this conversion computed for an operand of a content \
+     stream it writes is an infinity or not a number, which ISO 32000-2 §7.3.3 has no real for, \
+     so the stream is not written";
+
+/// One operand this verb computed, written by `pdf_syntax::write`'s one formatter for §7.3.3's
+/// real (`doc/adr/3686`): an integral value as an integer, any other as the shortest decimal that
+/// reads back as the same `f32`, never with an exponent; an infinity or a NaN refuses the stream
+/// with [`NUMBER_NOT_FINITE`] (`doc/adr/3699`).
+fn operand(value: f32) -> Result<String, Because> {
+    pdf_syntax::write::real_number_f32(value).map_err(|_| Because::NotBuiltYet(NUMBER_NOT_FINITE))
+}
+
+/// [`operand`] for one operand of ISO 32000-2 §12.5.5's matrix, written so that it reads back as
+/// the `f32` it is.
+///
+/// §12.5.5 computes `A` with no rounding step and §8.3.4's `cm` composes the operands it is
+/// given, so the marks land where the annotation drew them only if the reader recovers the same
+/// number. The reader holds a §7.3.3 real as an `f64` and the interpreter narrows it, so the
+/// operand is the `f32` widened and written as the shortest decimal that reads back as the same
+/// double (`doc/adr/2090`).
+fn widened_operand(value: f32) -> Result<String, Because> {
+    pdf_syntax::write::real_number(f64::from(value))
+        .map_err(|_| Because::NotBuiltYet(NUMBER_NOT_FINITE))
+}
+
 /// What a configuration answers at ISO 19005's two interactive form sites.
 ///
 /// Two keys rather than a remedy word each, because at both sites the *word* is `discard` and

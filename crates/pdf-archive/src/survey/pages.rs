@@ -1,6 +1,7 @@
 //! One page, its group, and its annotations' appearances: where a walk starts and what it records about a page as a whole.
 
 use crate::finding::Where;
+use pdf_model::content::grammar::Spaces;
 use pdf_model::content::ledger::Route as Via;
 use pdf_model::content::reader::ContentReader;
 use pdf_model::page::Page;
@@ -75,6 +76,7 @@ impl Walk<'_> {
                 referenced: false,
                 own_resources,
                 through_page_table,
+                began_in: Spaces::INITIAL,
             });
             self.survey.streams.len().saturating_sub(1)
         });

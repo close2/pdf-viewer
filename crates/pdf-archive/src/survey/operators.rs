@@ -82,7 +82,14 @@ impl Walk<'_> {
         // interpreter repairs where a stream breaks them and a validator that does not
         // interpret reads off the tokens (ADR 3541). What it finds goes with the stream's lexical
         // repairs, which the caller records at the stream's content site.
-        let mut grammar = Grammar::default();
+        // A form `XObject` and a Type 3 glyph description start in the colour spaces in force
+        // where they are invoked, a pattern's cell in those its parent began in, and a page in
+        // §8.4.1's initial state; [`State`] carries which.
+        let mut grammar = Grammar::starting_in(state.spaces);
+        state.began_in = state.spaces;
+        if let Some(record) = origin.record.and_then(|at| self.survey.streams.get_mut(at)) {
+            record.began_in = state.spaces;
+        }
         if state.uncoloured {
             grammar.ignore_colour();
         }
@@ -214,6 +221,7 @@ impl Walk<'_> {
                         }
                     }
                     self.place_from(&operator, &state, &context, &mut displaced);
+                    state.spaces = grammar.spaces();
                     self.apply(
                         &operator,
                         &mut state,

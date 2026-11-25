@@ -154,6 +154,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use pdf_model::Pages;
+use pdf_model::content::grammar::Spaces;
 use pdf_model::content::ledger::Ledger;
 use pdf_model::content::reader::ContentReader;
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId, Stream, Token};
@@ -577,6 +578,10 @@ pub struct OpenedStream {
     /// It is what lets a rewrite give one page its own copy of the stream by changing that
     /// table's entry, because then no other route to the stream is left naming the original.
     pub through_page_table: bool,
+    /// The colour spaces' components this walk began the stream in: §8.4.1's initial state for a
+    /// page's content and an annotation's appearance, the spaces in force at the `Do` for a form
+    /// `XObject` (ISO 32000-2 §8.10.1). A stream reached on several pages has a record for each.
+    pub began_in: Spaces,
 }
 
 /// The profile stream of an `ICCBased` colour space: ISO 32000-2 §8.6.5.5, Table 66.
@@ -1213,6 +1218,13 @@ struct State {
     blending: Blending,
     /// Which of Annex Q.2's four conditions the current graphics state meets.
     transparency: Transparency,
+    /// The current colour spaces' components, as the grammar counts them, which a form `XObject`
+    /// and a Type 3 glyph description start in (ISO 32000-2 §8.10.1, §9.6.4).
+    spaces: Spaces,
+    /// The spaces the stream being walked began in, which a tiling pattern's cell starts in:
+    /// §8.7.3.1's step b) "\[i]nstalls the graphics state that was in effect at the beginning of
+    /// the pattern's parent content stream".
+    began_in: Spaces,
 }
 
 /// ISO 32000-2 Annex Q.2's four conditions, each as the last `gs` that stated its key left it.

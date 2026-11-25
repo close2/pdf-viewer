@@ -523,6 +523,84 @@ fn colour_operands_that_do_not_fit_are_written_as_the_device_operator_this_reade
     }
 }
 
+/// A page stating `selects` (nothing where empty) and then painting a form whose `scn` gives three
+/// operands, with the CIE-based `Lab` space (§8.6.5.4), three components, as `/CS0`.
+fn a_page_painting_a_three_operand_form(selects: &str) -> Vec<u8> {
+    let form = b"1 0 0 scn 0 0 10 10 re f";
+    Conforming {
+        resources: "/ColorSpace << /CS0 [/Lab << /WhitePoint [0.9505 1 1.089] >>] >> \
+                    /XObject << /Fm0 6 0 R >>"
+            .to_owned(),
+        contents: Some((String::new(), format!("{selects} /Fm0 Do").into_bytes())),
+        binary_objects: vec![stream(
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length {}",
+                form.len()
+            ),
+            form,
+        )],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// §8.10.1 after `Do`'s steps: "the initial graphics state for the form shall be inherited from
+/// the graphics state that is in effect at the time Do is invoked". So three operands fit a form
+/// painted where the page selected a three-component space, and the validator finds no repair;
+/// painted in §8.4.1's initial `DeviceGray`, the same form needs §8.6.8's (`doc/adr/3697`).
+#[test]
+fn a_form_is_judged_in_the_colour_space_its_do_left_in_force() {
+    let target = Target::Two(Level::B);
+    let inherits = holds(&a_page_painting_a_three_operand_form("/CS0 cs"), target);
+    assert!(
+        !inherits
+            .failures()
+            .any(|judgement| judgement.id == BASE_STANDARD),
+        "the form inherits Lab"
+    );
+    let initial = holds(&a_page_painting_a_three_operand_form(""), target);
+    assert!(
+        initial
+            .failures()
+            .any(|judgement| judgement.id == BASE_STANDARD),
+        "the form starts in DeviceGray"
+    );
+}
+
+/// §11.6.5.1 makes a soft mask's `/G` a transparency group `XObject`, run in the initial state
+/// (the interpreter's `GraphicsState::initial`), so three `scn` operands in it are drawn in
+/// `DeviceRGB`. The repair is logged at the group's own object, which the write respells as `rg`;
+/// logged at the page, whose stream no write touches, it stayed refused (`doc/adr/3697`).
+#[test]
+fn a_repair_inside_a_soft_mask_group_is_answered_at_the_group() {
+    let group = b"0 0 0 scn 0 0 20 20 re f";
+    let source = Conforming {
+        resources: "/ExtGState << /GS0 << /Type /ExtGState /SMask << /Type /Mask /S /Alpha \
+                    /G 6 0 R >> >> >>"
+            .to_owned(),
+        contents: Some((String::new(), b"/GS0 gs 0 0 10 10 re f".to_vec())),
+        binary_objects: vec![stream(
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [0 0 20 20] /Group << /Type /Group \
+                 /S /Transparency >> /Length {}",
+                group.len()
+            ),
+            group,
+        )],
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::B);
+    assert!(
+        holds(&source, target)
+            .failures()
+            .any(|judgement| judgement.id == BASE_STANDARD),
+        "the group's scn needs the repair"
+    );
+    let (_, losses) = as_shown(&source, target);
+    assert!(losses.contains(Loss::ContentAsDrawn), "{}", losses.words());
+}
+
 /// §7.3.3 forbids a writer the exponential form ("such as 6.02E23") and states nothing for a
 /// reader; this reader reads `1.2e1` as twelve, so the run is written as `12` (`doc/adr/3677`).
 #[test]

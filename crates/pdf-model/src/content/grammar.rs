@@ -249,8 +249,13 @@ const KEPT: usize = 6;
 /// Fed by [`Self::operand`] for every operand token and [`Self::operator`] for every operator, it
 /// answers each operator with the class of repair an interpreter would have made there, or none,
 /// and [`Self::end`] answers what the stream left open when it ends.
-/// A stream starts in §8.4.1's initial state — `DeviceGray`, one component, for both colours — and
-/// its own `q` and `Q` decide what a `Q` restores; a form `XObject` is a stream of its own.
+/// A page's stream starts in §8.4.1's initial state — `DeviceGray`, one component, for both
+/// colours ([`Spaces::INITIAL`]) — and its own `q` and `Q` decide what a `Q` restores. A form
+/// `XObject` starts in the spaces in force at the `Do` that paints it ([`Self::starting_in`]), as
+/// ISO 32000-2 §8.10.1 says after the steps `Do` performs, none of which touches a colour space:
+///
+/// > Except as described above, the initial graphics state for the form shall be inherited from
+/// > the graphics state that is in effect at the time Do is invoked.
 #[derive(Debug, Clone)]
 pub struct Grammar {
     /// The last [`KEPT`] operands since the last operator, oldest first, and how many there were.
@@ -309,15 +314,57 @@ impl Found {
     }
 }
 
+/// How many components each current colour space has, as a walk counts them: `None` where it could
+/// not (a pattern, a name no resource defines), and then nothing is judged against it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Spaces {
+    /// The stroking colour space's components.
+    pub stroke: Option<usize>,
+    /// The non-stroking colour space's components.
+    pub fill: Option<usize>,
+}
+
+impl Spaces {
+    /// §8.4.1's initial state: `DeviceGray` for both, one component each.
+    pub const INITIAL: Self = Self {
+        stroke: Some(1),
+        fill: Some(1),
+    };
+
+    /// Spaces no walk could count, where a stream may start in more than one state: no colour
+    /// operator is judged until the stream selects a space of its own.
+    pub const UNCOUNTED: Self = Self {
+        stroke: None,
+        fill: None,
+    };
+}
+
+impl Default for Spaces {
+    fn default() -> Self {
+        Self::INITIAL
+    }
+}
+
 impl Default for Grammar {
     fn default() -> Self {
+        Self::starting_in(Spaces::INITIAL)
+    }
+}
+
+impl Grammar {
+    /// A stream that starts in `spaces`: a page's in [`Spaces::INITIAL`], a form `XObject`'s in
+    /// the spaces in force at its `Do` (ISO 32000-2 §8.10.1), a Type 3 glyph description's in
+    /// those at the text-showing operator that invokes it (§9.6.4), and a tiling pattern's cell in
+    /// those its parent stream began in (§8.7.3.1's step b).
+    #[must_use]
+    pub const fn starting_in(spaces: Spaces) -> Self {
         Self {
             operands: [Operand::Other; KEPT],
             given: 0,
             numbers: 0,
             saved: Vec::new(),
-            stroke: Some(1),
-            fill: Some(1),
+            stroke: spaces.stroke,
+            fill: spaces.fill,
             in_text: false,
             marked: 0,
             compatibility: 0,
@@ -383,6 +430,16 @@ impl Grammar {
     #[must_use]
     pub const fn ignores_colour(&self) -> bool {
         self.uncoloured
+    }
+
+    /// The spaces in force after the last operator, which a stream this one invokes starts in
+    /// ([`Self::starting_in`]).
+    #[must_use]
+    pub const fn spaces(&self) -> Spaces {
+        Spaces {
+            stroke: self.stroke,
+            fill: self.fill,
+        }
     }
 
     /// The operator `signature` names, after its operands: the repairs it needs. Where it needs
@@ -721,11 +778,15 @@ fn family_components(family: &[u8]) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{COVERAGE, Grammar, Operand, Reading, signature};
+    use super::{COVERAGE, Grammar, Operand, Reading, Spaces, signature};
     use crate::repair;
 
     fn run(tokens: &[&str]) -> Vec<&'static str> {
-        let mut grammar = Grammar::default();
+        run_in(Spaces::INITIAL, tokens)
+    }
+
+    fn run_in(spaces: Spaces, tokens: &[&str]) -> Vec<&'static str> {
+        let mut grammar = Grammar::starting_in(spaces);
         let mut found = Vec::new();
         for token in tokens {
             let operand = match token.as_bytes().first() {
@@ -750,6 +811,44 @@ mod tests {
             }
         }
         found
+    }
+
+    /// ISO 32000-2 §8.10.1: a form's "initial graphics state ... shall be inherited from the
+    /// graphics state that is in effect at the time Do is invoked", so three `sc` operands fit a
+    /// form painted where a three-component space is current, and one does not.
+    #[test]
+    fn a_form_is_judged_in_the_spaces_its_do_left_in_force() {
+        let rgb = Spaces {
+            stroke: Some(1),
+            fill: Some(3),
+        };
+        assert_eq!(
+            run_in(rgb, &["1", "0", "0", "sc", "0", "SC"]),
+            [] as [&str; 0]
+        );
+        assert_eq!(
+            run_in(rgb, &["0.5", "sc"]),
+            [repair::COLOUR_OPERANDS_DO_NOT_FIT_THE_SPACE.name]
+        );
+        // A `q` in the form saves the inherited space and its `Q` restores it.
+        assert_eq!(
+            run_in(rgb, &["q", "0", "g", "Q", "1", "0", "0", "sc"]),
+            [] as [&str; 0]
+        );
+        // Where the walk could not tell which space a form starts in, nothing is judged.
+        assert_eq!(
+            run_in(Spaces::UNCOUNTED, &["0.5", "sc", "1", "0", "0", "SC"]),
+            [] as [&str; 0]
+        );
+        let mut grammar = Grammar::default();
+        grammar.select_space(false, Some(4));
+        assert_eq!(
+            grammar.spaces(),
+            Spaces {
+                stroke: Some(1),
+                fill: Some(4)
+            }
+        );
     }
 
     /// A conforming stream needs nothing.

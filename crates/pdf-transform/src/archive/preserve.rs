@@ -54,11 +54,11 @@ use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use pdf_syntax::serialize::flate_encode;
 use pdf_syntax::{Document, Lexer, Token};
 
-use super::COMPRESSION_LEVEL;
 use super::decision::Because;
 use super::prepare::Spare;
 use super::report::{Preserved, SetIn};
 use super::tagged::{self, Described, Planned, Reference};
+use super::{COMPRESSION_LEVEL, operand, widened_operand};
 
 /// The type size the preserved text is set at, in text space units.
 ///
@@ -570,7 +570,7 @@ fn set_the_text(
         let key = planned.as_mut().map(|planned| planned.key_for_a_page(at));
         composed.written.push((
             content,
-            stream_of(&set, width, height).ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?,
+            stream_of(&set, width, height)?.ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?,
         ));
         composed.written.push((
             at,
@@ -617,7 +617,7 @@ fn place_the_marks(
         .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
     composed.written.push((
         content,
-        marks_stream(marks, as_an_artifact).ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?,
+        marks_stream(marks, as_an_artifact)?.ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?,
     ));
     composed
         .written
@@ -776,7 +776,7 @@ fn relocation_streams(
     for appearance in on_page {
         closing.push_str("q\n");
         for value in appearance.placement {
-            closing.push_str(&matrix_operand(value));
+            closing.push_str(&widened_operand(value)?);
             closing.push(' ');
         }
         closing.push_str("cm\n/");
@@ -1889,7 +1889,9 @@ struct SetLine<'a> {
 /// document's logical structure, it should be the same as the structure type of the associated
 /// structure element." The list is written inline, which §14.6.2 admits because its one value is
 /// a direct object.
-fn stream_of(lines: &[SetLine<'_>], width: f32, height: f32) -> Option<Object> {
+///
+/// `None` where the stream does not encode; the refusal where a computed operand is not finite.
+fn stream_of(lines: &[SetLine<'_>], width: f32, height: f32) -> Result<Option<Object>, Because> {
     use std::fmt::Write as _;
     let margin = the_margin_for(width, height);
     let mut content = String::new();
@@ -1901,9 +1903,9 @@ fn stream_of(lines: &[SetLine<'_>], width: f32, height: f32) -> Option<Object> {
             let _ = writeln!(content, "/P <</MCID {mcid}>> BDC");
         }
         content.push_str("BT\n/PreservedText ");
-        content.push_str(&number(SIZE));
+        content.push_str(&operand(SIZE)?);
         content.push_str(" Tf\n");
-        content.push_str(&number(margin));
+        content.push_str(&operand(margin)?);
         content.push(' ');
         // The first baseline sits one line below the top margin, so that the tallest ascender of
         // the first line clears it.
@@ -1912,7 +1914,7 @@ fn stream_of(lines: &[SetLine<'_>], width: f32, height: f32) -> Option<Object> {
             reason = "the index of a line on one page, which MOST_LINES_TO_A_PAGE bounds at 300"
         )]
         let baseline = height - margin - SIZE - (index as f32) * LEADING;
-        content.push_str(&number(baseline));
+        content.push_str(&operand(baseline)?);
         content.push_str(" Td\n<");
         for byte in line.bytes {
             let _ = write!(content, "{byte:02X}");
@@ -1922,21 +1924,7 @@ fn stream_of(lines: &[SetLine<'_>], width: f32, height: f32) -> Option<Object> {
             content.push_str("EMC\n");
         }
     }
-    let data = flate_encode(content.as_bytes(), COMPRESSION_LEVEL)?;
-    let mut dict = Dictionary::new();
-    dict.insert(
-        Name::new(&b"Filter"[..]),
-        Object::Name(Name::new(&b"FlateDecode"[..])),
-    );
-    dict.insert(
-        Name::new(&b"Length"[..]),
-        Object::Integer(i64::try_from(data.len()).ok()?),
-    );
-    Some(Object::Stream(std::sync::Arc::new(Stream {
-        dict,
-        data: data.into(),
-        decryption_failed: false,
-    })))
+    Ok(compressed(&content))
 }
 
 /// The name the appended page's resource dictionary binds the preserved appearance to.
@@ -1957,22 +1945,32 @@ const PRESERVED_MARKS: &[u8] = b"PreservedMarks";
 /// that the class §14.8.2.2.2's last sentence would give the marks by their absence from the tree is
 /// written on the page as well (`super::tagged::marks_may_stand_outside`, `doc/adr/3509`). The
 /// sequence encloses whole operators and states no property list, so it changes nothing drawn.
-fn marks_stream(marks: &Marks, as_an_artifact: bool) -> Option<Object> {
+///
+/// `None` where the stream does not encode; the refusal where an operand is not finite.
+fn marks_stream(marks: &Marks, as_an_artifact: bool) -> Result<Option<Object>, Because> {
     let mut content = String::from(if as_an_artifact {
         "/Artifact BMC\nq\n"
     } else {
         "q\n"
     });
     for value in marks.placement {
-        content.push_str(&matrix_operand(value));
+        content.push_str(&widened_operand(value)?);
         content.push(' ');
     }
     content.push_str("cm\n/");
-    content.push_str(std::str::from_utf8(PRESERVED_MARKS).ok()?);
+    let Ok(name) = std::str::from_utf8(PRESERVED_MARKS) else {
+        return Ok(None);
+    };
+    content.push_str(name);
     content.push_str(" Do\nQ\n");
     if as_an_artifact {
         content.push_str("EMC\n");
     }
+    Ok(compressed(&content))
+}
+
+/// `content` compressed into a stream object; `None` where it does not encode.
+fn compressed(content: &str) -> Option<Object> {
     let data = flate_encode(content.as_bytes(), COMPRESSION_LEVEL)?;
     let mut dict = Dictionary::new();
     dict.insert(
@@ -2028,30 +2026,6 @@ fn marks_page(document: &Document, marks: &Marks, content: ObjectId) -> Result<O
     dict.insert(Name::new(&b"Resources"[..]), Object::Dictionary(resources));
     dict.insert(Name::new(&b"Contents"[..]), Object::Reference(content));
     Ok(Object::Dictionary(dict))
-}
-
-/// One operand of ISO 32000-2 §12.5.5's matrix, written so that it reads back as the `f32` it is.
-///
-/// §12.5.5 computes `A` with no rounding step and §8.3.4's `cm` composes the operands it is
-/// given, so the marks land where the annotation drew them only if the reader recovers the same
-/// number. The reader holds a §7.3.3 real as an `f64` and the interpreter narrows it, so the
-/// operand is the `f32` widened and spelled as `pdf_syntax::write` spells every real: the shortest
-/// decimal that reads back as the same double, never in exponential format. [`number`]'s two
-/// places are not that: they moved a fractional `/Rect` origin by up to 0.005 of a point
-/// (`doc/adr/2090`).
-fn matrix_operand(value: f32) -> String {
-    let mut written = Vec::new();
-    pdf_syntax::write::object(&Object::Real(f64::from(value)), &mut written);
-    // A real is spelled in ASCII digits, a sign and a point, so nothing here is replaced.
-    String::from_utf8_lossy(&written).into_owned()
-}
-
-/// A number as a content stream writes one, without an exponent.
-fn number(value: f32) -> String {
-    format!("{value:.2}")
-        .trim_end_matches('0')
-        .trim_end_matches('.')
-        .to_owned()
 }
 
 /// One appended page's dictionary.
@@ -2449,13 +2423,16 @@ mod tests {
 
     #[test]
     fn a_number_is_written_without_a_trailing_point() {
-        assert_eq!(number(9.0), "9");
-        assert_eq!(number(841.89), "841.89");
-        assert_eq!(number(12.5), "12.5");
+        assert_eq!(operand(9.0).as_deref(), Ok("9"));
+        assert_eq!(operand(841.89).as_deref(), Ok("841.89"));
+        assert_eq!(operand(12.5).as_deref(), Ok("12.5"));
+        assert!(operand(f32::INFINITY).is_err());
     }
 
     #[test]
     fn a_matrix_operand_reads_back_as_the_f32_it_was() {
+        let matrix_operand = |value| widened_operand(value).expect("every value here is finite");
+        assert!(widened_operand(f32::NAN).is_err());
         for value in [75.034_1_f32, 720.288, 1.0, 0.0, -0.1, 1.0e-7, 3.0e38] {
             let read = matrix_operand(value).parse::<f64>();
             #[expect(

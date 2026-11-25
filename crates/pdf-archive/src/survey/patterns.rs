@@ -30,6 +30,7 @@ impl Walk<'_> {
                 // A `PaintType` of 2 is §8.7.3.3's uncoloured tiling pattern, whose cell's colour
                 // operators §8.6.8 has ignored, which the grammar is told (ADR 3629).
                 let mut cell = state.clone();
+                cell.spaces = state.began_in;
                 cell.uncoloured |= self
                     .document
                     .get_key(&stream.dict, "PaintType")

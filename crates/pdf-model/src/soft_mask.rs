@@ -50,6 +50,9 @@ pub(crate) struct SoftMaskRequest {
     /// Table 142's `/G`: "A transparency group `XObject` … that shall be used as the source
     /// of alpha or colour values for deriving the mask."
     pub group: Arc<Stream>,
+    /// The object `/G` names, where it is a reference (§7.3.10), so that a repair made inside
+    /// the group is logged at the group's own content site, as one inside a form is.
+    pub group_id: Option<pdf_syntax::ObjectId>,
     /// Which of §11.5's two derivations applies, with `/BC` already resolved for the
     /// luminosity one.
     pub kind: SoftMaskKind,
@@ -174,6 +177,7 @@ fn read(
 
     SoftMaskEntry::Mask(Box::new(SoftMaskRequest {
         group,
+        group_id: mask.get("G").and_then(Object::as_reference),
         kind,
         transfer,
         compositing,

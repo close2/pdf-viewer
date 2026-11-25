@@ -194,7 +194,7 @@ fn a_lone_delimiter_where_no_operand_stands_is_written_as_white_space() {
 // delimiter was ever written, and only the run is written.
 #[test]
 fn a_lone_delimiter_beside_an_unanswered_operator_is_left_with_its_page() {
-    let source = a_page_drawing(b"q 33600.272.58 0 m 10 10 l S Q ) Frobnicate");
+    let source = a_page_drawing(b"q 33600.272.58 0 m 10 10 l S Q ) 1 Frobnicate");
     let target = Target::Two(Level::B);
     let (report, output) = convert_with_plan(&source, &under("as-if-printed", target));
     let output = output.expect("a file is written");
@@ -205,6 +205,58 @@ fn a_lone_delimiter_beside_an_unanswered_operator_is_left_with_its_page() {
         panic!("one run: {:?}", conversion.runs_written_as_drawn);
     };
     assert_eq!(written.run, b"33600.272.58");
+}
+
+// An operator no table defines, where no operand stands: `sci-notation.pdf`'s `ETBT`, the producer's
+// `ET BT` run together. The reader clears nothing at it and the text object goes on, so the next
+// `Td` moves from the line the first show began, and the keyword is written as the white space it
+// was read as, under the proof (`doc/adr/3698`).
+#[test]
+fn an_undefined_operator_where_no_operand_stands_is_written_as_white_space() {
+    let source = a_page_drawing(b"BT /F1 12 Tf 10 80 Td (Hello) Tj ETBT 0 -14 Td (World) Tj ET");
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (report, output) = convert_with_plan(&source, &under("as-if-printed", target));
+        let Decision::Authorised { losses, .. } = decision(&report, OPERATORS) else {
+            panic!("{:?}", decision(&report, OPERATORS));
+        };
+        assert!(
+            losses.iter().eq([Loss::ContentAsDrawn]),
+            "{}",
+            losses.words()
+        );
+        let output = output.expect("a file is written");
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        let conversion = conversion(&report);
+        assert!(conversion.photographed.is_empty(), "the page stays text");
+        let [written] = conversion.runs_written_as_drawn.as_slice() else {
+            panic!("one keyword: {:?}", conversion.runs_written_as_drawn);
+        };
+        assert_eq!(written.run, b"ETBT");
+        assert_eq!(written.number, [] as [u8; 0]);
+        let contents = decoded_contents(&output);
+        assert!(
+            holds_bytes(&contents, b"(Hello) Tj   0 -14 Td"),
+            "{}",
+            String::from_utf8_lossy(&contents)
+        );
+    }
+}
+
+// The control: after an operand the reader's clearing discards it, which is what drew the page, so
+// the keyword is left and `as-shown` keeps the fence's refusal.
+#[test]
+fn an_undefined_operator_after_an_operand_keeps_the_fence_under_as_shown() {
+    let source = a_page_drawing(b"1 0 0 ETBT rg 0 0 m 5 5 l S");
+    let (report, output) = convert_with_plan(&source, &under("as-shown", Target::Two(Level::B)));
+    assert!(
+        matches!(
+            decision(&report, OPERATORS),
+            Decision::Refused(Because::TheFence(_))
+        ),
+        "{:?}",
+        decision(&report, OPERATORS)
+    );
+    assert!(output.is_none());
 }
 
 // The control: a `>` after operands is where the reader's clearing discards them, so it is left

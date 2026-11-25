@@ -100,7 +100,7 @@ use std::fmt::Write as _;
 
 use pdf_archive::survey::{Survey, UnlistedOperator};
 use pdf_model::Pages;
-use pdf_model::content::grammar::{Grammar, Operand, components, signature};
+use pdf_model::content::grammar::{Grammar, Operand, Spaces, components, signature};
 use pdf_model::content::reader::draws_the_salvage;
 use pdf_syntax::object::{Name, Object, ObjectId};
 use pdf_syntax::{Document, Lexer, Token};
@@ -207,11 +207,15 @@ pub(super) struct Drawn {
     /// The content streams the survey read whose filters do not decode whole, so that no run in
     /// them is written (ADR 2803).
     pub(super) unread: BTreeSet<ObjectId>,
-    /// Whether a lone delimiter stood where removing it would change what this reader draws —
-    /// after an operand, or inside an array or a dictionary — and so was left (`doc/adr/2859`).
+    /// Whether a lone delimiter or an operator no table defines stood where removing it would
+    /// change what this reader draws — after an operand, or inside an array or a dictionary — or
+    /// where this write did not reach it, and so was left (`doc/adr/2859`, `doc/adr/3698`).
     pub(super) delimiter_left: bool,
-    /// How many lone delimiters were written as white space.
+    /// How many lone delimiters and undefined operators were written as white space.
     delimiters_written: usize,
+    /// The streams an operator no table defines was written as white space in (`doc/adr/3698`),
+    /// which the proof draws like `written_out` but which answer no repair class.
+    blanked: BTreeSet<ObjectId>,
     /// The streams an operator this reader repaired was written out of (`doc/adr/3558`), or a
     /// text object was added to (`doc/adr/3661`).
     pub(super) written_out: BTreeSet<ObjectId>,
@@ -246,6 +250,9 @@ impl Drawn {
                 if place.operator {
                     self.written_out.insert(id);
                 } else {
+                    if place.undefined {
+                        self.blanked.insert(id);
+                    }
                     self.delimiters_written = self.delimiters_written.saturating_add(1);
                 }
             } else {
@@ -299,9 +306,12 @@ impl Drawn {
     }
 
     /// Whether every operator the survey reports under `spelling` is one this write answers: a run
-    /// this reader draws as a number, or a lone delimiter where none was left.
+    /// this reader draws as a number, or a lone delimiter or an undefined operator where none was
+    /// left.
     pub(super) fn answers(&self, spelling: &[u8]) -> bool {
-        is_drawn_as_a_number(spelling) || (is_a_lone_delimiter(spelling) && !self.delimiter_left)
+        is_drawn_as_a_number(spelling)
+            || ((is_a_lone_delimiter(spelling) || is_an_undefined_operator(spelling))
+                && !self.delimiter_left)
     }
 
     /// Whether the stream an operator the survey found stood in is one this write could not read,
@@ -353,9 +363,11 @@ fn write_with(
     hexadecimal: Option<&hexadecimal::Completed>,
     operators: bool,
 ) -> Result<Drawn, Because> {
-    // A lone delimiter is written only where the write then answers every operator: where some
-    // other operator stays, the page keeps the answer it had without this write, the photograph's
-    // included, and the delimiter stays with it (`doc/adr/2859`).
+    // A lone delimiter, and an operator no table defines where no operand stands, is written only
+    // where the write then answers every operator: where some other operator stays, the page keeps
+    // the answer it had without this write, the photograph's included, and the delimiter stays with
+    // it (`doc/adr/2859`, `doc/adr/3698`). Written where the proof then refuses, it is the second
+    // write that stands.
     match write_places(document, survey, hexadecimal, (true, operators)) {
         Ok(drawn) if drawn.answers_every_operator || drawn.delimiters_written == 0 => Ok(drawn),
         _ => write_places(document, survey, hexadecimal, (false, operators)),
@@ -381,7 +393,9 @@ fn write_places(
     let mut out = Drawn {
         answers_every_operator: survey.is_some_and(|survey| {
             survey.unlisted_operators().iter().all(|unlisted| {
-                is_drawn_as_a_number(&unlisted.spelling) || is_a_lone_delimiter(&unlisted.spelling)
+                is_drawn_as_a_number(&unlisted.spelling)
+                    || is_a_lone_delimiter(&unlisted.spelling)
+                    || is_an_undefined_operator(&unlisted.spelling)
             })
         }),
         ..Drawn::default()
@@ -397,23 +411,37 @@ fn write_places(
             }
         }
     }
+    let began_in = streams_began_in(survey);
+    // An operator no table defines is not written as white space in a file one of whose streams
+    // did not decode, where such a keyword may be the damage's bytes rather than anything a
+    // producer wrote (`doc/adr/3698`).
+    let blanks_undefined = delimiters
+        && !document
+            .repairs()
+            .iter()
+            .any(|logged| logged.class.name == pdf_syntax::repair::STREAM_DATA_UNDECODABLE.name);
     let mut walk = Walk::default();
     let mut walked: Option<ObjectId> = None;
     for (id, resources) in hexadecimal::streams(document, &pages, survey) {
         walk = match (walked, follows.get(&id)) {
             (Some(previous), Some(before)) if previous == *before => walk.into_the_next_stream(),
-            _ => Walk::default(),
+            _ => Walk::starting_in(began_in.get(&id).copied().unwrap_or(Spaces::INITIAL)),
         };
         walked = Some(id);
         let object = document.get(id);
         let Some(stream) = object.as_stream() else {
             continue;
         };
-        let Some(data) = document.decoded_stream_data(stream) else {
-            // The survey read this stream through the content reader, which draws what a
-            // damaged filter yields before the damage; the whole decode the bytes would be
-            // written back from does not exist, so its runs stay and its page is photographed
-            // where the profile allows (ADR 2803).
+        // The survey read this stream through the content reader, which draws what a damaged
+        // filter yields before the damage; the whole decode the bytes would be written back from
+        // does not exist, so its runs stay and its page is photographed where the profile allows
+        // (ADR 2803). A stream the source's security handler did not decrypt is the same: its
+        // bytes are still the cipher's, and what they lex as is no producer's content
+        // (`doc/adr/3698`).
+        let decoded = (!stream.decryption_failed)
+            .then(|| document.decoded_stream_data(stream))
+            .flatten();
+        let Some(data) = decoded else {
             out.unread.insert(id);
             continue;
         };
@@ -423,7 +451,7 @@ fn write_places(
             &data,
             &resources,
             room,
-            (delimiters, operators),
+            (delimiters, operators, blanks_undefined),
             &mut walk,
         )
         .ok_or(Because::NotBuiltYet(TOO_MANY_RUNS))?;
@@ -442,13 +470,37 @@ fn write_places(
     if out.at.is_empty() {
         return Err(Because::NotBuiltYet(NO_STREAM_HOLDS_ONE));
     }
-    if !out.written_out.is_empty() && !drawn_the_same(document, &out.at, &out.written_out) {
+    let proved: BTreeSet<ObjectId> = out.written_out.union(&out.blanked).copied().collect();
+    if !proved.is_empty() && !drawn_the_same(document, &out.at, &proved) {
         return Err(Because::NotBuiltYet(NOT_DRAWN_THE_SAME));
     }
     // A run left in a stream this write could not read is an operator the numbers do not answer,
     // and so is a delimiter left where it changes the drawing.
     out.answers_every_operator &= out.unread.is_empty() && !out.delimiter_left;
     Ok(out)
+}
+
+/// The colour spaces each stream the survey opened began in, so that this walk judges a colour
+/// operator against the space the reader draws it in: a form `XObject` inherits the spaces in
+/// force at its `Do` (ISO 32000-2 §8.10.1, `doc/adr/3697`). A stream the survey began in two
+/// states — a form painted on two pages under different spaces — is judged against neither
+/// ([`Spaces::UNCOUNTED`]), so none of its colour operators is written. A page's own `/Contents`
+/// is in no entry and starts in §8.4.1's initial state.
+fn streams_began_in(survey: Option<&Survey>) -> BTreeMap<ObjectId, Spaces> {
+    let mut out: BTreeMap<ObjectId, Spaces> = BTreeMap::new();
+    for opened in survey.map_or(&[][..], Survey::opened_streams) {
+        let Some(id) = opened.object else {
+            continue;
+        };
+        out.entry(id)
+            .and_modify(|spaces| {
+                if *spaces != opened.began_in {
+                    *spaces = Spaces::UNCOUNTED;
+                }
+            })
+            .or_insert(opened.began_in);
+    }
+    out
 }
 
 /// **The proof that writing the operators out changes nothing drawn** (`doc/adr/3558`): the
@@ -670,6 +722,21 @@ pub(super) fn is_a_lone_delimiter(spelling: &[u8]) -> bool {
     matches!(spelling, b">" | b")")
 }
 
+/// Whether a keyword the checker reports is one no table of ISO 32000-2 defines as an operator and
+/// this reader reads as one: not a run it salvages, not a delimiter, not `true`, `false` or `null`.
+///
+/// §7.8.2 has such an operator meet "an error", which this reader reports while clearing the
+/// operands before it (`pdf_model::content::run`); with none before it, it draws nothing, and the
+/// page draws as though the keyword were white space (`doc/adr/3698`).
+pub(super) fn is_an_undefined_operator(spelling: &[u8]) -> bool {
+    let mut lexer = Lexer::new(spelling);
+    matches!(lexer.next_token(), Some(Token::Keyword(word)) if word == spelling)
+        && lexer.salvaged().is_none()
+        && signature(spelling).is_none()
+        && !is_a_lone_delimiter(spelling)
+        && !matches!(spelling, b"true" | b"false" | b"null" | b"BI")
+}
+
 /// A run's span in one decoded stream, and the number written for it.
 struct Place {
     /// The run's first byte.
@@ -686,6 +753,9 @@ struct Place {
     /// outside a text object (`doc/adr/3661`): `start` and `end` are the same byte, nothing of the
     /// producer's is replaced, and `number` holds the bytes added.
     text_object: bool,
+    /// Whether the place is an operator no table defines with no operand before it, written as
+    /// white space under the proof (`doc/adr/3698`).
+    undefined: bool,
 }
 
 impl Place {
@@ -698,6 +768,20 @@ impl Place {
             number: Vec::new(),
             operator,
             text_object: false,
+            undefined: false,
+        }
+    }
+
+    /// An operator no table defines from `start` to `end`, with no operand before it, written as
+    /// the white space this reader read it as (`doc/adr/3698`).
+    const fn undefined_operator(start: usize, end: usize) -> Self {
+        Self {
+            start,
+            end,
+            number: Vec::new(),
+            operator: false,
+            text_object: false,
+            undefined: true,
         }
     }
 
@@ -709,6 +793,7 @@ impl Place {
             number,
             operator: false,
             text_object: false,
+            undefined: false,
         }
     }
 
@@ -720,6 +805,7 @@ impl Place {
             number: device,
             operator: true,
             text_object: false,
+            undefined: false,
         }
     }
 
@@ -731,6 +817,7 @@ impl Place {
             number: added,
             operator: false,
             text_object: true,
+            undefined: false,
         }
     }
 }
@@ -918,6 +1005,14 @@ const MOST_STARTS: usize = 64;
 const MOST_SECTIONS: usize = 1024;
 
 impl Walk {
+    /// The walk at the start of a stream that begins in `spaces` ([`streams_began_in`]).
+    fn starting_in(spaces: Spaces) -> Self {
+        Self {
+            grammar: Grammar::starting_in(spaces),
+            ..Self::default()
+        }
+    }
+
     /// The walk at the start of the next stream of the same page's content.
     fn into_the_next_stream(mut self) -> Self {
         self.operands_elsewhere |= self.operands_from.take().is_some();
@@ -931,6 +1026,11 @@ impl Walk {
         self.operands_elsewhere = false;
         self.starts.clear();
         self.starts_lost = false;
+    }
+
+    /// Whether no operand stands since the last operator, in this stream or an earlier one.
+    const fn has_no_operands(&self) -> bool {
+        self.operands_from.is_none() && !self.operands_elsewhere && !self.starts_lost
     }
 
     /// A keyword that is no operator ended the operands before it, as the reader's clearing does.
@@ -1194,20 +1294,25 @@ fn six_numbers(span: &[u8]) -> Option<Vec<u8>> {
 ///
 /// A lone delimiter is a place too, with no number, where `delimiters` is set and nothing stands
 /// before it since the last operator and it is in no array or dictionary — the one place the
-/// reader's clearing of the operands clears nothing. The flag beside the list says whether one was
-/// left.
+/// reader's clearing of the operands clears nothing. So, under the same conditions and where
+/// `undefined` is set, is an operator no table defines (`doc/adr/3698`). The flag beside the list says whether either was left.
 ///
 /// Where `operators` is set, an operator `pdf_model`'s grammar (ADR 3542) finds one of
 /// [`WRITTEN_OUT_WHERE_DRAWN_THE_SAME`]'s repairs at is a place too, from its first operand to its
 /// own last byte; whether the page draws the same without it is [`drawn_the_same`]'s question.
 /// So is each `BT` and `ET` added around text operators this reader ran outside a text object,
 /// a place of no bytes with the bytes added (`doc/adr/3661`).
+#[expect(
+    clippy::too_many_lines,
+    reason = "one loop over the stream's tokens whose arms share the lexer, the depth, the operands \
+              pending and the walk; an arm moved out would take all four and the list with it"
+)]
 fn salvaged_runs(
     document: &Document,
     data: &[u8],
     resources: &pdf_syntax::object::Dictionary,
     most: usize,
-    (delimiters, operators): (bool, bool),
+    (delimiters, operators, undefined): (bool, bool, bool),
     walk: &mut Walk,
 ) -> Option<(Vec<Place>, bool)> {
     let mut lexer = Lexer::new(data);
@@ -1235,6 +1340,27 @@ fn salvaged_runs(
                 entries_set_aside(&mut out, most, scan)?;
             }
             continue;
+        }
+        // An operator no table defines, with no operand before it in this stream or an earlier
+        // one, draws nothing, and is written as the white space it was read as where the write
+        // then answers every operator (`undefined`), under the proof (`doc/adr/3698`); where the
+        // proof refuses, `write_with` writes again without it.
+        // It clears nothing and ends no text object this write adds, as the reader read it.
+        // Anywhere else it is left, and its page keeps the answer it had.
+        if let Token::Keyword(word) = &token
+            && lexer.salvaged().is_none()
+            && is_an_undefined_operator(word)
+        {
+            if depth == 0 && pending == 0 && undefined && walk.has_no_operands() {
+                placed(
+                    &mut out,
+                    most,
+                    Place::undefined_operator(start, lexer.position()),
+                )?;
+                walk.cleared();
+                continue;
+            }
+            left = true;
         }
         if depth == 0
             && !matches!(

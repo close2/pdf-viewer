@@ -481,8 +481,8 @@ impl Importer<'_> {
             );
             operators.push_str("q\n");
             for value in matrix {
-                // Writing into a `String` cannot fail.
-                let _ = write!(operators, "{value} ");
+                operators.push_str(&super::operand(value)?);
+                operators.push(' ');
             }
             let _ = write!(operators, "cm\n/{name} Do\nQ\n");
         }

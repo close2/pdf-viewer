@@ -1036,7 +1036,7 @@ fn written(
         .insert(image, image_stream(raster, icc).ok_or(missing)?);
     substitutes
         .written
-        .insert(contents, contents_stream(placed).ok_or(missing)?);
+        .insert(contents, contents_stream(placed)?.ok_or(missing)?);
     let mut images = Dictionary::new();
     images.insert(Name::new(IMAGE), Object::Reference(image));
     let mut resources = Dictionary::new();
@@ -1138,11 +1138,19 @@ fn image_stream(raster: &pdf_render::Raster, space: ObjectId) -> Option<Object> 
     })))
 }
 
-/// The content stream that paints the image where [`placement`] puts it, and nothing else.
-fn contents_stream(placed: Transform) -> Option<Object> {
-    let operands = [placed.a, placed.b, placed.c, placed.d, placed.e, placed.f]
-        .map(number)
-        .join(" ");
+/// The content stream that paints the image where [`placement`] puts it, and nothing else; `None`
+/// where it does not encode, and the refusal where a placement operand is not finite.
+fn contents_stream(placed: Transform) -> Result<Option<Object>, Because> {
+    let mut operands = Vec::new();
+    for value in [placed.a, placed.b, placed.c, placed.d, placed.e, placed.f] {
+        operands.push(super::super::operand(value)?);
+    }
+    let operands = operands.join(" ");
+    Ok(encoded(&operands))
+}
+
+/// [`contents_stream`]'s stream, its `operands` written.
+fn encoded(operands: &str) -> Option<Object> {
     let image = std::str::from_utf8(IMAGE).ok()?;
     let text = format!("q {operands} cm /{image} Do Q\n");
     let data = flate_encode(text.as_bytes(), COMPRESSION_LEVEL)?;
@@ -1160,17 +1168,6 @@ fn contents_stream(placed: Transform) -> Option<Object> {
         data: data.into(),
         decryption_failed: false,
     })))
-}
-
-/// One operand as §7.3.3 writes a real: four places, which is under a thousandth of a pixel at
-/// [`DOTS_PER_INCH`], with the trailing zeros and a negative zero taken off.
-fn number(value: f32) -> String {
-    let written = format!("{value:.4}");
-    let trimmed = written.trim_end_matches('0').trim_end_matches('.');
-    match trimmed {
-        "-0" | "" => "0".to_owned(),
-        other => other.to_owned(),
-    }
 }
 
 /// Every photographed page, as the file's `xmpMM:History` states it.
@@ -1347,12 +1344,22 @@ const NO_SPARE_OBJECT: &str = "no unused object number could be found for the ph
 mod tests {
     use super::*;
 
+    /// The placement goes through §7.3.3's one formatter (`doc/adr/3699`): written as the value
+    /// it is, and refused, not written as `NaN`, where it is not finite.
     #[test]
-    fn an_operand_is_written_without_its_trailing_zeros() {
-        assert_eq!(number(612.0), "612");
-        assert_eq!(number(0.25), "0.25");
-        assert_eq!(number(-0.000_01), "0");
-        assert_eq!(number(-1.5), "-1.5");
+    fn a_placement_is_written_as_its_value_and_refused_where_not_finite() {
+        use super::super::super::{NUMBER_NOT_FINITE, operand};
+        assert_eq!(operand(612.0).as_deref(), Ok("612"));
+        assert_eq!(operand(-0.25).as_deref(), Ok("-0.25"));
+        assert_eq!(operand(-0.000_01).as_deref(), Ok("-0.00001"));
+        assert!(matches!(
+            contents_stream(Transform::new(612.0, 0.0, 0.0, -0.25, 0.0, 792.5)),
+            Ok(Some(Object::Stream(_)))
+        ));
+        assert!(matches!(
+            contents_stream(Transform::new(f32::NAN, 0.0, 0.0, 1.0, 0.0, 0.0)),
+            Err(Because::NotBuiltYet(why)) if why == NUMBER_NOT_FINITE
+        ));
     }
 
     fn page_of(width: u32, height: u32) -> PhotographedPage {

@@ -361,7 +361,8 @@ per document
   matrix (ADR 3661); where the source's cross-reference table was rebuilt by scanning, the proof's
   second file is written whole rather than appended (ADR 3662); a colour operator whose one, three
   or four operands do not fit the space is written as the device operator this reader drew them by,
-  operands kept (ADR 3679; a section left open is not closed); an inline image entry this reader did not read, its key stated twice, is written out
+  operands kept (ADR 3679; a section left open is not closed), the space judged in a form being
+  the one its `Do` left in force (§8.10.1, ADR 3697); an inline image entry this reader did not read, its key stated twice, is written out
   (ADR 3678) — each under the same proof and loss; a number in exponential form is written as the
   decimal of the value read, at `content-as-drawn` with no proof needed (ADR 3677); a property list nothing defines is defined as a membership dictionary
   naming no group, losing nothing (ADR 2684, ADR 3631); under
@@ -1395,7 +1396,7 @@ ISO 19005-2 6.2.10, ISO 19005-4 6.2.9 · all six / part 4 · **array half built 
 ISO 19005-2 6.2.2, ISO 19005-4 6.2.2 · all six · today `the-fence`; under `as-if-printed` at 2b
 and every part 4 flavour, the page is photographed (the loss `page-as-image`, ADR 2516); **built**
 (`Mechanical`, the loss `content-as-drawn`, ADR 2638) where every such operator is a run this reader
-draws as a number
+draws as a number, a lone delimiter (ADR 2859) or an undefined keyword where no operand stands (ADR 3698)
 
 - **Mitigation** — **none on the page** — under `as-if-printed` the page itself is photographed,
   and the content stream that carried the operator is no longer in the output. Removing an operator
@@ -1406,6 +1407,11 @@ draws as a number
   operator (ADR 1004), is written as that number, the producer's operators around it untouched; the
   marks are the ones the window drew, the characters after the number are the loss
   `content-as-drawn`, and a document holding any other unlisted operator keeps the answer above.
+  **Two more are**: a lone `>` or `)` (ADR 2859), and a keyword no table defines — `sci-notation`'s
+  `ETBT`, the producer's `ET BT` run together — where no operand stands before it (ADR 3698). This
+  reader clears nothing at either and draws the page as though the bytes were white space, so each
+  is written as one white-space character, under ADR 3558's proof and only where the write then
+  answers every operator of this row; one after an operand, whose clearing is what drew, is left.
 - **By target** — none.
 - **From a configuration** — `content-as-drawn`, which `as-if-printed`, `as-shown` and
   `state-every-loss` take at this site.

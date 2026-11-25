@@ -225,6 +225,23 @@ impl Interpreter<'_> {
         self.cmyk_group = cmyk_group;
     }
 
+    /// Makes the mask group `id` the content site a repair inside it is logged at, and returns the
+    /// site it replaced, for the caller to put back. §11.6.5.1's `/G` is a form `XObject`, so a
+    /// repair made inside it is logged at the group's own object, as `draw_xobject` logs one
+    /// inside a form, and not at the page that set the mask (`doc/adr/3697`).
+    fn enter_mask_group_site(
+        &mut self,
+        id: Option<pdf_syntax::ObjectId>,
+    ) -> crate::content::report::ContentStream {
+        std::mem::replace(
+            &mut self.stream,
+            id.map_or(
+                crate::content::report::ContentStream::Unnameable,
+                crate::content::report::ContentStream::Object,
+            ),
+        )
+    }
+
     /// Evaluates a soft mask's transparency group and registers it (§11.5, §11.6.5.1).
     ///
     /// Returns `None` when the group draws nothing at all, which §11.5.2's NOTE 2 makes a
@@ -413,6 +430,7 @@ impl Interpreter<'_> {
         // resolved — and the ledger needs the route more than the object: a soft mask's group
         // is the construct the survey does not walk, so nothing under it is compared.
         self.enter_ledger_frame(crate::content::ledger::Route::SoftMask, None);
+        let outer_stream = self.enter_mask_group_site(request.group_id);
         let admitted = self.one_colour.admitted;
         self.run(&content, &group_resources, &inner);
         // §11.4.7's second raster, where the mask group's blending colour space has four
@@ -429,6 +447,7 @@ impl Interpreter<'_> {
         // `Y`, which is a function of all four however opaque the marks are.
         let (mut commands, mut black) =
             self.mask_halves(request, &content, &group_resources, &inner, mark, admitted);
+        self.stream = outer_stream;
         self.leave_ledger_frame();
         self.base = saved_base;
         self.nested_space_departed = saved_departed;
