@@ -37,6 +37,9 @@ pub fn composite_cycle(data: &[u8], glyph: u16) -> Option<u16> {
     use skrifa::raw::TableProvider;
     use skrifa::raw::tables::glyf::Glyph;
 
+    // not a repair: this asks of the outlines and supplies no value to what is drawn; a program
+    // with no readable `glyf` and `loca` holds no composite to reach itself, and one that does
+    // not open at all was refused, and logged, where it was loaded (`font/program-unreadable`).
     let font = skrifa::FontRef::new(data).ok()?;
     let glyf = font.glyf().ok()?;
     let loca = font.loca(None).ok()?;
@@ -799,27 +802,27 @@ const CHECKSUM_MAGIC: u32 = 0xb1b0_afba;
 /// ISO/IEC 14496-22 gives `hmtx` `numberOfHMetrics` pairs followed by side bearings alone, the
 /// last stated advance applying to every glyph past the pairs — which is how a monospaced face
 /// stores one advance for a thousand glyphs.
-pub(crate) fn horizontal_metric(hmtx: &[u8], pairs: usize, glyph: usize) -> (u16, i16) {
+///
+/// `None` where `hmtx` ends before the glyph's metric: a table shorter than its two counts make
+/// it states no metric for that glyph, and every caller is a writer or a converter that declines
+/// such a program rather than writing zero in its place (ADR 3621).
+pub(crate) fn horizontal_metric(hmtx: &[u8], pairs: usize, glyph: usize) -> Option<(u16, i16)> {
     let paired = glyph.min(pairs.saturating_sub(1));
-    let advance = paired
-        .checked_mul(4)
-        .and_then(|at| be16(hmtx, at))
-        .unwrap_or(0);
+    let advance = be16(hmtx, paired.checked_mul(4)?)?;
     let bearing = if glyph < pairs {
-        glyph
-            .checked_mul(4)
-            .and_then(|at| be16(hmtx, at.checked_add(2)?))
+        be16(hmtx, glyph.checked_mul(4)?.checked_add(2)?)?
     } else {
-        pairs
-            .checked_mul(4)
-            .and_then(|base| base.checked_add(glyph.checked_sub(pairs)?.checked_mul(2)?))
-            .and_then(|at| be16(hmtx, at))
+        let base = pairs.checked_mul(4)?;
+        be16(
+            hmtx,
+            base.checked_add(glyph.checked_sub(pairs)?.checked_mul(2)?)?,
+        )?
     };
     #[expect(
         clippy::cast_possible_wrap,
         reason = "a side bearing is a signed 16-bit field, read here as the two bytes it is"
     )]
-    (advance, bearing.unwrap_or(0) as i16)
+    Some((advance, bearing as i16))
 }
 
 /// The program with the advance of each named glyph restated, in the program's own units.
@@ -847,7 +850,7 @@ pub(crate) fn with_advances(data: &[u8], advances: &BTreeMap<u16, u16>) -> Optio
     for glyph in 0..glyphs {
         // not a repair: a glyph this program restated takes its new advance, any other keeps the
         // font's own.
-        let (advance, bearing) = horizontal_metric(hmtx, pairs, glyph);
+        let (advance, bearing) = horizontal_metric(hmtx, pairs, glyph)?;
         let advance = u16::try_from(glyph)
             .ok()
             .and_then(|glyph| advances.get(&glyph).copied())
@@ -1114,7 +1117,7 @@ pub(crate) fn advance(data: &[u8], glyph: u16) -> Option<f32> {
     }
     let hmtx = data.get(hmtx_at..hmtx_at.checked_add(hmtx_length)?)?;
     Some(f32::from(
-        horizontal_metric(hmtx, pairs, usize::from(glyph)).0,
+        horizontal_metric(hmtx, pairs, usize::from(glyph))?.0,
     ))
 }
 
@@ -1126,6 +1129,24 @@ pub(crate) fn advance(data: &[u8], glyph: u16) -> Option<f32> {
 /// missing. Each font here carries exactly one subtable, so exactly one rule of the
 /// subclause can possibly apply to it, and a rule that stops working fails one test by
 /// name. This is trap 8's argument in the handover, from the other direction.
+#[cfg(test)]
+mod horizontal_metric_tests {
+    use super::horizontal_metric;
+
+    /// ISO/IEC 14496-22's `hmtx`: two long metrics, then one side bearing alone. A glyph past
+    /// the pairs takes the last advance and its own bearing; one past the table's end has no
+    /// metric, which is `None` rather than a zero written in its place (ADR 3621).
+    #[test]
+    fn a_metric_past_the_end_of_hmtx_is_none() {
+        let hmtx = [0x01, 0xF4, 0x00, 0x0A, 0x02, 0x58, 0xFF, 0xFE, 0x00, 0x07];
+        assert_eq!(horizontal_metric(&hmtx, 2, 0), Some((500, 10)));
+        assert_eq!(horizontal_metric(&hmtx, 2, 1), Some((600, -2)));
+        assert_eq!(horizontal_metric(&hmtx, 2, 2), Some((600, 7)));
+        assert_eq!(horizontal_metric(&hmtx, 2, 3), None);
+        assert_eq!(horizontal_metric(&hmtx[..6], 2, 1), None);
+    }
+}
+
 #[cfg(test)]
 mod truncation_tests {
     use super::truncation;

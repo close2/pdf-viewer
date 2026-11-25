@@ -437,7 +437,9 @@ impl OptionalContent {
     #[must_use]
     pub fn name(&self, document: &Document, group: ObjectId) -> Option<String> {
         match document.get_key(document.get(group).as_dict()?, "Name") {
-            Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+            Object::String(bytes) => {
+                Some(document.text_string(&bytes, pdf_syntax::Site::Object(group)))
+            }
             _ => None,
         }
     }

@@ -256,6 +256,8 @@ impl XrefTable {
     /// always has.
     #[must_use]
     pub fn next_object_number(&self) -> u32 {
+        // A number for a writer's new object, and nothing read takes it.
+        // not a repair: a `/Size` that does not read leaves the stated entries to decide.
         let size = self
             .trailer
             .get("Size")
@@ -750,8 +752,16 @@ pub(crate) const HEADER_SEARCH_WINDOW: usize = 1024;
 pub fn read(file: &FileBytes, limits: Limits) -> SyntaxResult<XrefTable> {
     let header_at = header_position(file);
 
+    // A file with no header in the window is read with its offsets counted from byte zero, the
+    // origin §7.5.2 would give a header at the first byte; where none stands further in either,
+    // that is a repair, `HEADER_MISSING` (ADR 3621).
     let mut replaced = match read_from_startxref(file, header_at.unwrap_or(0), limits, None)? {
-        Some(table) if !table.is_empty() => return Ok(table),
+        Some(mut table) if !table.is_empty() => {
+            if header_at.is_none() && header_past_window(file).is_none() {
+                table.note(&repair::HEADER_MISSING, Site::WholeFile);
+            }
+            return Ok(table);
+        }
         unusable => unusable,
     };
 
@@ -782,6 +792,9 @@ pub fn read(file: &FileBytes, limits: Limits) -> SyntaxResult<XrefTable> {
 
     // The table was absent, unreadable, or empty. Scan.
     let mut rebuilt = rebuild(file, limits, header_at.is_some())?;
+    if header_at.is_none() {
+        rebuilt.note(&repair::HEADER_MISSING, Site::WholeFile);
+    }
     if let Some(replaced) = &replaced {
         rebuilt.keep_stated(replaced);
         // What reading the stated chain found wrong before it was given up is still a repair
@@ -887,6 +900,8 @@ pub struct SectionRecord {
 #[must_use]
 pub fn sections(file: &FileBytes, limits: Limits) -> Vec<SectionRecord> {
     let mut record = Vec::new();
+    // not a repair: the origin `read` takes, and `read` logs `HEADER_MISSING` where the file
+    // states no header; this lists the sections of the same chain.
     let base = header_position(file).unwrap_or(0);
     // A chain past the entry budget still names the sections read before it; `read` is the
     // caller that refuses the file.
@@ -917,6 +932,8 @@ pub fn sections(file: &FileBytes, limits: Limits) -> Vec<SectionRecord> {
 /// recovers by scanning states no revisions, and inventing one for it would report this reader's
 /// synthesis as something the file said.
 pub(crate) fn walk_revisions(file: &FileBytes, limits: Limits, mut each: impl FnMut(&XrefTable)) {
+    // not a repair: the origin `read` takes, and `read` logs `HEADER_MISSING` where the file
+    // states no header; this walks the revisions of the same chain.
     let base = header_position(file).unwrap_or(0);
     let Some((start, _)) = find_startxref(file) else {
         return;
@@ -950,6 +967,8 @@ pub(crate) fn walk_revisions(file: &FileBytes, limits: Limits, mut each: impl Fn
         if let Some(hybrid) = &hybrid {
             budget = budget.saturating_sub(hybrid.entries.in_use.len());
         }
+        // not a repair: the chain `read` reads, which logs `XREF_CHAIN_CUT` where a `/Prev`
+        // is not an offset; this walks the same chain's revisions.
         let previous = section
             .trailer
             .get("Prev")
@@ -1597,6 +1616,8 @@ fn header_number(lexer: &mut crate::lexer::Lexer<'_>) -> Option<u32> {
     if keyword != b"obj" {
         return None;
     }
+    // not a repair: this asks what an object calls itself, and a number no object can have
+    // (§7.3.10) is no header; the realignment it witnesses for logs its own class.
     u32::try_from(number).ok()
 }
 

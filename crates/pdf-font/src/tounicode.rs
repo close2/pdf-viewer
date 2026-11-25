@@ -588,6 +588,8 @@ impl ToUnicode {
 /// Reads a source code from a `CMap` hex string, which is one to four bytes big-endian: its
 /// value, and how many bytes it was written in.
 fn code_of(bytes: &[u8]) -> Option<(u32, u8)> {
+    // not a repair: a length narrowed for the one-to-four test; a code of any other length reads
+    // as none, and both callers then mark the map damaged (`TO_UNICODE_DAMAGED`).
     let length = u8::try_from(bytes.len())
         .ok()
         .filter(|n| (1..=4).contains(n))?;

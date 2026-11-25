@@ -636,22 +636,38 @@ pub enum FlagChange {
     },
 }
 
+/// Said where a flag entry of Table 249 is present and is not an integer.
+const NOT_AN_INTEGER_FLAG: &str =
+    "/Ff, /SetFf, /ClrFf, /F, /SetF or /ClrF: not the integer Table 249 requires, read as absent";
+
 impl FlagChange {
     /// Table 249's `/Ff`, `/SetFf` and `/ClrFf` for one field, with the table's own precedence.
+    ///
+    /// An entry present and not an integer is read as absent, and `owed` says so: the FDF
+    /// reader's repairs are said to the person importing it, whose report `owed` is (ADR 3621).
     fn read(
         document: &Document,
         field: &Dictionary,
-        replace: &str,
-        set: &str,
-        clear: &str,
+        [replace, set, clear]: [&str; 3],
+        owed: &mut Vec<&'static str>,
     ) -> Self {
-        if let Some(flags) = document.get_key(field, replace).as_integer() {
+        let mut integer = |key: &str| {
+            let stated = document.get_key(field, key);
+            let flags = stated.as_integer();
+            if flags.is_none() && !stated.is_null() {
+                push_once(owed, NOT_AN_INTEGER_FLAG);
+            }
+            flags
+        };
+        if let Some(flags) = integer(replace) {
             return Self::Replace(flags);
         }
-        let set_bits = document.get_key(field, set).as_integer();
-        let clear_bits = document.get_key(field, clear).as_integer();
+        let set_bits = integer(set);
+        let clear_bits = integer(clear);
         match (set_bits, clear_bits) {
             (None, None) => Self::Unchanged,
+            // not a repair: Table 249 makes each of the pair optional, and an absent one sets or
+            // clears no bit; one of another type was said in `owed` above.
             _ => Self::Modify {
                 set: set_bits.unwrap_or_default(),
                 clear: clear_bits.unwrap_or_default(),
@@ -811,7 +827,12 @@ impl FormsData {
             &mut fields,
         );
 
-        let pages = read_pages(document, &document.get_key(&fdf, "Pages"), &encoding);
+        let pages = read_pages(
+            document,
+            &document.get_key(&fdf, "Pages"),
+            &encoding,
+            &mut owed,
+        );
         if pages
             .iter()
             .flat_map(|page| &page.templates)
@@ -1340,6 +1361,7 @@ fn read_field(
     // case where those two answers *differ* is acted on: a registered character set, refused at
     // the value rather than at the file, because an FDF file may name `Shift_JIS` and carry a
     // check box whose value is a *name*, which no character set reaches.
+    // not a repair: a value refused is said in `owed` here and the field keeps its own.
     let value = field_value(&stated, encoding).unwrap_or_else(|refusal| {
         owed.push(refusal.sentence(Entry::Value));
         None
@@ -1408,6 +1430,7 @@ fn read_field(
     let stated_rich = document.get_key(field, "RV");
     let rich_value = match &stated_rich {
         Object::Null => None,
+        // not a repair: a rich value refused is said in `owed` here and none is carried.
         Object::String(bytes) => encoding
             .decode(bytes)
             .map_err(|refusal| owed.push(refusal.sentence(Entry::RichValue)))
@@ -1423,9 +1446,9 @@ fn read_field(
     FdfField {
         name,
         value,
-        flags: FlagChange::read(document, field, "Ff", "SetFf", "ClrFf"),
-        annotation_flags: FlagChange::read(document, field, "F", "SetF", "ClrF"),
-        options: options(document, field, encoding),
+        flags: FlagChange::read(document, field, ["Ff", "SetFf", "ClrFf"], &mut owed),
+        annotation_flags: FlagChange::read(document, field, ["F", "SetF", "ClrF"], &mut owed),
+        options: options(document, field, encoding, &mut owed),
         icon_fit: document.get_key(field, "IF").as_dict().cloned(),
         appearance,
         appearance_reference,
@@ -1441,8 +1464,20 @@ fn read_field(
 /// that is neither under the pointer nor pressed is drawn from.
 const APPEARANCE_STATES: [&str; 3] = ["N", "R", "D"];
 
+/// Said where an `/Opt` element is neither of Table 249's two forms, or does not decode.
+const UNREADABLE_OPTION: &str =
+    "/Opt: an element that is neither a text string nor the pair Table 249 gives, read as empty";
+
 /// Table 249's `/Opt`, in both the forms the table gives an element.
-fn options(document: &Document, field: &Dictionary, encoding: &Encoding) -> Option<Vec<String>> {
+///
+/// An element that is neither form, or whose text does not decode, is read as the empty option
+/// so the others keep their places, and `owed` says so (ADR 3621).
+fn options(
+    document: &Document,
+    field: &Dictionary,
+    encoding: &Encoding,
+    owed: &mut Vec<&'static str>,
+) -> Option<Vec<String>> {
     let stated = document.get_key(field, "Opt");
     let items = stated.as_array()?;
     Some(
@@ -1459,16 +1494,30 @@ fn options(document: &Document, field: &Dictionary, encoding: &Encoding) -> Opti
                     }
                     other => other.as_string().map(<[u8]>::to_vec),
                 };
-                text.map_or_else(String::new, |bytes| {
-                    encoding.decode(&bytes).unwrap_or_else(|_| String::new())
-                })
+                // not a repair: an element that does not read is said in `owed` here.
+                let decoded = text.and_then(|bytes| encoding.decode(&bytes).ok());
+                if decoded.is_none() {
+                    push_once(owed, UNREADABLE_OPTION);
+                }
+                decoded.unwrap_or_default()
             })
             .collect(),
     )
 }
 
+/// Said where a page's `/Templates` is not the array Table 251 requires.
+const TEMPLATES_NOT_AN_ARRAY: &str =
+    "/Templates: absent, or not the array Table 251 requires, read as none";
+
 /// Table 246's `/Pages`, and Tables 251, 252 and 253 under it.
-fn read_pages(document: &Document, entry: &Object, encoding: &Encoding) -> Vec<FdfPage> {
+///
+/// A `/Templates` absent or not an array is read as none, and `owed` says so (ADR 3621).
+fn read_pages(
+    document: &Document,
+    entry: &Object,
+    encoding: &Encoding,
+    owed: &mut Vec<&'static str>,
+) -> Vec<FdfPage> {
     let resolved = document.resolve(entry);
     let Some(items) = resolved.as_array() else {
         return Vec::new();
@@ -1480,6 +1529,11 @@ fn read_pages(document: &Document, entry: &Object, encoding: &Encoding) -> Vec<F
             let resolved = document.resolve(item);
             let page = resolved.as_dict()?;
             let templates = document.get_key(page, "Templates");
+            if templates.as_array().is_none() {
+                push_once(owed, TEMPLATES_NOT_AN_ARRAY);
+            }
+            // not a repair: Table 251 requires `/Templates`, and one absent or of another type
+            // was said in `owed` just above.
             let templates = templates.as_array().unwrap_or_default();
             Some(FdfPage {
                 templates: templates
@@ -1633,6 +1687,8 @@ fn read_annotation(
         }
     }
     FdfAnnotation {
+        // not a repair: a `/Page` absent, of another type or negative names no page, and
+        // `FormsData::read` names every such annotation in `owed` (Table 254).
         page: document
             .get_key(stated, "Page")
             .as_integer()
@@ -1943,6 +1999,30 @@ mod tests {
         );
         assert_eq!(data.fields[2].flags, FlagChange::Unchanged);
         assert_eq!(data.fields[2].flags.applied_to(3), 3);
+        assert!(data.fields.iter().all(|field| field.owed.is_empty()));
+    }
+
+    /// Table 249 gives the flag entries an integer and `/Opt`'s elements a text string or a pair:
+    /// an entry of another type is read as absent and an element as empty, and each is said to the
+    /// person importing the file in its field's `owed` (ADR 3621).
+    #[test]
+    fn a_flag_or_an_option_of_another_type_is_said() {
+        let document = fdf("1 0 obj\n<< /FDF << /Fields [\n\
+             << /T (a) /Ff /Four /SetFf 8 /ClrFf (one) /Opt [(x) 7 [(y) (DA)]] >>\n\
+             ] >> >>\nendobj");
+        let data = FormsData::read(&document).expect("an FDF catalog");
+        let field = &data.fields[0];
+        assert_eq!(field.flags, FlagChange::Modify { set: 8, clear: 0 });
+        assert_eq!(
+            field.options.as_deref(),
+            Some(&["x".to_owned(), String::new(), "y".to_owned()][..])
+        );
+        assert!(
+            field.owed.contains(&NOT_AN_INTEGER_FLAG),
+            "{:?}",
+            field.owed
+        );
+        assert!(field.owed.contains(&UNREADABLE_OPTION), "{:?}", field.owed);
     }
 
     /// Table 246's `/Encoding` names four registered character sets this program carries no

@@ -556,6 +556,7 @@ impl Interpreter<'_> {
         if let Object::Name(stated) = &blend_entry
             && known_blend_mode(stated.as_bytes()).is_none()
         {
+            self.record_repair(&crate::repair::BLEND_MODE_UNKNOWN);
             self.note(Unsupported::UnknownBlendMode {
                 detail: format!(
                     "{label} states /BM /{}",
@@ -740,10 +741,13 @@ fn blends_under(
 
 /// Maps a PDF blend mode name, taking `Normal` for anything this reader does not know.
 ///
-/// `Normal` and `Compatible` are the two names that mean it deliberately; §11.6.3 asks for the
-/// same answer for an unrecognised one, which is why the two cases can share an arm here and
-/// have to be told apart by [`known_blend_mode`] when an array is choosing between names.
+/// `Normal` and `Compatible` are the two names that mean it deliberately. §11.6.3 gives `Normal`
+/// to an array none of whose names is recognised; a single name outside Tables 134 and 135 is a
+/// value the clause does not admit, read as `Normal` too, and [`known_blend_mode`] is how the
+/// callers tell the two apart.
 pub(super) fn blend_mode(name: &[u8]) -> BlendMode {
+    // A name the tables do not list is logged by both readers of a single name as
+    // `BLEND_MODE_UNKNOWN`, at the content site of the stream that set it.
     known_blend_mode(name).unwrap_or(BlendMode::Normal)
 }
 

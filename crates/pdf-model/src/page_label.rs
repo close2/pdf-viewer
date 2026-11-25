@@ -319,7 +319,7 @@ impl PageLabels {
 /// UTF-16BE works without anything here knowing that it is.
 fn prefix(document: &Document, dict: &Dictionary) -> String {
     match document.get_key(dict, "P") {
-        Object::String(bytes) => pdf_syntax::text_string(&bytes),
+        Object::String(bytes) => document.text_string(&bytes, pdf_syntax::Site::WholeFile),
         _ => String::new(),
     }
 }

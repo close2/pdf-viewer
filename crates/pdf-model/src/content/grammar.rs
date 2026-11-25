@@ -652,6 +652,10 @@ pub static COVERAGE: &[(&RepairClass, Reading)] = &[
         Reading::Interpreter(A_GRAPHICS_STATE_DICTIONARY),
     ),
     (
+        &repair::BLEND_MODE_UNKNOWN,
+        Reading::Interpreter(A_GRAPHICS_STATE_DICTIONARY),
+    ),
+    (
         &repair::FORM_MATRIX_MALFORMED,
         Reading::Interpreter(A_FORM_DICTIONARY),
     ),

@@ -90,6 +90,9 @@ pub static MAPPING: &[Mapped] = &[
     base("syntax/object-unparsable"),
     base("syntax/reference-cycle"),
     no_row("syntax/reference-chain-too-deep", A_BOUND_OF_THIS_READER),
+    // A file with no header is section 6.1.2's departure too, which that row reads from the
+    // bytes on its own; the rewrite writes a header (ADR 3621).
+    rows("syntax/header-missing", &["file-structure/file-header"]),
     base("syntax/xref-offset-searched"),
     base("syntax/compressed-object-absent"),
     no_row("syntax/scan-refused", A_BOUND_OF_THIS_READER),
@@ -110,6 +113,8 @@ pub static MAPPING: &[Mapped] = &[
     base("syntax/object-stream-member-lost"),
     base("syntax/object-stream-members-enumerated"),
     // Stream data.
+    // A text string read with U+FFFD for bytes its encoding does not give (ADR 3621).
+    base("syntax/text-string-undecodable"),
     base("syntax/stream-data-damaged"),
     base("syntax/stream-data-undecodable"),
     base("syntax/decode-parms-mismatched"),
@@ -186,6 +191,14 @@ pub static MAPPING: &[Mapped] = &[
     base("model/field-entry-unusable"),
     base("model/alpha-constant-out-of-range"),
     base("model/halftone-unreadable"),
+    // A `/BM` name outside Tables 134 and 135, logged at the content site as the alpha constants
+    // are. Sections 6.2.10 and 6.2.9 hold a graphics state's and an annotation's `/BM` to the
+    // defined modes in two rows that read the dictionaries on their own, and the log cannot tell
+    // which dictionary set the mode, so it adds section 5.1 alone (ADR 3621).
+    base("model/blend-mode-unknown"),
+    // A resource category of another type, outside content: the whole-file rewrite carries it as
+    // the file states it, and the output's own check refuses by the class's name (ADR 3621).
+    base("model/resource-category-not-a-dictionary"),
     base("model/halftone-transfer-function-unreadable"),
     // The embedded program (ADR 3565, ADR 3569). Section 5.1, and section 6.2.11.4.1's row for a
     // font a content stream renders: the program the file embeds is not the one the window drew,

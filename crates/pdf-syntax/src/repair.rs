@@ -267,6 +267,9 @@ classes! {
     /// A reference chain deeper than this reader follows.
     REFERENCE_CHAIN_TOO_DEEP = "syntax/reference-chain-too-deep", "ISO 32000-2 §7.3.10",
         "a reference chain deeper than this reader's bound was read as null";
+    /// A file with no `%PDF-` or `%FDF-` header, read with its offsets counted from byte zero.
+    HEADER_MISSING = "syntax/header-missing", "ISO 32000-2 §7.5.2",
+        "a file with no header was read with its byte offsets counted from its first byte";
     /// A cross-reference entry whose offset is not its object's header.
     XREF_OFFSET_SEARCHED = "syntax/xref-offset-searched", "ISO 32000-2 §7.5.4",
         "an object whose entry's offset is not its header was found by its own header";
@@ -329,6 +332,14 @@ classes! {
         "ISO 32000-2 §7.5.7",
         "compressed objects no cross-reference stream listed were entered from the object \
          streams' own headers";
+
+    // ---- text strings, §7.9.2.2 -----------------------------------------------------------
+
+    /// A text string whose bytes contradict the encoding they are read in.
+    TEXT_STRING_UNDECODABLE = "syntax/text-string-undecodable", "ISO 32000-2 §7.9.2.2",
+        "a text string with an odd byte or an unpaired surrogate after the UTF-16BE prefix, a \
+         malformed sequence after the UTF-8 one, or a byte Table D.3 leaves undefined, was read \
+         with U+FFFD in place of each";
 
     // ---- stream data, §7.4 ---------------------------------------------------------------
 

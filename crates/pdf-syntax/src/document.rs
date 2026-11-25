@@ -412,6 +412,27 @@ impl Document {
         write(&self.repairs).record(Repair::new(class, at));
     }
 
+    /// Decodes a text string read from this file at `at` (ISO 32000-2 §7.9.2.2), recording
+    /// `syntax/text-string-undecodable` there where a byte of it contradicts its
+    /// encoding — [`crate::text_string_noting`] with its class logged (ADR 3621).
+    ///
+    /// A reader holding the document reads a file's text string here rather than through
+    /// [`crate::text_string()`], which cannot log: the decoder holds no document.
+    #[must_use]
+    pub fn text_string(&self, bytes: &[u8], at: Site) -> String {
+        let (text, repaired) = crate::text_string_noting(bytes);
+        if let Some(class) = repaired {
+            self.record_cold(class, at);
+        }
+        text
+    }
+
+    /// [`Self::record_repair`] on a branch a conforming file does not take (ADR 3561).
+    #[cold]
+    fn record_cold(&self, class: &'static RepairClass, at: Site) {
+        self.record_repair(class, at);
+    }
+
     /// Records every repair a [`crate::Lexer`] or [`crate::Parser`] made, each moved from an
     /// offset into the slice it read to that slice's place — see [`Repair::placed`].
     pub fn record_repairs(

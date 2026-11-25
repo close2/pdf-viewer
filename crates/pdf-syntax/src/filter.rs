@@ -244,6 +244,10 @@ impl Decoded {
 /// yields plausible-looking numbers that are all wrong. Cross-reference streams use this
 /// combination almost universally, so getting it wrong makes modern PDFs unreadable while
 /// appearing to work.
+///
+/// `None` where the decode refused or stopped short of the data's end: this answers only with
+/// the whole of a stream, so a caller that would keep a damaged prefix asks
+/// [`decode_with_parms_reported`] and says what it kept (ADR 3621).
 #[must_use]
 pub fn decode_with_parms(
     filter: &[u8],
@@ -251,9 +255,10 @@ pub fn decode_with_parms(
     parms: Option<&Dictionary>,
     limits: Limits,
 ) -> Option<Arc<[u8]>> {
+    // not a repair: a refusal and a damaged prefix are both `None` here, which keeps nothing.
     decode_with_parms_reported(filter, data, parms, limits)
         .ok()
-        .map(|decoded| decoded.data)
+        .and_then(whole)
 }
 
 /// The same, saying which of [`FilterRefusal`]'s four answers it is.
@@ -723,8 +728,9 @@ pub fn takes_parameters(filter: &[u8]) -> bool {
 /// `/EarlyChange` changes where the code width grows and therefore what every byte after
 /// that point decodes to.
 ///
-/// Returns `None` for an unsupported filter, corrupt data or a decode past
-/// [`Limits::max_stream_len`]; [`decode_reported`] says which.
+/// Returns `None` for an unsupported filter, corrupt data — a decode that stopped short of the
+/// data's end included — or a decode past [`Limits::max_stream_len`]; [`decode_reported`] says
+/// which, and keeps a damaged prefix for a caller that will say so (ADR 3621).
 #[must_use]
 pub fn decode(
     filter: &[u8],
@@ -732,9 +738,15 @@ pub fn decode(
     parms: Option<&Dictionary>,
     limits: Limits,
 ) -> Option<Arc<[u8]>> {
+    // not a repair: a refusal and a damaged prefix are both `None` here, which keeps nothing.
     decode_reported(filter, data, parms, limits)
         .ok()
-        .map(|decoded| decoded.data)
+        .and_then(whole)
+}
+
+/// A decode's bytes where it reached the filter's end-of-data, and `None` where it stopped short.
+fn whole(decoded: Decoded) -> Option<Arc<[u8]>> {
+    decoded.damage.is_none().then_some(decoded.data)
 }
 
 /// Decodes one filter stage, saying which of [`FilterRefusal`]'s four answers a failure is.
@@ -3558,10 +3570,16 @@ mod tests {
         let literals: Vec<u16> = (0..300u16).map(|index| index % 256).collect();
         let packed = pack_codes(&literals, 9);
 
-        let early = decode(b"LZWDecode", &packed, None, Limits::DEFAULT).expect("decodes");
+        // The fixture states no end-of-data code, so each reading is the reported decode's,
+        // which `decode` declines as short of the data's end.
+        let early = super::decode_reported(b"LZWDecode", &packed, None, Limits::DEFAULT)
+            .expect("decodes")
+            .data;
         let mut parms = Dictionary::new();
         parms.insert(Name::new(b"EarlyChange".as_slice()), Object::Integer(0));
-        let late = decode(b"LZWDecode", &packed, Some(&parms), Limits::DEFAULT).expect("decodes");
+        let late = super::decode_reported(b"LZWDecode", &packed, Some(&parms), Limits::DEFAULT)
+            .expect("decodes")
+            .data;
 
         assert_eq!(
             &early[..254],
@@ -3599,8 +3617,11 @@ mod tests {
         // Two literals, then code 400, which is inside nine bits and past the table's end
         // — after two literals the first unused code is 259.
         let packed = pack_codes(&[65, 66, 400], 9);
-        let out = decode(b"LZWDecode", &packed, None, Limits::DEFAULT).expect("partial output");
-        assert_eq!(&*out, b"AB");
+        let out = super::decode_reported(b"LZWDecode", &packed, None, Limits::DEFAULT)
+            .expect("partial output");
+        assert_eq!(&*out.data, b"AB");
+        assert!(out.damage.is_some(), "the prefix is reported as damaged");
+        assert!(decode(b"LZWDecode", &packed, None, Limits::DEFAULT).is_none());
     }
 
     #[test]
@@ -3949,7 +3970,11 @@ mod tests {
         let packed = pack_lzw(&literals, false);
         let mut parms = Dictionary::new();
         parms.insert(Name::new(b"EarlyChange".as_slice()), Object::Integer(0));
-        let whole = decode(b"LZWDecode", &packed, Some(&parms), Limits::DEFAULT).expect("decodes");
+        // The fixture states no end-of-data code, so the bytes compared are the reported
+        // decode's, which `decode` declines as short of the data's end.
+        let whole = super::decode_reported(b"LZWDecode", &packed, Some(&parms), Limits::DEFAULT)
+            .expect("decodes")
+            .data;
 
         let mut late = super::Pump::new(
             super::Pumping::single(super::Stage::Lzw {

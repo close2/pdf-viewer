@@ -609,7 +609,8 @@ impl<'a> Face<'a> {
             while !glyf.len().is_multiple_of(4) {
                 glyf.push(0);
             }
-            let (advance, bearing) = horizontal_metric(self.hmtx, self.pairs, usize::from(*old));
+            let (advance, bearing) = horizontal_metric(self.hmtx, self.pairs, usize::from(*old))
+                .ok_or(Refusal::Malformed("hmtx"))?;
             hmtx.extend_from_slice(&advance.to_be_bytes());
             hmtx.extend_from_slice(&bearing.to_be_bytes());
         }

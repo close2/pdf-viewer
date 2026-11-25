@@ -205,6 +205,14 @@ classes! {
     /// A graphics state's `/CA` or `/ca` outside the range 0.0 to 1.0.
     ALPHA_CONSTANT_OUT_OF_RANGE = "model/alpha-constant-out-of-range", "ISO 32000-2 §11.3.7.2",
         "an alpha constant outside the range 0.0 to 1.0 was read as the nearer end of the range";
+    /// A resource category of a stream's `/Resources` that is not a dictionary.
+    RESOURCE_CATEGORY_NOT_A_DICTIONARY = "model/resource-category-not-a-dictionary",
+        "ISO 32000-2 §7.8.3",
+        "a resource category (/Font, /XObject and the rest) that is not the dictionary Table 34 \
+         gives it was read as an empty one";
+    /// A `/BM` naming a blend mode neither Table 134 nor Table 135 lists.
+    BLEND_MODE_UNKNOWN = "model/blend-mode-unknown", "ISO 32000-2 §11.6.3",
+        "a /BM name that neither Table 134 nor Table 135 lists was read as Normal";
     /// A halftone's `/HT` of a type Table 57 does not give it, or naming a halftone other than
     /// `/Default`.
     HALFTONE_UNREADABLE = "model/halftone-unreadable", "ISO 32000-2 §8.4.5",

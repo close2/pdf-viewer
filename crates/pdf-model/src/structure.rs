@@ -3774,7 +3774,7 @@ fn enclosing_unremembered(
 fn text_entry(document: &Document, element: &Dictionary, key: &str) -> Option<String> {
     match document.get_key(element, key) {
         Object::String(bytes) => {
-            let text = pdf_syntax::text_string(&bytes);
+            let text = document.text_string(&bytes, pdf_syntax::Site::WholeFile);
             (!text.is_empty()).then_some(text)
         }
         _ => None,

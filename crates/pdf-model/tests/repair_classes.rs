@@ -307,6 +307,31 @@ fn an_alpha_constant_out_of_range_is_logged_at_the_content() {
     );
 }
 
+/// ISO 32000-2 §11.6.3: a `/BM` name "shall be either a name object, designating one of the
+/// standard blend modes listed in" Tables 134 and 135, or an array of such names. A name outside
+/// both is read as `Normal` and logged; a known one, and an array whose names none are known
+/// (the clause's own "or Normal if it recognizes none of them"), are not.
+#[test]
+fn a_blend_mode_no_table_lists_is_logged_at_the_content() {
+    let box_ = "/BBox [0 0 1 1]";
+    has(
+        &page_with_resources("/GS0 gs 0 0 m 1 1 l S", "<< /BM /Blurry >>", box_),
+        &repair::BLEND_MODE_UNKNOWN,
+        Site::Content(Some(PAGE)),
+    );
+    for state in [
+        "<< /BM /Multiply >>",
+        "<< /BM [/Blurry /Screen] >>",
+        "<< /BM [/Blurry] >>",
+    ] {
+        assert_eq!(
+            logged(&page_with_resources("/GS0 gs 0 0 m 1 1 l S", state, box_)),
+            [],
+            "{state}"
+        );
+    }
+}
+
 /// Table 57's `/HT` is a dictionary, a stream or the name `/Default`, and Table 128's
 /// `/TransferFunction` a function or `/Identity`. Each of the wrong kind is logged.
 #[test]

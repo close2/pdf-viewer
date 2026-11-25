@@ -20,6 +20,8 @@
 //! do with fonts. Table D.3 is a code-to-Unicode table and needs no glyph names, which is what
 //! separates it from Annex D.2's font encodings in `pdf-font`.
 
+use crate::repair::RepairClass;
+
 /// Decodes ISO 32000-2 §7.9.2.2's text string type.
 ///
 /// The three encodings the clause names, chosen by the prefix it specifies, with
@@ -28,16 +30,36 @@
 /// A byte with no character in Table D.3 — the clause's `U`, "Undefined code point in
 /// `PDFDocEncoding`" — becomes U+FFFD REPLACEMENT CHARACTER, which is Unicode's own name for
 /// a byte that represents no character. Nothing draws it, so a caller laying the string out
-/// reports it rather than dropping it silently.
+/// reports it rather than dropping it silently. A caller holding the document reads the string
+/// through [`text_string_noting`] instead, and logs what it returns.
 #[must_use]
 pub fn text_string(bytes: &[u8]) -> String {
-    if let Some(rest) = bytes.strip_prefix(&UTF16BE_PREFIX) {
-        return without_language_escapes(&utf16be(rest));
-    }
-    if let Some(rest) = bytes.strip_prefix(&UTF8_PREFIX) {
-        return without_language_escapes(&String::from_utf8_lossy(rest));
-    }
-    pdf_doc_encoded_string(bytes)
+    text_string_noting(bytes).0
+}
+
+/// [`text_string`], and `syntax/text-string-undecodable` where a U+FFFD stands for
+/// bytes that contradict the encoding they were read in (ADR 3621).
+///
+/// The class is returned rather than recorded because this is a function of the string's bytes
+/// alone; the reader that took the string from a dictionary knows the document and the place,
+/// and records it there. The test costs nothing a conforming string does not already pay: the
+/// decoder knows when it substitutes.
+#[must_use]
+pub fn text_string_noting(bytes: &[u8]) -> (String, Option<&'static RepairClass>) {
+    let (text, substituted) = if let Some(rest) = bytes.strip_prefix(&UTF16BE_PREFIX) {
+        let (text, substituted) = utf16be(rest);
+        (without_language_escapes(&text), substituted)
+    } else if let Some(rest) = bytes.strip_prefix(&UTF8_PREFIX) {
+        let text = String::from_utf8_lossy(rest);
+        let substituted = matches!(text, std::borrow::Cow::Owned(_));
+        (without_language_escapes(&text), substituted)
+    } else {
+        pdf_doc_decoded(bytes)
+    };
+    (
+        text,
+        substituted.then_some(&crate::repair::TEXT_STRING_UNDECODABLE),
+    )
 }
 
 /// Whether `bytes` *are* ISO 32000-2 §7.9.2.2's text string type, or contradict it.
@@ -140,20 +162,25 @@ const UTF8_PREFIX: [u8; 3] = [239, 187, 191];
 /// encoding scheme.
 ///
 /// An odd trailing byte and an unpaired surrogate both become U+FFFD rather than ending the
-/// string: a truncated value is still worth showing as far as it goes.
-fn utf16be(bytes: &[u8]) -> String {
-    let units = bytes
-        .chunks(2)
-        .map(|pair| match pair {
-            [high, low] => u16::from_be_bytes([*high, *low]),
-            // A trailing odd byte is not a code unit. U+FFFD is not a surrogate, so
-            // `decode_utf16` passes it through unchanged.
-            _ => 0xFFFD,
+/// string: a truncated value is still worth showing as far as it goes. The flag says whether
+/// either was met, which [`text_string_noting`] returns as its class.
+fn utf16be(bytes: &[u8]) -> (String, bool) {
+    let (pairs, odd) = bytes.as_chunks::<2>();
+    let mut substituted = !odd.is_empty();
+    let mut text: String = char::decode_utf16(pairs.iter().map(|pair| u16::from_be_bytes(*pair)))
+        .map(|unit| {
+            unit.unwrap_or_else(|_| {
+                // `TEXT_STRING_UNDECODABLE`, returned to the caller that holds the document.
+                substituted = true;
+                char::REPLACEMENT_CHARACTER
+            })
         })
-        .collect::<Vec<u16>>();
-    char::decode_utf16(units)
-        .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
-        .collect()
+        .collect();
+    if !odd.is_empty() {
+        // A trailing odd byte is not a code unit; it is read as one replacement character.
+        text.push(char::REPLACEMENT_CHARACTER);
+    }
+    (text, substituted)
 }
 
 /// Removes §7.9.2.2.2's language escape sequences.
@@ -183,7 +210,7 @@ fn without_language_escapes(text: &str) -> String {
 #[must_use]
 pub fn text_string_languages(bytes: &[u8]) -> Vec<(usize, String)> {
     if let Some(rest) = bytes.strip_prefix(&UTF16BE_PREFIX) {
-        return split_language_escapes(&utf16be(rest)).1;
+        return split_language_escapes(&utf16be(rest).0).1;
     }
     if let Some(rest) = bytes.strip_prefix(&UTF8_PREFIX) {
         return split_language_escapes(&String::from_utf8_lossy(rest)).1;
@@ -201,10 +228,23 @@ pub fn text_string_languages(bytes: &[u8]) -> Vec<(usize, String)> {
 /// string. A byte Table D.3 leaves undefined becomes U+FFFD, as in [`text_string`].
 #[must_use]
 pub fn pdf_doc_encoded_string(bytes: &[u8]) -> String {
-    bytes
+    pdf_doc_decoded(bytes).0
+}
+
+/// The bytes read through Table D.3, and whether any was a byte it leaves undefined — which
+/// [`text_string_noting`] returns as `TEXT_STRING_UNDECODABLE`.
+fn pdf_doc_decoded(bytes: &[u8]) -> (String, bool) {
+    let mut substituted = false;
+    let text = bytes
         .iter()
-        .map(|byte| PDF_DOC_ENCODING[usize::from(*byte)].unwrap_or(char::REPLACEMENT_CHARACTER))
-        .collect()
+        .map(|byte| {
+            PDF_DOC_ENCODING[usize::from(*byte)].unwrap_or_else(|| {
+                substituted = true;
+                char::REPLACEMENT_CHARACTER
+            })
+        })
+        .collect();
+    (text, substituted)
 }
 
 /// The text with §7.9.2.2.2's escape sequences removed, and the language each one states with

@@ -2066,7 +2066,7 @@ pub fn alternate(document: &Document, items: &[Object], language: Option<&str>) 
 fn text(document: &Document, dict: &Dictionary, key: &str) -> Option<String> {
     match document.get_key(dict, key) {
         Object::String(bytes) => {
-            let text = pdf_syntax::text_string(&bytes);
+            let text = document.text_string(&bytes, pdf_syntax::Site::WholeFile);
             (!text.is_empty()).then_some(text)
         }
         _ => None,

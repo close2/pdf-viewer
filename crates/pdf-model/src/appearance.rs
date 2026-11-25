@@ -1078,11 +1078,15 @@ fn with_default_resources(document: &Document, mut resources: Dictionary) -> Dic
             }
             continue;
         };
-        let mut merged = resources
-            .get_by_name(category)
-            .and_then(Object::as_dict)
-            .cloned()
-            .unwrap_or_default();
+        let own = resources.get_by_name(category);
+        if own.is_some_and(|own| own.as_dict().is_none()) {
+            // Table 34 gives every category a dictionary; one of another type is read as empty.
+            document.record_repair(
+                &crate::repair::RESOURCE_CATEGORY_NOT_A_DICTIONARY,
+                pdf_syntax::Site::WholeFile,
+            );
+        }
+        let mut merged = own.and_then(Object::as_dict).cloned().unwrap_or_default();
         for (name, resource) in from_default.iter() {
             if merged.get_by_name(name).is_none() {
                 merged.insert(name.clone(), resource.clone());
@@ -1269,12 +1273,15 @@ pub(crate) fn for_saving(
     if let Some(stored) = stored {
         // §12.5.5 reads the stream's own `/BBox`; §12.7.4.3 states the one to use when it has
         // none, and `crate::annotation` argues why that extension rather than a refusal.
-        let bbox = crate::annotation::rectangle(document, &stored.dict, "BBox").unwrap_or([
-            0.0,
-            0.0,
-            rect[2] - rect[0],
-            rect[3] - rect[1],
-        ]);
+        // A `/BBox` present and not four numbers is read as absent, `FORM_BBOX_UNUSABLE`.
+        let stated_bbox = crate::annotation::rectangle(document, &stored.dict, "BBox");
+        if stated_bbox.is_none() && stored.dict.get("BBox").is_some() {
+            document.record_repair(
+                &crate::repair::FORM_BBOX_UNUSABLE,
+                pdf_syntax::Site::WholeFile,
+            );
+        }
+        let bbox = stated_bbox.unwrap_or([0.0, 0.0, rect[2] - rect[0], rect[3] - rect[1]]);
         // A saved file is read by somebody who is not typing into it, so its appearance is the
         // formatted one whatever the field's state here (ADR 1579).
         let view = crate::view::AnnotationView {
@@ -1393,6 +1400,8 @@ fn toggling_states(
     names: &mut SubsetNames,
 ) -> Option<SavedStates> {
     let on = on_state(document, annotation)?;
+    // not a repair: an absent or malformed `/Rect` is refused as `Refusal::Missing("/Rect")` by
+    // the constructions below; with no frame there is no state to save, and it stays owed.
     let (at_origin, rect) = in_form_box(annotation, rectangle(document, annotation).ok()?);
     let mut states = Vec::new();
     // One for both states, which are the same widget in the same face.
@@ -1418,6 +1427,8 @@ fn toggling_states(
             None if constructed.report.is_none() => Vec::new(),
             None => return None,
         };
+        // not a repair: a face that cannot be written (its licence or program) is that
+        // function's own refusal, which leaves the widget unwritten and owed, as above.
         let resources =
             variable_text::for_a_file_in(document, &constructed.resources, names).ok()?;
         states.push((
@@ -1629,7 +1640,16 @@ fn scripted_appearance(
         .into_iter()
         .chain(std::iter::once(&form))
         .collect();
-    let mut appearance = variable_text::bytes(document, &sources, "DA").unwrap_or_default();
+    let stated_appearance = variable_text::bytes(document, &sources, "DA");
+    // A `/DA` present and no string is read as none, and logged as `FIELD_ENTRY_UNUSABLE`.
+    if stated_appearance.is_none()
+        && sources
+            .iter()
+            .any(|source| !document.get_key(source, "DA").is_null())
+    {
+        crate::form::field_entry_unusable(document);
+    }
+    let mut appearance = stated_appearance.unwrap_or_default();
     // **`textFont` and `textSize` are one `Tf` after the producer's**, its other operand the
     // producer's own: §12.7.4.3 requires a `Tf` in every `/DA`, and the later of two in the
     // replayed string is the one the text is shown in (ADR 1762).
@@ -1641,6 +1661,8 @@ fn scripted_appearance(
                 .as_ref()
                 .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
         });
+        // not a repair: neither the script nor the producer's string states a size, and §12.7.4.3
+        // gives a `Tf` size of 0 the meaning "auto-sized".
         let size = size.or_else(|| stated.size.map(f64::from)).unwrap_or(0.0);
         if let Some(resource) = resource {
             appended.push(format!("/{resource} {} Tf", format_number(size)));
@@ -2715,7 +2737,7 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
     let interior = colour(document, annotation, "IC")?;
     stream.set_colour(interior, false);
 
-    let leader = entry_number(document, annotation, "LL").unwrap_or(0.0);
+    let leader = number_or_zero(document, annotation, "LL");
     // A line of no length has no direction to be perpendicular to, so its leader lines have
     // nowhere to go; the degenerate line itself is still §8.5.3.2's business — and an ending has
     // no direction to point in either, which [`draw_endings`] answers for itself.
@@ -2729,12 +2751,8 @@ fn line(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
             let offset = [-clockwise[0], -clockwise[1]];
             // "A non-negative number": a negative `/LLE` or `/LLO` states no length, so it is
             // dropped rather than reflected — the sign the clause gives a meaning to is `/LL`'s.
-            let extension = entry_number(document, annotation, "LLE")
-                .unwrap_or(0.0)
-                .max(0.0);
-            let gap = entry_number(document, annotation, "LLO")
-                .unwrap_or(0.0)
-                .max(0.0);
+            let extension = number_or_zero(document, annotation, "LLE").max(0.0);
+            let gap = number_or_zero(document, annotation, "LLO").max(0.0);
             let away = if leader < 0.0 { -1.0 } else { 1.0 };
             let along = |point: [f32; 2], distance: f32| {
                 [
@@ -2854,10 +2872,17 @@ fn caption(
     // and for its reason: the table names "the Contents or RC entries" without ranking them, and
     // `/Contents` is the plain text a reader typed.
     let shared = crate::markup::group_source(document, annotation);
-    let text = variable_text::string(document, &[&shared], "Contents")
+    let contents = variable_text::string(document, &[&shared], "Contents");
+    let stated = contents
+        .clone()
         .filter(|contents| !contents.is_empty())
-        .or_else(|| crate::popup::rich_text(document, &shared))
-        .unwrap_or_default();
+        .or_else(|| crate::popup::rich_text(document, &shared));
+    // A `/Contents` present and no text string is read as no text, and logged as
+    // `ANNOTATION_ENTRY_UNUSABLE`; an absent one is an annotation with no text.
+    if contents.is_none() && stated.is_none() && !document.get_key(&shared, "Contents").is_null() {
+        crate::annotation::annotation_entry_unusable(document);
+    }
+    let text = stated.unwrap_or_default();
     if text.is_empty() {
         // `/Cap` replicates "the text specified by the Contents or RC entries" and this
         // annotation specifies none, so there is nothing the clause asks for and nothing owed.
@@ -3858,6 +3883,10 @@ impl IconFit {
         let anchor = crate::annotation::numbers(document, fit, "A")
             .filter(|values| values.len() >= 2)
             .map_or(Self::DEFAULT.anchor, |values| {
+                if values[..2].iter().any(|value| !(0.0..=1.0).contains(value)) {
+                    // A fraction outside 0.0 to 1.0: `ANNOTATION_ENTRY_UNUSABLE`.
+                    crate::annotation::annotation_entry_unusable(document);
+                }
                 [values[0].clamp(0.0, 1.0), values[1].clamp(0.0, 1.0)]
             });
         let ignore_border = matches!(document.get_key(fit, "FB"), Object::Boolean(true));
@@ -4096,6 +4125,8 @@ fn list_box_options(
     // default 0. Clamped rather than obeyed where it names an index the array does not have: an
     // optional entry may not erase what the clause states (ADR 0111), and a list scrolled past
     // its end is one showing its last option.
+    // not a repair: an absent `/TI` is Table 234's 0, a negative or non-integer one is logged by
+    // `inherited_number` as `FIELD_ENTRY_UNUSABLE`, and the `u32` index always fits a `usize`.
     let top = crate::form::inherited_number(document, field, annotation, "TI")
         .and_then(|top| usize::try_from(top).ok())
         .unwrap_or_default()
@@ -4211,11 +4242,14 @@ fn field_text(
             }
         }
         FieldKind::Text => {
-            let value = field
-                .value
-                .as_ref()
-                .and_then(|value| text_field_text(document, &field, value))
-                .unwrap_or_default();
+            let value = text_or_empty(
+                document,
+                field.value.as_ref(),
+                field
+                    .value
+                    .as_ref()
+                    .and_then(|value| text_field_text(document, &field, value)),
+            );
             // An empty field draws nothing — and it still has somewhere the next character
             // goes, which is the one thing an empty field can be asked about. So the layout is
             // skipped only when nobody asked where that place is.
@@ -4261,11 +4295,14 @@ fn field_text(
             }
         }
         FieldKind::Choice { combo: true } => {
-            let value = field
-                .value
-                .as_ref()
-                .and_then(|value| variable_text::value_text(document, value))
-                .unwrap_or_default();
+            let value = text_or_empty(
+                document,
+                field.value.as_ref(),
+                field
+                    .value
+                    .as_ref()
+                    .and_then(|value| variable_text::value_text(document, value)),
+            );
             if value.is_empty() && asked == Asked::default() {
                 return Ok(None);
             }
@@ -4817,6 +4854,8 @@ fn frame(
     if let Some((bbox, placement)) = crate::annotation::stored_frame(document, annotation, view) {
         return Some((inset(bbox, width), placement));
     }
+    // not a repair: an absent or malformed `/Rect` is refused as `Refusal::Missing("/Rect")` where
+    // the appearance is built, and this query has no frame to answer with.
     let rect = rectangle(document, annotation).ok()?;
     let rotation = Rotation::read(document, source)?;
     Some((
@@ -4841,6 +4880,8 @@ fn free_text_frame(
     if let Some((bbox, placement)) = crate::annotation::stored_frame(document, annotation, view) {
         return Some((bbox, placement));
     }
+    // not a repair: an absent or malformed `/Rect` is refused as `Refusal::Missing("/Rect")` where
+    // the appearance is built, and this query has no frame to answer with.
     let rect = rectangle(document, annotation).ok()?;
     Some((differences(document, annotation, rect), Transform::IDENTITY))
 }
@@ -4855,6 +4896,8 @@ fn laid_out_in(
 ) -> Option<variable_text::LaidOut> {
     let fonts = LayoutFonts::new(document);
     if is_free_text(document, annotation) {
+        // not a repair: the layout's refusal is reported where the appearance is built from the
+        // same layout, and this query answers that no text was laid out.
         return free_text_layout(document, annotation, box_, view.contents, asked, &fonts)
             .ok()
             .flatten();
@@ -4876,6 +4919,8 @@ fn laid_out_in(
         &fonts,
         None,
     )
+    // not a repair: the layout's refusal is reported where the appearance is built from the same
+    // layout, and this query answers that no text was laid out.
     .ok()
     .flatten()
 }
@@ -4913,11 +4958,14 @@ pub(crate) fn field_text_value(
     ) {
         return None;
     }
-    let text = field
-        .value
-        .as_ref()
-        .and_then(|value| text_field_text(document, &field, value))
-        .unwrap_or_default();
+    let text = text_or_empty(
+        document,
+        field.value.as_ref(),
+        field
+            .value
+            .as_ref()
+            .and_then(|value| text_field_text(document, &field, value)),
+    );
     if field.flags & FLAG_PASSWORD == 0 {
         Some(crate::view::ShownValue {
             text,
@@ -4929,6 +4977,17 @@ pub(crate) fn field_text_value(
             obscured: true,
         })
     }
+}
+
+/// The text a field's `/V` reads as, empty where the field has no value.
+///
+/// A `/V` that is present and reads as no text (a number, a dictionary a flag does not ask for) is
+/// logged as `FIELD_ENTRY_UNUSABLE`, since the field is then drawn as if it stated nothing.
+fn text_or_empty(document: &Document, stated: Option<&Object>, read: Option<String>) -> String {
+    if read.is_none() && stated.is_some_and(|value| !document.resolve(value).is_null()) {
+        crate::form::field_entry_unusable(document);
+    }
+    read.unwrap_or_default()
 }
 
 /// A text field's value as the characters §12.7.5.3 says the field's text is.
@@ -5011,6 +5070,8 @@ pub(crate) fn accepted_prefix(
     // The same box the appearance is laid out in, arrived at the same way: `/Rect` turned into
     // the widget's own axes and inset by the border that would otherwise strike the text
     // through. A different box here would accept text the appearance then clips.
+    // not a repair: an absent or malformed `/Rect` is refused as `Refusal::Missing("/Rect")` where
+    // the appearance is built, and this query has no frame to answer with.
     let rect = rectangle(document, annotation).ok()?;
     let characteristics = document.get_key(annotation, "MK").as_dict().cloned();
     // not a repair: which dictionary the entries are read from, not a value the file states.
@@ -5269,6 +5330,8 @@ fn callout(document: &Document, annotation: &Dictionary, stream: &mut Stream) ->
         Object::Null => None,
         _ => ending.is_none().then_some(UNKNOWN_LINE_ENDING),
     };
+    // not a repair: an absent `/LE` is Table 177's None, and a name outside Table 179 is reported
+    // out loud as `owed` above (the `UNKNOWN_LINE_ENDING` refusal).
     let ending = ending.unwrap_or(Ending::None);
 
     stream.text.push_str("q\n");
@@ -5414,13 +5477,22 @@ fn free_text_layout(
     // clause's rather than the corpus's.
     let shared = crate::markup::group_source(document, annotation);
     let contents = variable_text::string(document, &[&shared], "Contents");
-    let text = match retyped {
-        Some(retyped) => retyped.to_owned(),
-        None => contents
+    let text = if let Some(retyped) = retyped {
+        retyped.to_owned()
+    } else {
+        let stated = contents
             .clone()
             .filter(|contents| !contents.is_empty())
-            .or_else(|| crate::popup::rich_text(document, &shared))
-            .unwrap_or_default(),
+            .or_else(|| crate::popup::rich_text(document, &shared));
+        // A `/Contents` present and no text string is read as no text, and logged as
+        // `ANNOTATION_ENTRY_UNUSABLE`; an absent one is an annotation with no text.
+        if contents.is_none()
+            && stated.is_none()
+            && !document.get_key(&shared, "Contents").is_null()
+        {
+            crate::annotation::annotation_entry_unusable(document);
+        }
+        stated.unwrap_or_default()
     };
     if text.is_empty() && asked == Asked::default() {
         return Ok(None);
@@ -5650,6 +5722,16 @@ impl Field {
         // Table 249's `/Ff` "shall replace that of the Ff entry in the form's corresponding field
         // dictionary", and `/SetFf` and `/ClrFf` modify it — so the import applies to whatever
         // §12.7.4.1's inheritance produced.
+        // A `/Ff` that is present and no integer is read as 0, and logged as
+        // `FIELD_ENTRY_UNUSABLE`; an absent one is Table 226's default of 0.
+        if flags.is_none()
+            && inherited
+                .chain()
+                .into_iter()
+                .any(|dict| !document.get_key(dict, "Ff").is_null())
+        {
+            crate::form::field_entry_unusable(document);
+        }
         let flags = match source {
             FieldValue::Imported { flags: change, .. } => {
                 change.applied_to(flags.unwrap_or_default())
@@ -5657,6 +5739,8 @@ impl Field {
             // Typing into a field changes its value and not its flags: §12.7.8's is the one
             // statement about a value that carries Table 249's `/Ff` beside it.
             FieldValue::Stored | FieldValue::Default | FieldValue::Edited { .. } => {
+                // not a repair: absent is Table 226's default of 0, and a `/Ff` of another type
+                // was logged above as `FIELD_ENTRY_UNUSABLE`.
                 flags.unwrap_or_default()
             }
         };
@@ -5702,7 +5786,15 @@ impl Field {
                 .iter()
                 .find_map(|source| document.get_key(source, "MaxLen").as_integer())
                 .or_else(|| document.get_key(annotation, "MaxLen").as_integer())
-                .and_then(|value| u32::try_from(value).ok())
+                .and_then(|value| {
+                    // A negative `/MaxLen` is no length: read as absent, logged as
+                    // `FIELD_ENTRY_UNUSABLE`.
+                    let length = u32::try_from(value).ok();
+                    if length.is_none() {
+                        crate::form::field_entry_unusable(document);
+                    }
+                    length
+                })
                 .filter(|value| *value > 0);
             if let Some(length) = length {
                 return Shape::Comb(length);
@@ -6486,6 +6578,7 @@ impl Stream {
     /// of the icon.
     fn form(&mut self, document: &Document, reference: Object, placement: Transform) {
         let taken = default_resources(document);
+        // not a repair: the names to avoid; no `/XObject` category in `/DR` leaves none to avoid.
         let taken = taken
             .get_by_name(&Name::new(b"XObject".to_vec()))
             .and_then(Object::as_dict)
@@ -6643,6 +6736,8 @@ impl Stream {
     /// width ... If the corner radii are 0, the border has square (not rounded) corners".
     fn rounded_rectangle(&mut self, box_: [f32; 4], radii: [f32; 2]) {
         let (half_width, half_height) = ((box_[2] - box_[0]) * 0.5, (box_[3] - box_[1]) * 0.5);
+        // not a repair: a corner radius is bounded by half the extent of the box it rounds, which
+        // is geometry this program computed; a radius of 0 or less is Table 166's square corner.
         let radius = [
             radii[0].clamp(0.0, half_width.max(0.0)),
             radii[1].clamp(0.0, half_height.max(0.0)),
@@ -6888,15 +6983,26 @@ fn pairs(document: &Document, values: &[Object]) -> Vec<[f32; 2]> {
 fn differences(document: &Document, annotation: &Dictionary, rect: [f32; 4]) -> [f32; 4] {
     let entry = document.get_key(annotation, "RD");
     let Some(values) = entry.as_array() else {
+        // An absent `/RD` is the rectangle itself; one of another type is logged as
+        // `ANNOTATION_ENTRY_UNUSABLE`.
+        if !entry.is_null() {
+            crate::annotation::annotation_entry_unusable(document);
+        }
         return rect;
     };
     let read = |index: usize| {
-        number(document, values.get(index))
-            .filter(|value| *value >= 0.0)
-            .unwrap_or_default()
+        let usable = number(document, values.get(index)).filter(|value| *value >= 0.0);
+        if usable.is_none() {
+            // A missing, non-numeric or negative difference is read as 0 and logged as
+            // `ANNOTATION_ENTRY_UNUSABLE`.
+            crate::annotation::annotation_entry_unusable(document);
+        }
+        usable.unwrap_or_default()
     };
     let (left, top, right, bottom) = (read(0), read(1), read(2), read(3));
     if left + right >= rect[2] - rect[0] || top + bottom >= rect[3] - rect[1] {
+        // Insets the clause forbids, ignored whole: `ANNOTATION_ENTRY_UNUSABLE`.
+        crate::annotation::annotation_entry_unusable(document);
         return rect;
     }
     [
@@ -6978,6 +7084,7 @@ fn colour(document: &Document, dict: &Dictionary, key: &'static str) -> Result<C
             if read.iter().any(|value| !(0.0..=1.0).contains(value)) {
                 crate::annotation::annotation_entry_unusable(document);
             }
+            // The component outside 0.0 to 1.0 was logged as `ANNOTATION_ENTRY_UNUSABLE` above.
             for (slot, value) in components.iter_mut().zip(&read) {
                 *slot = value.clamp(0.0, 1.0);
             }
@@ -6993,6 +7100,18 @@ fn numbers(document: &Document, values: &[Object]) -> Option<Vec<f32>> {
         .iter()
         .map(|value| number(document, Some(value)))
         .collect()
+}
+
+/// An optional number whose table default is 0 (Table 177's `/LL`, `/LLE` and `/LLO`).
+///
+/// An entry present and not a finite number is read as 0 and logged as
+/// `ANNOTATION_ENTRY_UNUSABLE`.
+fn number_or_zero(document: &Document, dict: &Dictionary, key: &str) -> f32 {
+    let stated = entry_number(document, dict, key);
+    if stated.is_none() && !document.get_key(dict, key).is_null() {
+        crate::annotation::annotation_entry_unusable(document);
+    }
+    stated.unwrap_or(0.0)
 }
 
 /// Resolves one dictionary entry to a finite `f32`.

@@ -290,7 +290,7 @@ fn read_item(
     let flags = document.get_key(dict, "F").as_integer().unwrap_or(0);
     let (title, title_languages) = match document.get_key(dict, "Title") {
         Object::String(bytes) => (
-            pdf_syntax::text_string(&bytes),
+            document.text_string(&bytes, pdf_syntax::Site::Object(id)),
             pdf_syntax::text_string_languages(&bytes),
         ),
         _ => (String::new(), Vec::new()),

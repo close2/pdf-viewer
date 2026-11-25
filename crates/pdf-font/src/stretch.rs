@@ -147,7 +147,8 @@ pub fn sfnt_outlines(program: &[u8], scale: f32) -> Result<Vec<u8>, StretchError
             .ok_or(StretchError::Unreadable("a glyph runs past glyf"))?;
         offsets
             .push(u32::try_from(scaled_glyf.len()).map_err(|_| StretchError::Unreadable("glyf"))?);
-        let (advance, bearing) = horizontal_metric(hmtx, pairs, index);
+        let (advance, bearing) =
+            horizontal_metric(hmtx, pairs, index).ok_or(StretchError::Unreadable("hmtx"))?;
         if data.is_empty() {
             metrics.push((
                 advance,

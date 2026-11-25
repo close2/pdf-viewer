@@ -315,7 +315,7 @@ fn record(out: &mut Vec<AnnotationState>, state: AnnotationState) {
 fn text(document: &Document, dict: &Dictionary, key: &str) -> Option<String> {
     let value = document.get_key(dict, key);
     let bytes = value.as_string()?;
-    let decoded = pdf_syntax::text_string(bytes);
+    let decoded = document.text_string(bytes, pdf_syntax::Site::WholeFile);
     (!decoded.is_empty()).then_some(decoded)
 }
 

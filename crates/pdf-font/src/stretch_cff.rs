@@ -84,7 +84,8 @@ pub fn cff_outlines(program: &[u8], scale: f32) -> Result<Vec<u8>, StretchError>
     let mut extent = Extent::default();
     for glyph in 0..glyphs {
         let index = usize::from(glyph);
-        let (advance, bearing) = horizontal_metric(hmtx, pairs, index);
+        let (advance, bearing) =
+            horizontal_metric(hmtx, pairs, index).ok_or(StretchError::Unreadable("hmtx"))?;
         let bearing =
             i16::try_from(round(f64::from(bearing) * f64::from(scale))).map_err(|_| {
                 StretchError::OutOfRange {

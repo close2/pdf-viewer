@@ -409,6 +409,7 @@ impl Interpreter<'_> {
     /// as `Normal` and said, as a graphics state's is (ADR 3392).
     fn appearance_blend(&mut self, name: &str) -> BlendMode {
         if known_blend_mode(name.as_bytes()).is_none() {
+            self.record_repair(&crate::repair::BLEND_MODE_UNKNOWN);
             self.note(Unsupported::UnknownBlendMode {
                 detail: format!("an annotation's appearance states /BM /{name}"),
             });

@@ -828,7 +828,7 @@ pub(crate) fn inherited_number(
 /// Logs a field entry this reader read past, placed at the file: the reader holds the field's
 /// dictionaries and not their objects.
 #[cold]
-fn field_entry_unusable(document: &Document) {
+pub(crate) fn field_entry_unusable(document: &Document) {
     document.record_repair(
         &crate::repair::FIELD_ENTRY_UNUSABLE,
         pdf_syntax::Site::WholeFile,
