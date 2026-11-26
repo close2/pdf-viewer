@@ -1616,7 +1616,7 @@ pub(crate) fn flags_as_stated(document: &Document, annotation: &Dictionary) -> i
 /// logged, once here rather than by each of the readers that would otherwise read past it in
 /// silence.
 #[must_use]
-pub(crate) fn page_annots(document: &Document, page: &Dictionary) -> Object {
+pub fn page_annots(document: &Document, page: &Dictionary) -> Object {
     let listed = document.get_key(page, "Annots");
     if matches!(listed, Object::Array(_) | Object::Null) {
         listed

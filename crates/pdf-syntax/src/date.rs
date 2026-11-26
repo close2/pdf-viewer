@@ -185,6 +185,8 @@ impl Date {
         if day > days_in_month(i32::try_from(year).ok()?, month) {
             return None;
         }
+        // not a repair: as for the month and day above, a field out of its range refuses the
+        // date (None); nothing is clamped.
         let hour = u8::try_from(hour).ok().filter(|value| *value <= 23)?;
         let minute = u8::try_from(minute).ok().filter(|value| *value <= 59)?;
         let second = u8::try_from(second).ok().filter(|value| *value <= 59)?;

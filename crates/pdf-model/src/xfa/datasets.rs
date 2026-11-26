@@ -81,6 +81,8 @@ impl Datasets {
     #[must_use]
     pub fn value(&self, template: &Template, field: &str) -> Option<String> {
         let target = template.resolve(field)?;
+        // not a repair: a binding this module does not follow declines (None): no data value is
+        //   read, and nothing is put in place of one.
         let binding = template.binding(target).ok()?;
         let record = self.record()?;
         let found = match binding {
@@ -567,6 +569,8 @@ fn typed(
             &canonical.value,
         )
         .map_err(|reason| format!("its bind picture cannot write its data: {reason}"))?
+        // not a repair: XFA 3.3 page 527, "if the data does not match the picture clause the
+        //   picture clause has no effect", so the canonical value is what is written.
         .unwrap_or(canonical.value));
     }
     Ok(canonical.value)
@@ -783,6 +787,9 @@ pub(super) fn item(container: &Container, which: usize) -> String {
         .first()
         .and_then(|(_, values)| values.get(which))
         .cloned()
+        // not a repair: page 759, "[w]hen the second or third value is not provided it defaults
+        //   to the null string"; a field with no `items` at all is given the same for its on
+        //   value, a choice, since no clause names one.
         .unwrap_or_default()
 }
 

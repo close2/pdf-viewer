@@ -93,10 +93,7 @@ pub(super) fn decode_jpx(
     // §8.9.5.1 Table 87, `/SMaskInData`: code 1 and 2 both mean the samples carry opacity,
     // and 2 additionally means the colour components were multiplied by it. Absent or 0
     // means ignore any that is there.
-    let smask_in_data = document
-        .get_key(dict, "SMaskInData")
-        .as_integer()
-        .unwrap_or(0);
+    let smask_in_data = smask_in_data(document, dict);
     let opacity_channel = JpxOpacity {
         use_opacity: smask_in_data != 0 && raster.has_opacity,
         premultiplied: smask_in_data == 2,
@@ -276,10 +273,7 @@ pub fn jpx_samples(
     };
     let mut choice = jpx_colour_choice(data, declared_space.is_some(), Sycc::ByAnnexC);
     let mut raster = decoded(&choice)?;
-    let smask_in_data = document
-        .get_key(dict, "SMaskInData")
-        .as_integer()
-        .unwrap_or(0);
+    let smask_in_data = smask_in_data(document, dict);
     let stated = declared_space.is_some();
     // A writer carries these samples under a §8.6 colour space, and PIMA 7667's encodings are
     // none of them: equation 5's offset and the odd extension of equations 6a to 6c put
@@ -391,6 +385,35 @@ fn jpx_decode_pairs(
 }
 
 /// A raster's colour components and, where `has_opacity`, its last channel apart.
+/// Table 87's `/SMaskInData`.
+///
+/// The entry is optional, and a document stating none asks nothing of the codestream's own
+/// opacity, which code 0 says "shall be ignored". An integer is read as stated: §11.6.4.3 makes
+/// the embedded soft mask govern where the entry "is present with a value other than 0", so an
+/// integer the table does not list still asks for it, and only code 2 says the colour was
+/// premultiplied. A value that is no integer is read as 0, and logged as
+/// `SOFT_MASK_IN_DATA_UNUSABLE`.
+fn smask_in_data(document: &Document, dict: &Dictionary) -> i64 {
+    match document.get_key(dict, "SMaskInData") {
+        Object::Null => 0,
+        Object::Integer(code) => code,
+        _ => {
+            smask_in_data_unusable(document);
+            0
+        }
+    }
+}
+
+/// Logs an `/SMaskInData` read past. The decoder is handed the image's dictionary and not its
+/// object, so the repair is placed at the file.
+#[cold]
+fn smask_in_data_unusable(document: &Document) {
+    document.record_repair(
+        &crate::repair::SOFT_MASK_IN_DATA_UNUSABLE,
+        pdf_syntax::Site::WholeFile,
+    );
+}
+
 fn split_opacity(raster: &pdf_sandbox::Raster, has_opacity: bool) -> (Vec<u8>, Option<Vec<u8>>) {
     if !has_opacity {
         return (raster.data.clone(), None);
@@ -773,6 +796,8 @@ fn jpx_samples_to_rgba(
             // ignores `/Decode` where the dictionary states no `/ColorSpace`, so no map stands
             // between them.
             JpxReading::Extended(extended) => {
+                // not a repair: a sample index into a raster this reader decoded, not a value the
+                // file states.
                 let codes = [0, 1, 2].map(|component| sample(component).unwrap_or(0));
                 for (slot, component) in values.iter_mut().zip(extended.components(codes)) {
                     *slot = component;

@@ -261,7 +261,7 @@ impl<'a> Examination<'a> {
         self.annotations.get_or_init(|| {
             let mut out = Vec::new();
             for (page, sheet) in self.pages().iter().enumerate() {
-                let listed = self.document.get_key(&sheet.dict, "Annots");
+                let listed = pdf_model::page_annots(self.document, &sheet.dict);
                 let Some(items) = listed.as_array() else {
                     continue;
                 };

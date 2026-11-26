@@ -127,6 +127,10 @@ classes! {
     SOFT_MASK_UNDECODABLE = "model/soft-mask-undecodable", "ISO 32000-2 §11.6.5.2",
         "a soft mask whose data did not decode was not applied, and its image was drawn without \
          it";
+    /// A JPEG 2000 image's `/SMaskInData` that is no integer.
+    SOFT_MASK_IN_DATA_UNUSABLE = "model/soft-mask-in-data-unusable", "ISO 32000-2 §8.9.5.1",
+        "a JPEG 2000 image's /SMaskInData that is no integer was read as 0, and any opacity its \
+         codestream encodes ignored";
 
     // ---- the interpreter's operands, §7.8.2, §8.4.2, §8.6.8, §9.4.1 -------------------------
 
@@ -278,6 +282,30 @@ classes! {
         "an occur min or max, or a fracDigits or leadDigits, in an XFA template that does not read \
          as the integer its grammar gives it was read as absent, the grammar's default standing \
          in its place";
+    /// A `locale` of an XFA `localeSet` packet stating no `name`.
+    XFA_LOCALE_NAME_ABSENT = "model/xfa-locale-name-absent", "ISO 32000-2 §12.7.3",
+        "a locale of an XFA localeSet packet with no name, which XFA 3.3 says must be supplied, was \
+         not kept, so no picture clause reads its symbols or patterns";
+
+    // ---- portable collections, §12.3.5 ----------------------------------------------------------
+
+    /// A collection split's `/Position` or a folder's `/ID` of a type or value its table does not
+    /// give it.
+    COLLECTION_ENTRY_UNUSABLE = "model/collection-entry-unusable", "ISO 32000-2 §12.3.5",
+        "a collection split's /Position outside 0 to 100 was read as the nearer end, or of another \
+         type as absent, and a folder's required /ID that is no non-negative integer as 0";
+
+    // ---- logical structure and page boundaries, §14.8.5 and §14.11.2.2 -------------------------
+
+    /// A structure element's span or writing mode of a type or value its table does not give it.
+    STRUCTURE_ATTRIBUTE_UNUSABLE = "model/structure-attribute-unusable", "ISO 32000-2 §14.8.5",
+        "a table cell's /RowSpan or /ColSpan that is no integer of at least 1 was read as 1, and a \
+         /WritingMode that is none of Table 378's names as LrTb";
+    /// A page's `/BoxColorInfo`, or one of its box style dictionaries' entries, of a type or value
+    /// Table 396 or Table 397 does not give it.
+    BOX_COLOUR_INFO_UNUSABLE = "model/box-colour-info-unusable", "ISO 32000-2 §14.11.2.2",
+        "a page's /BoxColorInfo, or a box style's /C, /W, /S or /D, of a type or value Tables 396 \
+         and 397 do not give it was read as absent, and the guideline drawn in its default";
 
     // ---- metadata, §14.3.2 -------------------------------------------------------------------
 

@@ -2069,7 +2069,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         shape: request.shape,
     };
 
-    let size = match appearance.size {
+    let size = match appearance.size_read(document) {
         Some(size) if size > 0.0 => size,
         // Table 228's `/DA` "shall include a Tf … along with its two operands", and
         // §12.7.4.3: "A zero value for size means that the font shall be auto-sized".
@@ -3808,6 +3808,23 @@ const PERMITTED: [&[u8]; 27] = [
 ];
 
 impl DefaultAppearance {
+    /// The `Tf`'s size, as the layouts read it.
+    ///
+    /// ISO 32000-2 §12.7.4.3: the `/DA` string "shall include a Tf (text font) operator along
+    /// with its two operands, font and size". A `Tf` whose second operand is no number states no
+    /// size, and the layouts auto-size it as the clause auto-sizes a size of zero: that reading
+    /// is logged as `FIELD_ENTRY_UNUSABLE`, at the file, because a layout is handed the field's
+    /// strings and not its object.
+    pub(crate) fn size_read(&self, document: &Document) -> Option<f32> {
+        if self.size.is_none() {
+            document.record_repair(
+                &crate::repair::FIELD_ENTRY_UNUSABLE,
+                pdf_syntax::Site::WholeFile,
+            );
+        }
+        self.size
+    }
+
     /// Reads a `/DA` string into the parts this module needs and the rest to replay.
     pub(crate) fn parse(bytes: &[u8]) -> Self {
         let mut parsed = Self {

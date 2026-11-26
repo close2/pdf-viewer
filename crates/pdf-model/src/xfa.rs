@@ -59,6 +59,9 @@ pub struct Stated {
 /// notice.
 #[must_use]
 pub fn stated(document: &Document) -> Option<Stated> {
+    // not a repair: an unreadable catalog declines (None), the answer for a document with no
+    //   `/AcroForm`; nothing is read in its place, and the catalog's own failure is recorded
+    //   where the page tree reads it (CATALOG_UNREADABLE).
     let catalog = document.catalog().ok()?;
     let needs_rendering = matches!(
         document.get_key(&catalog, "NeedsRendering"),
@@ -204,6 +207,9 @@ impl Resource {
     ///
     /// [`ResourceError`], whose variants are the reasons.
     pub fn read(document: &Document) -> Option<Result<Self, ResourceError>> {
+        // not a repair: an unreadable catalog declines (None), the answer for a document with no
+        //   `/AcroForm`; nothing is read in its place, and the catalog's own failure is recorded
+        //   where the page tree reads it (CATALOG_UNREADABLE).
         let catalog = document.catalog().ok()?;
         let form = document.get_key(&catalog, "AcroForm");
         let form = form.as_dict()?;
@@ -234,7 +240,7 @@ impl Resource {
             .ok_or(ResourceError::Missing("datasets"))?;
         let locale_set = tree.first("localeSet").map(|at| (&tree, at));
         let config = tree.first("config").is_some().then_some(&tree);
-        let locales = LocaleSet::read(locale_set, config);
+        let locales = noted(document, id, LocaleSet::read(locale_set, config));
         let template = read_template(document, id, &tree, template);
         Ok(Self {
             template,
@@ -297,17 +303,32 @@ impl Resource {
         locale_set: Option<ObjectId>,
         config: Option<&xml::Tree>,
     ) -> LocaleSet {
-        match locale_set.map(|id| packet(document, id, "localeSet")) {
-            None => LocaleSet::read(None, config),
-            Some(Ok((_, tree))) => match tree.first("localeSet") {
-                Some(at) => LocaleSet::read(Some((&tree, at)), config),
+        let Some(id) = locale_set else {
+            return LocaleSet::read(None, config);
+        };
+        match packet(document, id, "localeSet") {
+            Ok((_, tree)) => match tree.first("localeSet") {
+                Some(at) => noted(document, id, LocaleSet::read(Some((&tree, at)), config)),
                 None => LocaleSet::unreadable(
                     "its localeSet packet holds no localeSet element".to_owned(),
                 ),
             },
-            Some(Err(error)) => LocaleSet::unreadable(error.to_string()),
+            Err(error) => LocaleSet::unreadable(error.to_string()),
         }
     }
+}
+
+/// Logs what reading the `localeSet` packet in stream `id` read past: a `locale` with no `name`,
+/// which XFA 3.3 page 954 says "must be supplied", is not kept, and is logged as
+/// `XFA_LOCALE_NAME_ABSENT` at the stream.
+fn noted(document: &Document, id: ObjectId, locales: LocaleSet) -> LocaleSet {
+    if locales.unnamed {
+        document.record_repair(
+            &crate::repair::XFA_LOCALE_NAME_ABSENT,
+            pdf_syntax::Site::Object(id),
+        );
+    }
+    locales
 }
 
 /// The whole resource as one XDP document (§K.2: "\[t]he format of an XFA resource is described in
@@ -319,6 +340,9 @@ impl Resource {
 /// sentence does not describe, so that its form is still submitted whole. `None` where the form
 /// dictionary states no resource. The whole is held to [`MAX_PACKET_BYTES`].
 fn resource_text(document: &Document) -> Option<Result<(String, xml::Tree), ResourceError>> {
+    // not a repair: an unreadable catalog declines (None), the answer for a document with no
+    //   `/AcroForm`; nothing is read in its place, and the catalog's own failure is recorded
+    //   where the page tree reads it (CATALOG_UNREADABLE).
     let catalog = document.catalog().ok()?;
     let form = document.get_key(&catalog, "AcroForm");
     let form = form.as_dict()?;

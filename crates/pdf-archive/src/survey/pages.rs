@@ -157,7 +157,7 @@ impl Walk<'_> {
     /// document renders. §12.5.2's own `BM` entry is part of the graphics state the appearance
     /// is drawn in, so Annex Q's blend-mode test applies to it as it does to a `gs`.
     fn annotations(&mut self, page: &Page, index: usize, blending: &Blending) {
-        let Object::Array(annotations) = self.document.get_key(&page.dict, "Annots") else {
+        let Object::Array(annotations) = pdf_model::page_annots(self.document, &page.dict) else {
             return;
         };
         let state = State {

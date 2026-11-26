@@ -639,3 +639,49 @@ fn an_xmp_reference_xml_does_not_define_is_logged_at_the_stream() {
     let _ = pdf_model::xmp::Xmp::document(&document);
     assert_eq!(logged_alone(&document), []);
 }
+
+/// Table 158's `/Position` "shall range from 0 to 100" and Table 159's `/ID` is required: a split
+/// past the range is read at its end and a folder without an identifier as folder 0, each
+/// logged (ADR 3757).
+#[test]
+fn a_collection_split_or_folder_entry_out_of_its_table_is_logged() {
+    let collection = |entries: &str| {
+        let document = catalog(&format!("/Collection << {entries} >>"));
+        let read = pdf_model::collection::Collection::read(&document);
+        (read, logged_alone(&document))
+    };
+    let unusable = [(repair::COLLECTION_ENTRY_UNUSABLE.name, Site::WholeFile)];
+    let (read, log) = collection("/Split << /Direction /V /Position 150 >>");
+    assert_eq!(
+        read.and_then(|read| read.split)
+            .and_then(|split| split.position),
+        Some(100.0)
+    );
+    assert_eq!(log, unusable);
+    let (_, log) = collection("/Folders << /Name (root) >>");
+    assert_eq!(log, unusable);
+    let (_, log) = collection("/Split << /Position 40 >> /Folders << /ID 0 /Name (root) >>");
+    assert_eq!(log, []);
+}
+
+/// Table 396 makes `/BoxColorInfo` a dictionary and Table 397 a box style's `/W` a number: an
+/// entry of another type is drawn in its default, said, and logged (ADR 3757).
+#[test]
+fn a_box_colour_info_entry_out_of_its_table_is_logged() {
+    let read = |extra: &str| {
+        let document = page("", extra);
+        let page = Pages::new(&document).get(0).expect("the page is read");
+        let _ = pdf_model::guidelines::of(&document, &page);
+        logged_alone(&document)
+    };
+    let unusable = [(repair::BOX_COLOUR_INFO_UNUSABLE.name, Site::WholeFile)];
+    assert_eq!(read("/BoxColorInfo 5"), unusable);
+    assert_eq!(
+        read("/CropBox [0 0 10 10] /BoxColorInfo << /CropBox << /W /Thick >> >>"),
+        unusable
+    );
+    assert_eq!(
+        read("/CropBox [0 0 10 10] /BoxColorInfo << /CropBox << /W 2 >> >>"),
+        []
+    );
+}

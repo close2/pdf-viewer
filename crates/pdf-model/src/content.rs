@@ -1016,6 +1016,8 @@ fn in_planes(
     }
     // `pdf_render` holds a page's planes as the list itself and one companion, which is the
     // shape `Plane::PROCESS` has; a plane it has no place for is ADR 1281's next stage.
+    // not a repair: a count of this reader's own planes, not a value the file states; a page
+    //   needing another declines the separated drawing (None).
     let [black] = <[DisplayList; 1]>::try_from(companions).ok()?;
     separated
         .display_list
@@ -3544,6 +3546,7 @@ impl DashPhase {
 /// projecting square cap. The sentence names no initial value, and the clipped code is the one a
 /// range gives (ADR 3336).
 fn line_cap(code: i64) -> LineCap {
+    // not a repair: §8.4.1's clipping into the valid range, quoted above.
     match code.clamp(0, 2) {
         0 => LineCap::Butt,
         1 => LineCap::Round,
@@ -3554,6 +3557,7 @@ fn line_cap(code: i64) -> LineCap {
 /// Table 54's line join style, ISO 32000-2 §8.4.3.4. Set by `j` and by Table 57's `/LJ`, and
 /// clipped into the codes 0 to 2 by §8.4.1's sentence, as [`line_cap`] is.
 fn line_join(code: i64) -> LineJoin {
+    // not a repair: §8.4.1's clipping into the valid range, as in `line_cap`.
     match code.clamp(0, 2) {
         0 => LineJoin::Miter,
         1 => LineJoin::Round,

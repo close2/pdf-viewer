@@ -25,7 +25,8 @@ impl Tree {
     /// this asks `Tree::table_attribute` rather than [`Self::inherited_attribute`] — a cell inside a
     /// spanned cell's table would otherwise take its enclosing cell's span.
     ///
-    /// A value below 1 is read as 1: the entry is a number of rows or columns, and a cell
+    /// A stated value that is no integer of at least 1 is read as 1, and logged as
+    /// `STRUCTURE_ATTRIBUTE_UNUSABLE`: the entry is a number of rows or columns, and a cell
     /// occupies at least the one it is in.
     ///
     /// Both entries are read for a `TD` as well as a `TH`, because Table 384 states them for both
@@ -33,12 +34,19 @@ impl Tree {
     #[must_use]
     pub fn cell_span(&self, document: &Document, element: &Dictionary) -> (usize, usize) {
         let span = |name: &str| {
-            self.table_attribute(document, element, name)
-                .and_then(|value| value.as_integer())
+            let stated = self.table_attribute(document, element, name)?;
+            let span = stated
+                .as_integer()
                 .and_then(|value| usize::try_from(value).ok())
-                .filter(|value| *value >= 1)
-                .unwrap_or(1)
+                .filter(|value| *value >= 1);
+            if span.is_none() {
+                structure_attribute_unusable(document);
+            }
+            span
         };
+        // not a repair: Table 384's "Default value: 1" for an element stating no span; one that
+        //   is stated and unusable is logged above as `STRUCTURE_ATTRIBUTE_UNUSABLE`.
+        let span = |name: &str| span(name).unwrap_or(1);
         (span("RowSpan"), span("ColSpan"))
     }
 
@@ -218,17 +226,24 @@ impl Tree {
     /// default is `LrTb`, which §14.8.3.3 describes as the Western one: "the block direction is
     /// from top to bottom and the inline direction is from left to right".
     ///
-    /// A name the table does not define answers with the default as well, and that is a reading
-    /// of the cell rather than a shrug: the value "shall be one of the following" eight, so a
-    /// ninth is a document that has not stated a writing mode, and the entry's own default is
-    /// what a document that states nothing means.
+    /// A value that is none of the names the table defines answers with the default as well,
+    /// and is logged as `STRUCTURE_ATTRIBUTE_UNUSABLE`: the value "shall be one of the
+    /// following", so another is a writing mode the document has not stated in a form this
+    /// reader can follow.
     #[must_use]
     pub fn writing_mode(&self, document: &Document, element: &Dictionary) -> WritingMode {
-        self.inherited_layout_attribute(document, element, "WritingMode")
-            .as_ref()
-            .and_then(Object::as_name)
-            .and_then(|name| WritingMode::read(name.as_bytes()))
-            .unwrap_or_default()
+        let Some(stated) = self.inherited_layout_attribute(document, element, "WritingMode") else {
+            return WritingMode::default();
+        };
+        let mode = stated
+            .as_name()
+            .and_then(|name| WritingMode::read(name.as_bytes()));
+        if mode.is_none() {
+            structure_attribute_unusable(document);
+        }
+        // not a repair: §14.8.3.3's default for an element stating none; one stated and
+        //   unusable is logged above as `STRUCTURE_ATTRIBUTE_UNUSABLE`.
+        mode.unwrap_or_default()
     }
 
     /// Table 384's `/Headers` for a `TH` or `TD`: the element identifiers the cell states.
@@ -434,4 +449,14 @@ impl Tree {
             headers: self.cell_headers(document, element),
         }
     }
+}
+
+/// Logs a structure attribute this reader read past. An element's attributes are read without
+/// the object that states them, so the repair is placed at the file.
+#[cold]
+fn structure_attribute_unusable(document: &Document) {
+    document.record_repair(
+        &crate::repair::STRUCTURE_ATTRIBUTE_UNUSABLE,
+        pdf_syntax::Site::WholeFile,
+    );
 }

@@ -323,6 +323,36 @@ fn a_zero_size_is_auto_sized_until_the_value_fits() {
     );
 }
 
+/// §12.7.4.3: the `/DA` string "shall include a Tf (text font) operator along with its two
+/// operands, font and size". A `Tf` with no size is auto-sized as a size of zero is, and the
+/// reading is logged as `model/field-entry-unusable` (ADR 3757); the stated zero is not.
+#[test]
+fn a_tf_with_no_size_is_auto_sized_and_logged() {
+    let logged = |default_appearance: &str| {
+        let document = Document::open(pdf_with(
+            "",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+                 /T (field) /V (Hi) /DA ({default_appearance}) >>"
+            ),
+        ))
+        .expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        let interpretation = pdf_model::interpret(&document, &page);
+        assert!(
+            interpretation.unsupported.is_empty(),
+            "{:?}",
+            interpretation.unsupported
+        );
+        document
+            .repairs()
+            .iter()
+            .any(|repair| repair.class.name == pdf_model::repair::FIELD_ENTRY_UNUSABLE.name)
+    };
+    assert!(logged("/Helv Tf 0 g"));
+    assert!(!logged("/Helv 0 Tf 0 g"));
+}
+
 /// §12.7.5.3: a field's value may be held in a stream, and both spellings draw one picture.
 ///
 /// Issue #392 (published on pdf-issues.pdfa.org, ISO approved) opens the sentence with a

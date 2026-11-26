@@ -219,6 +219,8 @@ impl Decode {
                     // values … are passed through unchanged", and `raw ÷ 255 × 255` is
                     // 253.99998 for a sample of 254 while `raw × 255 ÷ 255` is 254.
                     let value = (high - low).mul_add(sample, low * span) / span;
+                    // not a repair: §8.9.5.2, "[i]f an output value is not permitted for a
+                    //   component, it shall be adjusted to the nearest allowed value" (`permitted`).
                     value.clamp(floor.min(ceiling), ceiling.max(floor))
                 })
                 .collect::<Vec<f32>>();
@@ -249,6 +251,8 @@ impl Decode {
             .get(component)
             .and_then(|table| table.get(raw))
             .copied()
+            // not a repair: an index into this reader's own lookup table, not a value the file
+            // states.
             .unwrap_or(0)
     }
 
@@ -301,6 +305,8 @@ pub(super) fn colour_space(
             .first()
             .map(|item| document.resolve(item))
             .and_then(|item| item.as_name().map(|name| name.as_bytes().to_vec()))
+            // not a repair: the family is asked only to refuse `Pattern`; an array whose first
+            //   entry is no name is not that, and the parse below reads the whole array.
             .unwrap_or_default(),
         _ => {
             return Err(ImageError::UnsupportedColourSpace {

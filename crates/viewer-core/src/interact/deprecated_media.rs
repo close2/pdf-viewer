@@ -299,7 +299,7 @@ fn handed(
 fn titled(open: &Open, page: usize, title: &str) -> Option<(Option<ObjectId>, Dictionary)> {
     let document = &open.document;
     let page = open.placed_page(page)?;
-    let annotations = document.get_key(&page.dict, "Annots");
+    let annotations = pdf_model::page_annots(document, &page.dict);
     annotations.as_array()?.iter().find_map(|item| {
         let resolved = document.resolve(item);
         let dict = resolved.as_dict()?;

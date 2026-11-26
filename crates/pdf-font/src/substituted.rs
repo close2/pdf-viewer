@@ -143,6 +143,8 @@ fn fill_substitute_table(
             };
             let by_character =
                 read_fonts::ps::agl::name_to_char(glyph_name).and_then(|character| {
+                    // not a repair: a glyph of the substitute face's own `cmap`, a face this
+                    //   program chose; one past 16 bits is no glyph and the `post` name is asked.
                     charmap
                         .map(character)
                         .and_then(|id| u16::try_from(id.to_u32()).ok())
@@ -448,6 +450,8 @@ const KOREAN: &[char] = &['\u{d55c}'];
 /// A dictionary stating neither yields every code, which keeps the judgement no weaker than
 /// it was for a font that says nothing about its range.
 fn declared_codes(document: &Document, dict: &Dictionary) -> std::ops::RangeInclusive<usize> {
+    // not a repair: the range a substitute is judged over, this program's choice of face and not
+    //   a reading of the font; a dictionary stating neither bound is judged over every code.
     stated_code_range(document, dict).unwrap_or(0..=255)
 }
 
@@ -461,6 +465,9 @@ fn stated_code_range(
     document: &Document,
     dict: &Dictionary,
 ) -> Option<std::ops::RangeInclusive<usize>> {
+    // not a repair: a bound that is no non-negative integer leaves the range unstated, which only
+    //   widens the judgement above; the bounds are read for `/Widths` where the font is laid out
+    //   (`WIDTHS_MALFORMED`).
     let bound = |key: &str| {
         document
             .get_key(dict, key)

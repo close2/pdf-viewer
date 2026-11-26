@@ -853,7 +853,7 @@ impl<'d> Lender<'d> {
             lent: Names::new(),
             queue: VecDeque::from([(stated.clone(), None)]),
         };
-        if let Object::Array(annotations) = document.get_key(page, "Annots") {
+        if let Object::Array(annotations) = pdf_model::page_annots(document, page) {
             for annotation in &annotations {
                 let Object::Dictionary(annotation) = document.resolve(annotation) else {
                     continue;

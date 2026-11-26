@@ -27,6 +27,8 @@ pub struct FaceMetrics {
 /// `None` where the face maps it to nothing, or states no advance for the glyph it maps to.
 #[must_use]
 pub fn glyph(program: &[u8], character: char) -> Option<(u16, f32)> {
+    // not a repair: the face is one this machine installs, not the document's; one that will not
+    //   read, or a glyph past 16 bits, declines (None).
     let font = skrifa::FontRef::new(program).ok()?;
     let glyph = font.charmap().map(character)?;
     let index = u16::try_from(glyph.to_u32()).ok()?;
@@ -46,6 +48,8 @@ pub fn glyph(program: &[u8], character: char) -> Option<(u16, f32)> {
 /// The face's vertical extent and bounding box, `None` where it states no units per em.
 #[must_use]
 pub fn metrics(program: &[u8]) -> Option<FaceMetrics> {
+    // not a repair: the face is one this machine installs, not the document's; one that will not
+    //   read declines (None).
     let font = skrifa::FontRef::new(program).ok()?;
     let stated = font.metrics(Size::unscaled(), LocationRef::default());
     let units = f32::from(stated.units_per_em);

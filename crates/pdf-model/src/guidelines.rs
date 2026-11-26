@@ -136,6 +136,7 @@ pub fn of(document: &Document, page: &Page) -> Guidelines {
         stated => {
             let dictionary = stated.as_dict();
             if dictionary.is_none() {
+                box_colour_info_unusable(document);
                 malformed.push(
                     "/BoxColorInfo is not a box colour information dictionary (Table 396), so \
                      every guideline is drawn in this program's own default settings"
@@ -157,6 +158,7 @@ pub fn of(document: &Document, page: &Page) -> Guidelines {
                 if let Some(dictionary) = entry.as_dict() {
                     (box_style(document, dictionary, key, &mut malformed), true)
                 } else {
+                    box_colour_info_unusable(document);
                     malformed.push(format!(
                         "/BoxColorInfo /{key} is not a box style dictionary (Table 397), so its \
                          guideline is drawn in this program's own default settings"
@@ -173,6 +175,16 @@ pub fn of(document: &Document, page: &Page) -> Guidelines {
         });
     }
     Guidelines { lines, malformed }
+}
+
+/// Logs a `/BoxColorInfo` entry read past. The page's dictionary is read without its object, so
+/// the repair is placed at the file.
+#[cold]
+fn box_colour_info_unusable(document: &Document) {
+    document.record_repair(
+        &crate::repair::BOX_COLOUR_INFO_UNUSABLE,
+        pdf_syntax::Site::WholeFile,
+    );
 }
 
 /// Table 396's key for a boundary.
@@ -193,7 +205,9 @@ fn box_style(
     key: &str,
     malformed: &mut Vec<String>,
 ) -> BoxStyle {
+    // Each entry read past is said in `malformed` and logged as `BOX_COLOUR_INFO_UNUSABLE`.
     let mut said = |entry: &str, what: &str| {
+        box_colour_info_unusable(document);
         malformed.push(format!(
             "/BoxColorInfo /{key} /{entry} is not {what} (Table 397), so its default is drawn"
         ));
@@ -211,6 +225,7 @@ fn box_style(
             .as_number()
             .map(narrow)
             .filter(|width| width.is_finite() && *width >= 0.0)
+            // Said and logged (`BOX_COLOUR_INFO_UNUSABLE`).
             .unwrap_or_else(|| {
                 said("W", "a width in default user space units");
                 BoxStyle::TABLE_397.width
@@ -232,6 +247,7 @@ fn box_style(
     let dash = if dashed {
         match document.get_key(style, "D") {
             Object::Null => DEFAULT_DASH.to_vec(),
+            // Said and logged (`BOX_COLOUR_INFO_UNUSABLE`).
             stated => dash(document, &stated).unwrap_or_else(|| {
                 said(
                     "D",

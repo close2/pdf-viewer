@@ -56,6 +56,7 @@ impl<T: Copy> Runs<T> {
         if key > run.last {
             return None;
         }
+        // not a repair: an index into this table's own values, not a value the file states.
         let index = if run.consecutive {
             run.at
                 .checked_add(usize::try_from(key.checked_sub(run.first)?).ok()?)?
@@ -200,6 +201,7 @@ impl<T: Copy> RunsBuilder<T> {
         // them in descending order and the first one ending before `first - 1` ends the walk.
         let reach_high = u64::from(last).saturating_add(1);
         let reach_low = u64::from(first).saturating_sub(1);
+        // not a repair: a bound of this table's own search, saturated at the key range's end.
         let met: Vec<(u32, u32)> = self
             .covered
             .range(..=u32::try_from(reach_high).unwrap_or(u32::MAX))
@@ -244,6 +246,8 @@ impl<T: Copy> RunsBuilder<T> {
             return;
         };
         let at = if consecutive {
+            // not a repair: an index into this table's own values; one that does not fit pushes
+            //   no run, and nothing is put in its place.
             let offset = low.checked_sub(first).and_then(|o| usize::try_from(o).ok());
             match offset.and_then(|offset| at.checked_add(offset)) {
                 Some(at) => at,

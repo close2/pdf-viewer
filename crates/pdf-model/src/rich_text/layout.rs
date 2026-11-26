@@ -124,7 +124,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         appearance: &appearance,
     };
     let area = Room::of(request.box_, request.rich);
-    let root = match appearance.size {
+    let root = match appearance.size_read(document) {
         Some(size) if size > 0.0 => size,
         // §12.7.4.3: "A zero value for size means that the font shall be auto-sized". The rule is
         // the plain layout's — the largest size at which the text fits — with every size the
@@ -471,6 +471,9 @@ impl<'a> Faces<'a> {
             if let Some(index) = self.held.iter().position(|held| held.name == name) {
                 return Some(index);
             }
+            // not a repair: a `/DR` face that will not load even as its substitute declines the
+            //   width (None), and `path` ends in the `/DA`'s face, which it always holds; the
+            //   rendering heuristics page 222 leaves to the application choose among faces.
             let face = Face::load(self.document, dict, &name).ok()?;
             return Some(self.hold(name, face, false));
         }
@@ -1641,6 +1644,9 @@ fn plan(
     let multiline = request.multiline && request.comb.is_none();
     let broken = break_lines(measure, paragraphs, root, area, (multiline, levels));
     let (baselines, total) = stack(measure, paragraphs, &broken, root, area);
+    // not a repair: a string stating no `text-valign` (chapter 27's extension, page 1197) is
+    //   placed as the plain value is, by `variable_text`'s documented choice (`Stack::first`): a
+    //   single line centred, several from the top.
     let valign = area.valign.unwrap_or(if multiline {
         VerticalAlign::Top
     } else {
@@ -2912,11 +2918,14 @@ pub(crate) fn one_style(document: &Document, request: &Request) -> Result<OneSty
     let mut default_appearance = request.default_appearance.to_vec();
     let mut font = None;
     if let Some(held) = faces.get(index) {
-        let auto = appearance.size.is_none_or(|size| size <= 0.0);
+        // A `Tf` stating no size is auto-sized as zero is, and logged by `size_read` as
+        // `FIELD_ENTRY_UNUSABLE`.
+        let stated = appearance.size_read(document);
+        let auto = stated.is_none_or(|size| size <= 0.0);
         let size = if auto && style.size.points.abs() < f32::EPSILON {
             0.0
         } else {
-            style.size.at(appearance.size.unwrap_or_default()).max(0.0)
+            style.size.at(stated.unwrap_or_default()).max(0.0)
         };
         let _ = write!(
             ByteWriter(&mut default_appearance),

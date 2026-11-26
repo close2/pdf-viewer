@@ -92,6 +92,9 @@ pub mod xfa;
 pub mod xfdf;
 pub mod xmp;
 
+/// A page's `/Annots` as every reader of a page's annotations reads it (ADR 3750), for the readers
+/// outside this crate.
+pub use annotation::page_annots;
 pub use content::{
     FONT_BUDGET, FontCache, FontCacheReport, Interpretation, MAX_LIST_BYTES, Unsupported, interpret,
 };

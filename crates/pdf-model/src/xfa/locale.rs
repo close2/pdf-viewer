@@ -49,6 +49,10 @@ pub struct LocaleSet {
     /// Why the packet was present and could not be read, for the sentence a field it leaves
     /// without a locale is reported with.
     trouble: Option<String>,
+    /// Whether a `locale` element stated no `name`, which page 954 says "must be supplied": such
+    /// a locale is one no picture clause can ask for, and is not kept. The reader that holds the
+    /// document logs it as `XFA_LOCALE_NAME_ABSENT` (ADR 2230's shape).
+    pub(crate) unnamed: bool,
 }
 
 /// Which list of names a picture symbol reads.
@@ -100,8 +104,10 @@ impl LocaleSet {
         {
             for &child in &element.children {
                 if let Some(locale) = tree.get(child).filter(|e| e.local == "locale") {
-                    set.locales
-                        .push(read_locale(tree, child, locale.attribute("name")));
+                    match locale.attribute("name") {
+                        Some(name) => set.locales.push(read_locale(tree, child, name)),
+                        None => set.unnamed = true,
+                    }
                 }
             }
         }
@@ -130,6 +136,8 @@ impl LocaleSet {
     /// The locale that prevails where the template's own chain states `stated` (page 1153's
     /// second source) — the configuration's, else `en_US`.
     pub(crate) fn prevailing(&self, stated: Option<&str>) -> String {
+        // not a repair: page 153's fourth source, the ambient locale, which "defaults to English
+        //   United States (en_US)" where none is present; this reader supplies none of its own.
         stated
             .filter(|name| !name.trim().is_empty() && name.trim() != "ambient")
             .or(self.configured.as_deref())
@@ -233,9 +241,9 @@ impl LocaleSet {
     }
 }
 
-fn read_locale(tree: &Tree, at: usize, name: Option<&str>) -> Locale {
+fn read_locale(tree: &Tree, at: usize, name: &str) -> Locale {
     let mut locale = Locale {
-        name: normalised(name.unwrap_or("")),
+        name: normalised(name),
         ..Locale::default()
     };
     let texts = |list: usize| -> Vec<String> {
@@ -252,6 +260,8 @@ fn read_locale(tree: &Tree, at: usize, name: Option<&str>) -> Locale {
             e.children
                 .iter()
                 .filter_map(|&c| tree.get(c))
+                // not a repair: an absent `name` is the empty string only until `defaulted`
+                //   puts in its place the default each element's grammar states.
                 .map(|c| (c.attribute("name").unwrap_or("").to_owned(), c.text.clone()))
                 .collect()
         })
@@ -282,9 +292,11 @@ fn read_locale(tree: &Tree, at: usize, name: Option<&str>) -> Locale {
                     *slot = Some(texts(list));
                 }
             }
-            "datePatterns" => locale.date_patterns = named(child),
-            "timePatterns" => locale.time_patterns = named(child),
-            "numberPatterns" => locale.number_patterns = named(child),
+            // Pages 947, 961 and 965 make `med` the default name of a `datePattern`, a
+            // `numberPattern` and a `timePattern`: "The medium date format. This is the default."
+            "datePatterns" => locale.date_patterns = defaulted(named(child), "med"),
+            "timePatterns" => locale.time_patterns = defaulted(named(child), "med"),
+            "numberPatterns" => locale.number_patterns = defaulted(named(child), "med"),
             // Page 963 makes `decimal` the default name of a `numberSymbol` and page 945
             // `symbol` that of a `currencySymbol`.
             "numberSymbols" => {
@@ -334,6 +346,28 @@ mod tests {
         assert_eq!(set.symbol("fr_BE", false, "decimal"), Ok(","));
         assert!(set.symbol("fr_BE", false, "grouping").is_err());
         assert!(set.names("de_DE", Names::Months).is_err());
+    }
+
+    /// Pages 947, 961 and 965 make `med` the default name of a pattern, and page 954 says a
+    /// locale's `name` "must be supplied": a pattern stating no name is the medium one, and a
+    /// locale stating none is not kept, and is said to the caller that logs it (ADR 3757).
+    #[test]
+    fn an_unnamed_pattern_is_the_medium_one_and_an_unnamed_locale_is_not_kept() {
+        let text = "<localeSet><locale name=\"de\"><datePatterns><datePattern>DD.MM.YY\
+            </datePattern></datePatterns><timePatterns><timePattern>HH:MM</timePattern>\
+            </timePatterns></locale></localeSet>";
+        let tree = parse(text.as_bytes()).expect("well formed");
+        let set = LocaleSet::read(Some((&tree, 0)), None);
+        assert_eq!(set.pattern("de", Patterns::Date, "med"), Ok("DD.MM.YY"));
+        assert_eq!(set.pattern("de", Patterns::Time, "med"), Ok("HH:MM"));
+        assert!(!set.unnamed);
+
+        let text = "<localeSet><locale><datePatterns><datePattern name=\"med\">D\
+            </datePattern></datePatterns></locale></localeSet>";
+        let tree = parse(text.as_bytes()).expect("well formed");
+        let set = LocaleSet::read(Some((&tree, 0)), None);
+        assert!(set.unnamed);
+        assert!(set.pattern("", Patterns::Date, "med").is_err());
     }
 
     /// Page 1153's order past the template: the configuration's locale, then `en_US`.

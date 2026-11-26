@@ -2356,10 +2356,20 @@ fn a_header_cell_states_its_axis_and_a_cell_states_its_spans() {
         "a name Table 384 does not define is not one of its three"
     );
     assert_eq!(tree.cell_span(&doc, &elements[2]), (2, 3));
+    let unusable = |doc: &Document| {
+        doc.repairs()
+            .iter()
+            .any(|repair| repair.class.name == crate::repair::STRUCTURE_ATTRIBUTE_UNUSABLE.name)
+    };
+    assert!(!unusable(&doc), "spans the table gives are read as stated");
     assert_eq!(
         tree.cell_span(&doc, &elements[3]),
         (1, 1),
         "Table 384's default is 1, and a span of zero is not a number of columns"
+    );
+    assert!(
+        unusable(&doc),
+        "a span of zero is read as 1, and logged (ADR 3757)"
     );
 }
 

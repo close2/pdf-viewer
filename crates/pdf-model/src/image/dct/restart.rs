@@ -484,6 +484,8 @@ pub(super) fn decode_bands(
     let mut slots: Vec<Mutex<&mut [u8]>> = Vec::with_capacity(bands.len());
     let mut rest: &mut [u8] = &mut raster;
     for band in bands {
+        // not a repair: a failed conversion declines the banded decode and the stream is decoded
+        // whole; no value is substituted.
         let kept_lines = usize::try_from(band.kept.1)
             .ok()?
             .checked_mul(mcu_lines)?
@@ -561,6 +563,8 @@ fn decode_band(
         scratch.resize(size, 0);
     }
     let pixels = scratch.get_mut(..size)?;
+    // not a repair: a failed conversion or decode declines the banded decode and the stream is
+    // decoded whole; no value is substituted.
     decoder.decode_into(pixels).ok()?;
     let skipped = usize::try_from(band.kept.0.checked_sub(band.decoded.0)?)
         .ok()?

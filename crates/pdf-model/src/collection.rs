@@ -862,18 +862,37 @@ fn split(document: &Document, dict: &Dictionary) -> Option<Split> {
             Some(b"N") => SplitDirection::None,
             _ => SplitDirection::Horizontal,
         },
-        position: document
-            .get_key(split, "Position")
-            .as_number()
-            .map(|value| {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "a percentage, clamped to 0..=100 on the next line"
-                )]
-                let value = value as f32;
-                value.clamp(0.0, 100.0)
-            }),
+        position: position(document, split),
     })
+}
+
+/// Table 158's `/Position`: "Values shall range from 0 to 100". A value outside the range is read
+/// as the nearer end, and one that is no number as absent, each logged as
+/// `COLLECTION_ENTRY_UNUSABLE`.
+fn position(document: &Document, split: &Dictionary) -> Option<f32> {
+    let stated = document.get_key(split, "Position");
+    let value = stated.as_number();
+    if value.is_none_or(|value| !(0.0..=100.0).contains(&value)) && !stated.is_null() {
+        collection_entry_unusable(document);
+    }
+    value.map(|value| {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a percentage, clamped to 0..=100 on the next line"
+        )]
+        let value = value as f32;
+        value.clamp(0.0, 100.0)
+    })
+}
+
+/// Logs a collection entry this reader read past. A collection's dictionaries are read without
+/// their objects, so the repair is placed at the file.
+#[cold]
+fn collection_entry_unusable(document: &Document) {
+    document.record_repair(
+        &crate::repair::COLLECTION_ENTRY_UNUSABLE,
+        pdf_syntax::Site::WholeFile,
+    );
 }
 
 /// Table 159's folder tree, from Table 153's `/Folders` downwards.
@@ -902,11 +921,16 @@ fn folder(
     budget: &mut usize,
     names: &mut Vec<NameDefect>,
 ) -> Folder {
+    // Table 159 makes `/ID` "(Required; PDF 2.0) A non-negative integer": a folder without one
+    // is read as folder 0, and logged as `COLLECTION_ENTRY_UNUSABLE`.
     let id = document
         .get_key(dict, "ID")
         .as_integer()
         .and_then(|id| u32::try_from(id).ok())
-        .unwrap_or(0);
+        .unwrap_or_else(|| {
+            collection_entry_unusable(document);
+            0
+        });
     // §12.3.5.2's first restriction is the one that needs the bytes: "[t]he string shall be a PDF
     // text string", and `text_string` answers U+FFFD for every way that can be false.
     let stated = document.get_key(dict, "Name");

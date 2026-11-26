@@ -288,7 +288,7 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
         // The annotation whose text the window shows — Table 186's `/Parent`, or the window
         // itself for the parentless case this clause's NOTE 3 describes.
         let owner = document.get_key(dict, "Parent");
-        let owner = owner.as_dict().unwrap_or(dict);
+        let owner = parent_or_self(document, &owner, dict);
         let (host, depth) = thread_window(document, owner);
         read_windows.push((popup, host, depth));
     }
@@ -600,6 +600,23 @@ pub fn popup_of(document: &Document, annotation: &Dictionary) -> Option<ObjectId
 ///
 /// A window with no rectangle has nowhere to be, and Table 166 makes `/Rect` required — so that
 /// is the one refusal here that is the file's.
+/// Table 186's `/Parent`, resolved, or the window itself where it states none — the parentless
+/// case §12.5.6.14's NOTE 3 describes. A `/Parent` that is no dictionary names no annotation: it
+/// is read as absent, and logged as `ANNOTATION_ENTRY_UNUSABLE`.
+fn parent_or_self<'a>(
+    document: &Document,
+    parent: &'a pdf_syntax::Object,
+    dict: &'a Dictionary,
+) -> &'a Dictionary {
+    if let Some(parent) = parent.as_dict() {
+        return parent;
+    }
+    if !parent.is_null() {
+        crate::annotation::annotation_entry_unusable(document);
+    }
+    dict
+}
+
 fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
     let parent = dict
         .get("Parent")
@@ -611,7 +628,7 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
     {
         return None;
     }
-    let source = resolved.as_dict().unwrap_or(dict);
+    let source = parent_or_self(document, &resolved, dict);
     // **Two clauses compose here.** Table 186 makes the parent's `Contents`, `M`, `C` and `T`
     // override the popup's; §12.5.6.2 makes all four *group attributes*, so where the parent is a
     // subordinate in a group "the corresponding entries in the subordinate annotations shall be
@@ -948,6 +965,11 @@ fn colour(document: &Document, dict: &Dictionary) -> Option<pdf_render::Color> {
             reason = "a colour component is a small number and is clamped here"
         )]
         {
+            // Table 166 makes `/C` "[a]n array of numbers in the range 0.0 to 1.0": one outside
+            // it is read as the nearer end, and logged as `ANNOTATION_ENTRY_UNUSABLE`.
+            if !(0.0..=1.0).contains(&number) {
+                crate::annotation::annotation_entry_unusable(document);
+            }
             components.push((number as f32).clamp(0.0, 1.0));
         }
     }
@@ -985,6 +1007,31 @@ mod tests {
 
     fn page(document: &Document) -> crate::Page {
         crate::Pages::new(document).get(0).expect("one page")
+    }
+
+    /// Table 186's `/Parent` that is no dictionary names no annotation, and a Table 166 `/C`
+    /// number past 1.0 is not in its range: the window is read as parentless and the colour at
+    /// the nearer end, each logged as `ANNOTATION_ENTRY_UNUSABLE` (ADR 3757).
+    #[test]
+    fn a_parent_that_is_no_dictionary_and_a_colour_past_its_range_are_logged() {
+        let logged = |entries: &str| {
+            let document = document(
+                "5 0 R",
+                &format!(
+                    "5 0 obj << /Type /Annot /Subtype /Popup /Rect [40 40 200 140] {entries} \
+                     /Open true >> endobj\n"
+                ),
+            );
+            let view = crate::view::ViewState::of(&document);
+            let windows = popups(&document, &page(&document), &view).len();
+            let unusable = document
+                .repairs()
+                .iter()
+                .any(|repair| repair.class.name == crate::repair::ANNOTATION_ENTRY_UNUSABLE.name);
+            (windows, unusable)
+        };
+        assert_eq!(logged("/Parent 7 /C [2 0 0]"), (1, true));
+        assert_eq!(logged("/C [1 0 0]"), (1, false));
     }
 
     /// §12.5.6.22: "Watermark annotations shall have no popup window nor other interactive

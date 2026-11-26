@@ -525,7 +525,7 @@ pub(super) fn attachments_in_view(open: &Open) -> Vec<pdf_model::attachment::Att
     let Some(page) = open.page(open.page_index) else {
         return out;
     };
-    let annotations = open.document.get_key(&page.dict, "Annots");
+    let annotations = pdf_model::page_annots(&open.document, &page.dict);
     let assets = annotations
         .as_array()
         .unwrap_or_default()

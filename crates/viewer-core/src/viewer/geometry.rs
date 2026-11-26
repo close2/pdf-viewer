@@ -738,7 +738,7 @@ pub(super) fn annotations_on(open: &Open, pages: &pdf_model::Pages, index: usize
 
 /// The same, for a page this crate is already holding.
 fn annotations_of(open: &Open, page: &pdf_model::Page) -> Vec<ObjectId> {
-    let entry = open.document.get_key(&page.dict, "Annots");
+    let entry = pdf_model::page_annots(&open.document, &page.dict);
     let Some(array) = entry.as_array() else {
         return Vec::new();
     };

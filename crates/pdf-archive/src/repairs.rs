@@ -169,6 +169,10 @@ pub static MAPPING: &[Mapped] = &[
     // so a conversion meets them only where it draws a page (ADR 3691).
     base("model/image-depth-absent"),
     base("model/soft-mask-undecodable"),
+    // An `/SMaskInData` that is no integer, read as 0 where the image is decoded: the whole-file
+    // rewrite carries the entry as stated, and the output's own check refuses by the class's name
+    // (ADR 3757).
+    base("model/soft-mask-in-data-unusable"),
     base("model/operand-of-the-wrong-type"),
     base("model/operator-short-of-operands"),
     base("model/restore-with-nothing-saved"),
@@ -230,6 +234,14 @@ pub static MAPPING: &[Mapped] = &[
     // refuses by the class's name (ADR 3752).
     base("model/xmp-reference-undefined"),
     base("model/measurement-entry-unusable"),
+    // A localeSet's unnamed locale, a collection's split or folder entry, a structure element's
+    // span or writing mode, a page's `/BoxColorInfo`: each outside content, so the whole-file
+    // rewrite carries the entry as the file states it, and the output's own check refuses by the
+    // class's name (ADR 3757).
+    base("model/xfa-locale-name-absent"),
+    base("model/collection-entry-unusable"),
+    base("model/structure-attribute-unusable"),
+    base("model/box-colour-info-unusable"),
     base("model/wkt-name-absent"),
     base("model/wkt-identifier-unusable"),
     base("model/wkt-auxiliary-sphere-type-absent"),

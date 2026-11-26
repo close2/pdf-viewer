@@ -262,6 +262,9 @@ impl Destination {
     /// expanded, a hexadecimal string converted, a name's `#` escapes resolved — which is
     /// exactly what the lexer has already produced by the time an [`Object`] exists.
     fn named(document: &Document, key: &Key<'_>, depth: usize) -> Option<Self> {
+        // not a repair: an unreadable catalog declines (None), the answer for a document with no
+        //   `/Dests` or `/Names`; nothing is read in its place, and the catalog's own failure is
+        //   recorded where the page tree reads it (CATALOG_UNREADABLE).
         let catalog = document.catalog().ok()?;
         let in_dictionary = || {
             let dests = document.get_key(&catalog, "Dests");
@@ -304,6 +307,9 @@ impl Destination {
     /// factor."
     #[must_use]
     pub fn open_action(document: &Document) -> Option<Self> {
+        // not a repair: an unreadable catalog declines (None), the answer for a document with no
+        //   `/OpenAction`; nothing is read in its place, and the catalog's own failure is
+        //   recorded where the page tree reads it (CATALOG_UNREADABLE).
         let catalog = document.catalog().ok()?;
         let entry = document.get_key(&catalog, "OpenAction");
         match &entry {
@@ -444,6 +450,8 @@ impl Destination {
     #[must_use]
     pub fn page_index_in_target(&self, target: &Document, pages: &Pages<'_>) -> Option<usize> {
         match self.target {
+            // not a repair: a negative page number names no page of the target, and the
+            //   destination is declined (None); no page is put in its place.
             Target::Number(number) => usize::try_from(number).ok(),
             Target::Object(_) => self.page_index(target, pages),
         }

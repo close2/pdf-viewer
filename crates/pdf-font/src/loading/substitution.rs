@@ -146,6 +146,8 @@ impl LoadedFont {
                     .map_or(Form::Upright, |cid| downward.form_of(character, cid, glyph))
             })
         };
+        // not a repair: the face is the stand-in this machine supplies, not a program the
+        //   document embeds; one that will not read declines (None).
         let font = FontRef::new(data).ok()?;
         if let Some(glyph) = font.charmap().map(character) {
             // not a repair: a width conversion that declines where the value does not fit; nothing
@@ -160,6 +162,8 @@ impl LoadedFont {
         // §9.10.2 made the code this character, and the face chosen for the script does not draw
         // it: the face this machine offers for the character itself does (ADR 3067).
         let (index, borrowed) = borrowing.face_for(character, self.own_downward())?;
+        // not a repair: the face is the stand-in this machine supplies, not a program the
+        //   document embeds; one that will not read declines (None).
         let font = FontRef::new(&borrowed.data).ok()?;
         // not a repair: a width conversion that declines where the value does not fit; nothing is
         // substituted.
@@ -340,6 +344,8 @@ impl LoadedFont {
             Some((_, class)) => &class.data,
             None => &self.data,
         };
+        // not a repair: the face is the stand-in this machine supplies, not a program the
+        //   document embeds; one that will not read declines (None).
         let font = FontRef::new(data).ok()?;
         // And where that face does not, the face borrowed for the character alone (ADR 3067):
         // the character is uncovered only where this machine offers no face that draws it.
