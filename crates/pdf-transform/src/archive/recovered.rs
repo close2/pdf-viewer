@@ -512,7 +512,9 @@ fn with_resolved_entries(page: pdf_model::Page) -> Dictionary {
 /// whose later sections it does not reach would be written as the pages it did reach and nothing
 /// else, with no word that it had more. Two statements of a count are read, each only to compare
 /// with what was drawn: a linearization parameter dictionary's `/N` (ISO 32000-2 §F.3.3, Table
-/// F.1: "( Required ) The number of pages in the document."), and the `/Count` of the page tree's
+/// F.1: "( Required ) The number of pages in the document."), where the file is still linearised
+/// ([`pdf_archive::pages_held::linearized_page_count`]: a dictionary whose `/L` is not the file's
+/// length is linearization information to be ignored), and the `/Count` of the page tree's
 /// root where the catalog still names it (Table 30). Nothing else in a file states a count; a
 /// source that states none is rebuilt on the pages the reader drew, which is the loss
 /// `recovered-structure`.
@@ -528,12 +530,7 @@ fn refuse_a_count_the_reader_fell_short_of(
     page_not_held: bool,
 ) -> Result<(Option<NotHeld>, Option<StatedCount>), Refusal> {
     let as_count = |value: Option<i64>| value.and_then(|n| usize::try_from(n).ok());
-    let linearized = document.xref().object_numbers().find_map(|number| {
-        let object = document.get(document.defined_id(number));
-        let dict = object.as_dict()?;
-        dict.get("Linearized")?;
-        as_count(dict.get("N").and_then(Object::as_integer))
-    });
+    let linearized = pdf_archive::pages_held::linearized_page_count(document);
     let root_count = document
         .catalog()
         .ok()

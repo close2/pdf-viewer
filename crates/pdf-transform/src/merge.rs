@@ -2100,20 +2100,14 @@ fn same_value(
     }
 }
 
-/// §7.9.2.2's text string, in the encoding that carries the bytes this label holds.
+/// §7.9.2.2's text string, in the encoding that carries the characters this label holds.
 ///
-/// ASCII goes in as a literal string, which every version of every reader reads the same way;
-/// anything else goes in as UTF-16BE behind §7.9.2.2's byte order marker, which is the encoding
-/// the clause defines for a text string that `PDFDocEncoding` cannot state.
+/// An unprefixed string is `PDFDocEncoding`, whose Table D.3 is not ASCII below 0x20 — codes
+/// 0x18 to 0x1F are eight accents and most of the rest are undefined — so a label is written in
+/// it only where it reads back as itself, and otherwise as UTF-16BE behind the byte order marker:
+/// [`pdf_syntax::text_string::encode_text_string`]'s one choice, made for every writer.
 fn text_string(text: &str) -> Object {
-    if text.is_ascii() {
-        return Object::String(text.as_bytes().into());
-    }
-    let mut bytes = vec![0xFE, 0xFF];
-    for unit in text.encode_utf16() {
-        bytes.extend_from_slice(&unit.to_be_bytes());
-    }
-    Object::String(bytes.as_slice().into())
+    Object::String(pdf_syntax::text_string::encode_text_string(text).into())
 }
 
 /// Every document-level reconciliation, in one place.

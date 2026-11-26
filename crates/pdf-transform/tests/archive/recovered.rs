@@ -787,15 +787,20 @@ fn a_source_stating_more_pages_than_the_reader_reaches_is_refused_by_name() {
     // Annex F.3.3's Table F.1 makes `/N` of a linearization parameter dictionary the number of
     // pages in the document, and Table 30 makes a page tree node's `/Count` the number of leaves.
     // A source stating more than the reader drew would be written as the pages drawn and nothing
-    // said of the rest.
-    let linearized = file(
-        &[
-            "<< /Linearized 1 /N 3 /L 100 >>",
-            "<< /Type /Pages /Count 1 >>",
-            PAGE,
-        ],
-        "",
-    );
+    // said of the rest. Table F.1's `/L` is the file's own length, written as ten digits so that
+    // the length does not move with it: a mismatch would make the file ordinary and its `/N`
+    // information to ignore.
+    let linearized_with = |length: usize| {
+        file(
+            &[
+                &format!("<< /Linearized 1 /N 3 /L {length:010} >>"),
+                "<< /Type /Pages /Count 1 >>",
+                PAGE,
+            ],
+            "",
+        )
+    };
+    let linearized = linearized_with(linearized_with(0).len());
     let counted = file(
         &[
             "<< /Type /Catalog /Pages 2 0 R >>",

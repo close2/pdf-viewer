@@ -73,15 +73,19 @@ pub(crate) fn encoding_names(
 /// > MacRomanEncoding, MacExpertEncoding , or WinAnsiEncoding , as described in Annex D,
 /// > "Character sets and encodings") or an encoding dictionary
 ///
-/// `StandardEncoding` is not on the table's list and is accepted anyway: Annex D defines it,
-/// §9.6.5.1 makes it the base a nonsymbolic font falls back to, and producers write it. That is
-/// a deliberate extra rather than an oversight, and it is why this list exists separately from
-/// [`BaseEncoding::by_name`] — the two answer different questions, *may a font say this* and
-/// *does this crate have the table*. **`MacExpertEncoding` was the name where they differed and
-/// is not any more**: Annex D.4's table is transcribed, so the two lists give the same four
-/// answers today and `an_encoding_name_the_table_does_not_permit_is_no_encoding_at_all` asserts
-/// it. They stay separate because a later edition can add a name to one and not the other, and
-/// because the answer to the second question is what decides whether a font draws.
+/// `StandardEncoding` is not on the table's list, and ISO 32000-2 §D.1's Table D.1 says of the
+/// name:
+///
+/// > PDF processors shall not have a predefined encoding named StandardEncoding.
+///
+/// Accepting it here is therefore a departure from that `shall`, held as it stands while the
+/// owner decides `doc/questions/Q1082`: reading the name as absent leaves every corpus page drawn
+/// as it is (`examples/standard_encoding_census.rs`), but it moves a `TrueType` font naming it
+/// off the archive conversion's mechanical `TrueType` rewrite and onto a loss. The list exists
+/// separately from [`BaseEncoding::by_name`] because the two answer different questions, *may a
+/// font say this* and *does this crate have the table*; today they give the same four answers,
+/// and `an_encoding_name_the_table_does_not_permit_is_no_encoding_at_all` asserts every name
+/// here has a table.
 pub const PERMITTED_ENCODING_NAMES: [&[u8]; 4] = [
     b"StandardEncoding",
     b"MacRomanEncoding",

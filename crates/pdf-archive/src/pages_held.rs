@@ -18,8 +18,17 @@
 
 use std::fmt;
 
-use pdf_syntax::Document;
 use pdf_syntax::object::Object;
+use pdf_syntax::{Document, linearize};
+
+/// The number of pages a linearization parameter dictionary states, where the file is still
+/// linearised: ISO 32000-2 §F.3.3, Table F.1's `/N`, read through
+/// [`linearize::stated_page_count`], so that a dictionary whose `/L` is not the file's length —
+/// "linearization information" Table F.1 says to ignore — states no count.
+#[must_use]
+pub fn linearized_page_count(document: &Document) -> Option<usize> {
+    linearize::stated_page_count(document).and_then(|pages| usize::try_from(pages).ok())
+}
 
 /// Where the count is read from when it is the page tree root's (`doc/adr/2596`'s wording).
 pub const STATED_BY_THE_ROOT: &str = "its page tree root's /Count";
@@ -53,9 +62,8 @@ impl NoPageHeld {
     /// [`Self::of`], where the caller has already read whether the document holds a page.
     ///
     /// The page tree root's `/Count`, where the catalog names a root, is the statement read; a
-    /// linearization parameter dictionary's `/N` only where the root states none. The search for
-    /// that dictionary reads every object the cross-reference information names, which is why it
-    /// runs only for a document already found to hold no page.
+    /// linearization parameter dictionary's `/N` only where the root states none, and only as
+    /// [`linearized_page_count`] reads it.
     #[must_use]
     pub fn given(document: &Document, holds_a_page: bool) -> Option<Self> {
         if holds_a_page {
@@ -70,15 +78,7 @@ impl NoPageHeld {
             .and_then(|root| as_count(&document.get_key(root.as_dict()?, "Count")));
         let stated = match root_count {
             Some(count) => Some((STATED_BY_THE_ROOT, count)),
-            None => document.xref().object_numbers().find_map(|number| {
-                let object = document.get(document.defined_id(number));
-                let dict = object.as_dict()?;
-                dict.get("Linearized")?;
-                Some((
-                    STATED_BY_LINEARIZATION,
-                    as_count(&document.get_key(dict, "N"))?,
-                ))
-            }),
+            None => linearized_page_count(document).map(|count| (STATED_BY_LINEARIZATION, count)),
         };
         let (stated_by, stated) = stated.filter(|(_, stated)| *stated > 0)?;
         Some(Self { stated_by, stated })

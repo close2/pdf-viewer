@@ -12,7 +12,7 @@
   "code": "crates/pdf-font/src/glyph_names.rs:76-89 (PERMITTED_ENCODING_NAMES), :112 (base_encoding); crates/pdf-font/src/encoding.rs:54 (BaseEncoding::by_name)",
   "change": "Treat /StandardEncoding as Table 109 treats any other unlisted name (no /Encoding, the built-in encoding standing, noted as the existing ENCODING_NAME_UNKNOWN repair or a class of its own); keep BaseEncoding::Standard for the fallbacks §9.6.5.1 and §9.6.5.4 name. A question to the owner first if a corpus census finds producers relying on the name over a non-standard built-in encoding.",
   "execution": "crates/pdf-font/tests/annex_d_encodings_spec_audit.rs::standard_encoding_is_no_predefined_encoding_spec_audit fails on main (left None, right Some(1)); both controls pass.",
-  "status": "open"
+  "status": "open (doc/questions/Q1082: reading the name as absent moves no page but moves a TrueType font naming it off the archive's mechanical TrueType rewrite onto a loss)"
  },
  {
   "id": "2260-B02",
@@ -27,7 +27,7 @@
   "code": "crates/pdf-transform/src/archive/recovered.rs:524-540; crates/pdf-archive/src/pages_held.rs:72-80; crates/pdf-syntax/src/linearize.rs:300 (state, the reading neither uses)",
   "change": "Read /N through pdf_syntax::linearize::state, taking it only from State::Linearized, in both places; fix the existing test's fixture.",
   "execution": "crates/pdf-transform/tests/annexes_d_f_i_spec_audit.rs::a_linearization_dictionary_whose_length_mismatches_states_no_page_count_spec_audit fails on main (the conversion refuses for the /N of 3); its control (/L equal to the file's length) is refused by name and passes. pdf-archive's route is by reading.",
-  "status": "open"
+  "status": "fixed (ADR 3745; pdf_syntax::linearize::stated_page_count reads Table F.1's /N only where /L is the file's length, and pdf_archive::pages_held and archive/recovered.rs read it there; annexes_d_f_i_spec_audit::a_linearization_dictionary_whose_length_mismatches_states_no_page_count_spec_audit passes)"
  },
  {
   "id": "2260-B03",
@@ -42,7 +42,7 @@
   "code": "crates/pdf-transform/src/merge.rs:2103-2116 (text_string), :2897 (its caller, page_labels, shared with split.rs:1121)",
   "change": "Use pdf_syntax::encode_text_string.",
   "execution": "crates/pdf-transform/tests/annexes_d_f_i_spec_audit.rs::a_label_holding_a_control_character_survives_a_merge_spec_audit fails on main (left \"A\\u02dc\"); its control (a non-ASCII label) passes.",
-  "status": "open"
+  "status": "fixed (ADR 3747; merge::text_string, the output intent's /Info and the archive's attachment names are written through encode_text_string; annexes_d_f_i_spec_audit::a_label_holding_a_control_character_survives_a_merge_spec_audit passes)"
  },
  {
   "id": "2260-D01",
@@ -55,7 +55,7 @@
   "code": "doc/conformance/ledger.toml (D.1 note)",
   "change": "Rewrite with B01's fix.",
   "execution": "Read; the D.2 coverage probe ran and passed (scratchpad, not committed).",
-  "status": "open"
+  "status": "fixed (the D.1 row names the four shalls, the D.2 probe, and the StandardEncoding shall held for Q1082)"
  },
  {
   "id": "2260-D02",
@@ -68,7 +68,7 @@
   "code": "crates/pdf-font/src/glyph_names.rs:76-84",
   "change": "Rewrite with B01's fix.",
   "execution": "Read, not executed.",
-  "status": "open"
+  "status": "fixed (PERMITTED_ENCODING_NAMES' comment states the departure from Table D.1, held for Q1082)"
  },
  {
   "id": "2260-D03",
@@ -81,7 +81,7 @@
   "code": "doc/conformance/ledger.toml (E.2 note); crates/pdf-transform/src/archive/preserve.rs:1934, derived.rs:254, drawn.rs:285, fonts/photographed.rs:107; crates/pdf-model/src/appearance.rs:2929, :6674; crates/pdf-model/src/variable_text.rs:1293",
   "change": "Name the class (resource names and font names this program chooses) rather than one member.",
   "execution": "Census by literal (scratchpad/r2260/names/), not executed.",
-  "status": "open"
+  "status": "fixed (the E.2 row names the class: resource names and the font name VariableTextMachineFace)"
  },
  {
   "id": "2260-D04",
@@ -94,6 +94,6 @@
   "code": "crates/pdf-transform/src/archive/mod.rs:2542-2566; crates/pdf-transform/src/archive/header.rs:64-80",
   "change": "State the case and record the source header in xmpMM:History as for 3.x, or refuse it.",
   "execution": "Read, not executed.",
-  "status": "open"
+  "status": "fixed (ADR 3748; a %PDF-1.8 or 1.9 source written as 1.7 at PDF/A-2 has its header recorded in xmpMM:History as a 3.x source's is)"
  }
 ]

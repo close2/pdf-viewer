@@ -300,7 +300,9 @@ pub(super) fn attach(
         .map(|(key, _)| key.clone())
         .collect();
     for keep in keeps {
-        let key = keep.name.clone().into_bytes();
+        // The key is the name tree's text string and the specification's `/F` and `/UF`
+        // (`file_specification`): §7.9.2.2's encoding, as the existing keys are compared.
+        let key = pdf_syntax::text_string::encode_text_string(&keep.name);
         if !taken.insert(key.clone()) {
             return Err(Because::NotBuiltYet(NAME_ALREADY_FILED));
         }

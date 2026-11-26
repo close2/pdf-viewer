@@ -38,18 +38,6 @@
    "test": "standard_encoding_is_no_predefined_encoding_spec_audit",
    "finding": "2260-B01",
    "log": "round-2260 nextest of pdf-font"
-  },
-  {
-   "binary": "pdf-transform::annexes_d_f_i_spec_audit",
-   "test": "a_linearization_dictionary_whose_length_mismatches_states_no_page_count_spec_audit",
-   "finding": "2260-B02",
-   "log": "round-2260 nextest of pdf-transform"
-  },
-  {
-   "binary": "pdf-transform::annexes_d_f_i_spec_audit",
-   "test": "a_label_holding_a_control_character_survives_a_merge_spec_audit",
-   "finding": "2260-B03",
-   "log": "round-2260 nextest of pdf-transform"
   }
  ],
  "no_longer_failing": [

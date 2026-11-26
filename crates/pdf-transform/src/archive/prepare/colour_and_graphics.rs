@@ -654,9 +654,11 @@ pub(in crate::archive) fn intent_dictionary(intent: &Intent) -> Dictionary {
         .describes
         .clone()
         .unwrap_or_else(|| "the ICC profile embedded beside this entry".to_owned());
+    // Table 401 makes `/Info` a text string, and a profile's description may hold what
+    // `PDFDocEncoding` cannot: §7.9.2.2's encoding is chosen, not the description's UTF-8 bytes.
     out.insert(
         Name::new(&b"Info"[..]),
-        Object::String(info.into_bytes().into()),
+        Object::String(pdf_syntax::text_string::encode_text_string(&info).into()),
     );
     out.insert(
         Name::new(&b"DestOutputProfile"[..]),

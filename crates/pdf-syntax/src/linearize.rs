@@ -298,30 +298,71 @@ pub struct Parameters {
 /// required entry of Table F.1 is not one.
 #[must_use]
 pub fn state(document: &Document) -> State {
-    let xref = document.xref();
-    let first = xref
-        .object_numbers()
-        .filter_map(|number| match xref.location(number) {
-            Some(Location::Offset(at)) => Some((at, number)),
-            _ => None,
-        })
-        .min();
-    let Some((at, number)) = first else {
+    let Some(object) = first_object(document) else {
         return State::Ordinary;
     };
-    if u64::try_from(at).unwrap_or(u64::MAX) >= PARAMETERS_WITHIN {
-        return State::Ordinary;
-    }
-    let object = document.get(document.defined_id(number));
     let Some(parameters) = object.as_dict().and_then(parameters_of) else {
         return State::Ordinary;
     };
-    let length = u64::try_from(document.bytes().len()).unwrap_or(u64::MAX);
+    let length = file_length(document);
     if parameters.length == length {
         State::Linearized(parameters)
     } else {
         State::NoLongerLinearized { parameters, length }
     }
+}
+
+/// The number of pages Table F.1's `/N` states, where the file is still linearised.
+///
+/// The dictionary is found as [`state`] finds it, and its `/L` is asked §F.3.3's Table F.1
+/// question:
+///
+/// > It shall be exactly equal to the actual length of the PDF file. A mismatch indicates that
+/// > the file is not linearized and shall be treated as ordinary PDF file, ignoring
+/// > linearization information.
+///
+/// So a file updated incrementally after it was linearised — §F.1's "the resulting PDF is no
+/// longer linearized", which is how a file whose pages were deleted comes to state a stale `/N`
+/// — states no count. Unlike [`state`], the rest of Table F.1 is not required: a count is read
+/// only to be compared with the pages a reader reached, and a dictionary that states its
+/// length correctly and its pages states them whether or not its hint stream is described (ADR
+/// 3745). Every reader of `/N` in this tree reads it here.
+#[must_use]
+pub fn stated_page_count(document: &Document) -> Option<u64> {
+    let object = first_object(document)?;
+    let dict = object.as_dict()?;
+    dict.get("Linearized")?.as_number()?;
+    let integer = |key: &str| {
+        dict.get(key)
+            .and_then(Object::as_integer)
+            .and_then(|value| u64::try_from(value).ok())
+    };
+    if integer("L")? != file_length(document) {
+        return None;
+    }
+    integer("N")
+}
+
+/// The object the cross-reference chain places lowest in the file, where it begins inside
+/// §F.3.3's first 1024 bytes: the only object that can be a linearization parameter dictionary.
+fn first_object(document: &Document) -> Option<Object> {
+    let xref = document.xref();
+    let (at, number) = xref
+        .object_numbers()
+        .filter_map(|number| match xref.location(number) {
+            Some(Location::Offset(at)) => Some((at, number)),
+            _ => None,
+        })
+        .min()?;
+    if u64::try_from(at).unwrap_or(u64::MAX) >= PARAMETERS_WITHIN {
+        return None;
+    }
+    Some(document.get(document.defined_id(number)))
+}
+
+/// The file's length, as Table F.1's `/L` is compared with it.
+fn file_length(document: &Document) -> u64 {
+    u64::try_from(document.bytes().len()).unwrap_or(u64::MAX)
 }
 
 /// Table F.1's entries out of a dictionary, or `None` where it is not a parameter dictionary.

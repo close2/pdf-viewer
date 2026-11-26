@@ -2535,6 +2535,12 @@ fn hold_the_output_to_the_target(
 ///   §7.5.2 has a writer state the version of the file it wrote; what the producer put where its
 ///   header belonged is kept in the output's `xmpMM:History` and the report rather than restated
 ///   as a version it never named (`doc/adr/2558`).
+/// - A source stating `%PDF-1.8` or `%PDF-1.9`, which §7.5.2 does not define: 1.7 at part 2, the
+///   highest ISO 19005-2 section 6.1.2 admits, and its header kept in `xmpMM:History` and the
+///   report as a 3.x source's is ([`header::history`]). Annex I.2's "a PDF file's version should
+///   never be changed to an older version" is a *should*, and a part 2 output has no other
+///   header to write; refusing would lose the document for a digit no clause gives a meaning to
+///   (`doc/adr/3748`). At part 4 it is raised to 2.0, as every 1.n is.
 /// - A source stating a version later than any §7.5.2 defines (`%PDF-3.1`): 2.0 at part 4, its
 ///   header kept the same way, because the output holds only what this reader of ISO 32000-2 read
 ///   and ISO 19005-4 section 6.1.2 admits no other header; refused at part 2 as a 2.0 source is,
