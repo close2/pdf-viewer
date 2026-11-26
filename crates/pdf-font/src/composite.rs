@@ -132,6 +132,13 @@ pub fn composite_cmap(
         },
         Object::Stream(_) => {
             let cmap = read_cmap(document, &encoding, name, 0)?;
+            if cmap.wmode_unusable() {
+                crate::repair::noted(
+                    document,
+                    &crate::repair::WMODE_UNUSABLE,
+                    crate::repair::site(dict, "Encoding"),
+                );
+            }
             if cmap.damaged() {
                 crate::repair::noted(
                     document,

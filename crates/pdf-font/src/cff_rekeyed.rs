@@ -76,6 +76,7 @@ pub fn cid_keyed_by_map(
     let name = index_item(cff, header, 0).ok_or_else(|| refused("no font name"))?;
     let top = index_item(cff, name_extent.end, 0).ok_or_else(|| refused("no Top DICT"))?;
     let top_entries = dict_entries(top).ok_or_else(|| refused("its Top DICT does not read"))?;
+    // not a repair: a CharStrings offset that is no position is refused by name, as one absent.
     let charstrings_at = top_entries
         .iter()
         .find(|(_, op)| *op == OP_CHARSTRINGS)
@@ -203,6 +204,8 @@ fn written(name: &[u8], system: &SystemInfo, parts: &Parts<'_>) -> Result<Vec<u8
     let fd_array_at = charstrings_at.saturating_add(charstrings_index.len());
     let fd_array_length = index(&[font_dict(0, 0)]).ok_or_else(too_large)?.len();
     let private_at = fd_array_at.saturating_add(fd_array_length);
+    // not a repair: these offsets are the positions this writer lays out, not the file's, and
+    // one past a DICT operand's reach refuses the rewrite.
     let offset = |at: usize| {
         i64::try_from(at)
             .ok()

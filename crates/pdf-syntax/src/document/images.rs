@@ -28,6 +28,8 @@ impl Document {
     /// [`Self::decoded_stream_data`] does; [`Self::image_stream_reported`] says which refusal.
     #[must_use]
     pub fn image_stream(&self, stream: &Stream) -> Option<ImageStream> {
+        // not a repair: a refusal is a decline, and the file's own faults in it are recorded
+        // where they are met (`stated_chain`, `chain_over`); the reason is the `_reported` call's.
         self.image_stream_reported(stream).ok()
     }
 
@@ -88,6 +90,8 @@ impl Document {
     /// which every decode of the stream refuses (ADR 3274), so no report this asks before is owed.
     #[must_use]
     pub fn image_codec(&self, stream: &Stream) -> Option<Vec<u8>> {
+        // not a repair: a chain Table 5 does not admit is refused by every decode of the stream,
+        // which records it (`stated_chain`); asking which codec ends it decides nothing.
         let filters = self.filter_chain(&stream.dict).ok()?;
         Self::codec_position(&filters).and_then(|index| filters.get(index).cloned())
     }

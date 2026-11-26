@@ -131,6 +131,11 @@ classes! {
     SOFT_MASK_IN_DATA_UNUSABLE = "model/soft-mask-in-data-unusable", "ISO 32000-2 §8.9.5.1",
         "a JPEG 2000 image's /SMaskInData that is no integer was read as 0, and any opacity its \
          codestream encodes ignored";
+    /// A `/Luminosity` soft mask's `/BC` that is not as many numbers as its group's `/CS` has
+    /// components.
+    SOFT_MASK_BACKDROP_UNUSABLE = "model/soft-mask-backdrop-unusable", "ISO 32000-2 §11.6.5.1",
+        "a luminosity soft mask's /BC that is not n numbers, n the components of its group's /CS, \
+         was read as absent, the space's initial colour its backdrop";
 
     // ---- the interpreter's operands, §7.8.2, §8.4.2, §8.6.8, §9.4.1 -------------------------
 
@@ -294,6 +299,14 @@ classes! {
     COLLECTION_ENTRY_UNUSABLE = "model/collection-entry-unusable", "ISO 32000-2 §12.3.5",
         "a collection split's /Position outside 0 to 100 was read as the nearer end, or of another \
          type as absent, and a folder's required /ID that is no non-negative integer as 0";
+    /// An outline item's `/F` or `/C` of a type or value Table 151 does not give it.
+    OUTLINE_ENTRY_UNUSABLE = "model/outline-entry-unusable", "ISO 32000-2 §12.3.3",
+        "an outline item's /F that is no integer was read as 0, and a /C that is not three numbers \
+         from 0.0 to 1.0 as black where it is no array, each other component as 0 and each number \
+         outside the range as the nearer end";
+    /// A page label dictionary's `/St` that is no integer of at least 1.
+    PAGE_LABEL_ENTRY_UNUSABLE = "model/page-label-entry-unusable", "ISO 32000-2 §12.4.2",
+        "a page label range's /St that is no integer of at least 1 was read as 1, its default";
 
     // ---- logical structure and page boundaries, §14.8.5 and §14.11.2.2 -------------------------
 

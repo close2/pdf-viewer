@@ -242,6 +242,12 @@ pub static MAPPING: &[Mapped] = &[
     base("model/collection-entry-unusable"),
     base("model/structure-attribute-unusable"),
     base("model/box-colour-info-unusable"),
+    // An outline item's `/F` or `/C`, a page label range's `/St`, a luminosity soft mask's `/BC`:
+    // each a dictionary's entry outside content, so the whole-file rewrite carries it as the
+    // file states it, and the output's own check refuses by the class's name (ADR 3765).
+    base("model/outline-entry-unusable"),
+    base("model/page-label-entry-unusable"),
+    base("model/soft-mask-backdrop-unusable"),
     base("model/wkt-name-absent"),
     base("model/wkt-identifier-unusable"),
     base("model/wkt-auxiliary-sphere-type-absent"),

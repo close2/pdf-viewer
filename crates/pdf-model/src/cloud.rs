@@ -63,6 +63,8 @@ pub(crate) type Edge = Vec<[f32; 2]>;
 /// that each is at least as wide as the stroke laid over it.
 #[must_use]
 pub(crate) fn radius(intensity: f32, width: f32) -> f32 {
+    // The reader of `/I` (`appearance::cloudy`) logs a value outside the range, or no number, as
+    // `ANNOTATION_ENTRY_UNUSABLE`; this holds any caller's value to the range.
     let held = if intensity.is_finite() {
         intensity.clamp(0.0, 2.0)
     } else {
@@ -154,14 +156,14 @@ fn cusps(outline: &[Edge], chord: f32) -> Vec<[f32; 2]> {
         if !total.is_finite() || total <= f32::EPSILON {
             continue;
         }
-        // not a repair: a scallop count this program computes from a length, not a value the file
-        // states.
         // Evenly: the count nearest to what the chosen chord would give, and never zero.
         #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
             reason = "clamped to 1.0..=MOST_SCALLOPS above, so the conversion is exact"
         )]
+        // not a repair: a scallop count this program computes from a length, not a value the file
+        // states.
         let count = (total / chord).round().clamp(1.0, f32::from(MOST_SCALLOPS)) as u16;
         let pitch = total / f32::from(count);
         out.push(*first);

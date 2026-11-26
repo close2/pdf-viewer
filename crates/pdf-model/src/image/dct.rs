@@ -923,6 +923,8 @@ fn decode_jpeg_here(
     // Both arms are gated on the count the samples are actually on, for the reason the first was
     // when it was the only one: a *three*-component frame the decoder resolved to `YCbCr` would
     // have a `chunks_exact_mut(4)` walked across its pixel boundaries rather than refused.
+    // not a repair: `None` is Table 13's ranking ending without an answer, where the
+    // codestream's own declaration — the decoder's `input` — answers ([`colour_transform`]).
     if components == 4 && transform.unwrap_or(input == Some(ColorSpace::YCCK)) {
         ycck_to_cmyk(&mut pixels);
     } else if components == 3 && transform == Some(true) && input == Some(ColorSpace::RGB) {
@@ -1027,6 +1029,8 @@ pub fn banded_decodes(data: &[u8], band_lines: u32) -> BandedDecodes {
         options,
     )
     .decode()
+    // not a repair: a measuring helper; a frame the decoder refuses whole is `None`, as the
+    // bands' declines are, and `decode_jpeg` is where a refusal becomes the image's error.
     .ok();
     let (at_restarts, at_rows) = scan.as_ref().map_or((None, None), |scan| {
         (

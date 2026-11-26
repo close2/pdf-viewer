@@ -32,6 +32,8 @@ impl Document {
             self.bytes
                 .parse_from(offset, crate::file::FIRST_WINDOW, |input, _| {
                     let mut parser = Parser::at(input, 0, self.limits);
+                    // An object that does not parse is `None` here; the reader that resolved its
+                    // reference records it as `OBJECT_UNPARSABLE` (`Document::get`).
                     let parsed = parser.parse_indirect_object().ok().map(|(found, object)| {
                         let data_at = parser.stream_data_at().map(|at| at.saturating_add(offset));
                         let padding = parser.stream_keyword_padding().map(|padding| {
@@ -111,6 +113,8 @@ impl Document {
         let Some(start) = data_at else {
             return (object, padding);
         };
+        // An indirect `/Length` that is no non-negative integer leaves the extent `endstream`
+        // gave, which `parse_plain_at` logs as `STREAM_EXTENT_FROM_ENDSTREAM`.
         let Some(stated) = self
             .get_key(&stream.dict, "Length")
             .as_integer()

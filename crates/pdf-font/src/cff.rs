@@ -315,15 +315,17 @@ fn evaluated_widths(
         .map(|glyph| {
             let id = GlyphId::from(*glyph);
             let index = font.subfont_index(id)?;
+            // not a repair: a glyph whose Font DICT or charstring does not evaluate has no width
+            // here, `None`, which this function's contract hands the caller as unstated.
             let subfont = font.subfont(index, &[]).ok()?;
             // `read-fonts` answers `None` for a charstring that omits its width under a Private
             // DICT stating no `defaultWidthX`; Technical Note #5176's Table 23 gives that operator
             // the default 0, so the program has stated 0 and the width is 0.
+            // not a repair: a charstring that does not evaluate is `None`, as above, and an
+            // omitted width is Table 23's 0, as the comment above says.
             let width = font
                 .evaluate_charstring(&subfont, id, &[], &mut NoCommands)
                 .ok()?
-                // not a repair: Adobe TN 5176 Table 23 defaults an absent defaultWidthX to 0, as
-                // the comment above says.
                 .unwrap_or(Fixed::ZERO);
             Some(metric(&font.transform(&subfont, None), width))
         })

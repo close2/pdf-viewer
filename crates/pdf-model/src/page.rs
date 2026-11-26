@@ -1799,6 +1799,8 @@ fn find_leaf(
             .as_ref()
             .and_then(Object::as_array)
             .is_some_and(|kids| !kids.is_empty());
+        // not a repair: a `/Count` only lets the walk skip a subtree; one that is no positive
+        // integer is not trusted, and the subtree is walked, which finds the same pages.
         if has_kids
             && let Some(count) = subtree.and_then(|value| usize::try_from(value).ok())
             && count > 0
@@ -1902,6 +1904,7 @@ fn every_leaf(
             continue;
         }
         // The `/Count` `find_leaf` would skip this subtree by, read by the same test.
+        // not a repair: one that is not trusted has the subtree walked, as `find_leaf` does.
         let trusted = kid
             .key(document, "Count")
             .as_ref()

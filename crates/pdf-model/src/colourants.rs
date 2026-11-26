@@ -533,6 +533,9 @@ fn colour_space(
                 .and_then(Object::as_dict)
                 .map(|attributes| document.get_key(attributes, "Colorants"));
             let names = items.get(1).map(|names| document.resolve(names));
+            // not a repair: this pass only finds the planes a page needs; a `DeviceN` whose
+            // names are no array names no colourant, and the space is refused where it is read
+            // to draw.
             let names = names
                 .as_ref()
                 .and_then(Object::as_array)
@@ -614,6 +617,8 @@ fn nchannel_process(document: &Document, attributes: &Object) -> Vec<Name> {
     let Some(process) = process.as_dict() else {
         return Vec::new();
     };
+    // not a repair: a process dictionary whose `/Components` is no array names no process
+    // component to fold, which leaves each of its colourants a plane of its own.
     document
         .get_key(process, "Components")
         .as_array()

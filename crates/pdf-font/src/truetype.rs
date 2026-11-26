@@ -235,6 +235,8 @@ pub(crate) fn truetype_code_table(
     // charset names every one of them; §9.6.2.1's NOTE 1 is the sentence that makes those the
     // same structure, so the charset is read here as what the clause asks for. Built once per
     // font rather than per code, because it inverts the whole charset.
+    // not a repair: a `CFF ` table that does not read as a charset gives §9.6.5.4's last step
+    // no names, as a face without one; the outlines are the program reader's to judge.
     let charset = font
         .table_data(skrifa::Tag::new(b"CFF "))
         .and_then(|table| CodeToGlyph::read(table.as_bytes()).ok())
@@ -256,6 +258,8 @@ pub(crate) fn truetype_code_table(
     let (mut names, ignored_names) = if symbolic {
         (
             no_names(),
+            // not a repair: the one error is a permitted name without a table, which no name
+            // has (the paragraph above); `None` only takes this processor's recovery away.
             encoding_names(document, dict, name, None, false).ok(),
         )
     } else {

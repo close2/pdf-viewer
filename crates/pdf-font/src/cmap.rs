@@ -334,6 +334,8 @@ pub struct CMap {
     /// Whether the file departs from §9.7.5.3's syntax: a section the stream ends inside, or an
     /// entry whose operands do not read (ADR 3565).
     damaged: bool,
+    /// Whether the file's own `/WMode` was an integer other than 0 or 1, read as the nearer.
+    wmode_unusable: bool,
 }
 
 impl CMap {
@@ -360,6 +362,7 @@ impl CMap {
             references_another: false,
             truncated: None,
             damaged: false,
+            wmode_unusable: false,
         }
     }
 
@@ -443,7 +446,11 @@ impl CMap {
                     // agree with the file's; the loader reads both and refuses if either
                     // asks for vertical writing, because agreeing is the producer's duty
                     // and being drawn horizontally is not a near miss.
-                    own.wmode = u8::try_from(value).unwrap_or(0);
+                    //
+                    // Another integer names neither mode, and is read as the nearer of the
+                    // two, as the loader reads the dictionary's (`WMODE_UNUSABLE`).
+                    own.wmode_unusable = !(0..=1).contains(&value);
+                    own.wmode = u8::from(value > 0);
                     expecting_wmode = false;
                     operands.clear();
                 }
@@ -475,6 +482,7 @@ impl CMap {
             references_another: false,
             truncated: None,
             damaged: false,
+            wmode_unusable: false,
         }
     }
 
@@ -490,6 +498,7 @@ impl CMap {
     /// Puts this file's entries in front of whatever it inherited.
     fn absorb(&mut self, own: Self) {
         self.wmode = own.wmode;
+        self.wmode_unusable |= own.wmode_unusable;
         self.references_another = own.references_another;
         // A `CMap` inherits what the one it builds on lost as well as what it holds: the
         // mappings are consulted together, so an answer missing from either is missing.
@@ -666,10 +675,11 @@ impl CMap {
                             // about the codes past `<hi>`; the rest of it is consumed all the
                             // same, because reaching the `]` is what this arm is for.
                             token if depth == 1 => {
-                                if code <= high_code
-                                    && let Some(cid) = selector_of(token, bf)
-                                {
-                                    self.insert_single(notdef, length, code, cid);
+                                if code <= high_code {
+                                    match selector_of(token, bf) {
+                                        Some(cid) => self.insert_single(notdef, length, code, cid),
+                                        None => self.damaged = true,
+                                    }
                                 }
                                 code = code.saturating_add(1);
                             }
@@ -680,8 +690,9 @@ impl CMap {
                 }
                 // `<lo> <hi> dst`: codes numbered upward from the selector it names.
                 Some(target) => {
-                    if let Some(cid) = selector_of(target, bf) {
-                        self.insert_range(notdef, length, (low_code, high_code, cid));
+                    match selector_of(target, bf) {
+                        Some(cid) => self.insert_range(notdef, length, (low_code, high_code, cid)),
+                        None => self.damaged = true,
                     }
                     index = index.saturating_add(3);
                 }
@@ -869,6 +880,13 @@ impl CMap {
         self.damaged
     }
 
+    /// Whether the file's own `/WMode` was an integer other than §9.7.5.1's 0 and 1, which
+    /// [`Self::wmode`] reads as the nearer of the two; a map it builds on carries this up.
+    #[must_use]
+    pub fn wmode_unusable(&self) -> bool {
+        self.wmode_unusable
+    }
+
     /// Whether any codespace range was stated, without which no code can be extracted.
     #[must_use]
     pub fn has_codespace(&self) -> bool {
@@ -1028,6 +1046,9 @@ fn value_of(bytes: &[u8]) -> u32 {
 ///
 /// A `cidchar` or `cidrange` states it as an integer; a `bfchar` or `bfrange` states it as a
 /// hex string, and [`CMap::take_chars`] has the clause that says to read it as a selector.
+///
+/// A selector that is no CID — an integer below zero or past `u32`, a string of another length
+/// — is `None`, and every caller marks the map damaged for it (`CMAP_DAMAGED`).
 fn selector_of(target: &Token<'_>, bf: bool) -> Option<u32> {
     match target {
         Token::Integer(value) => u32::try_from(*value).ok(),
@@ -1294,6 +1315,12 @@ mod tests {
     fn wmode_is_read_from_the_file() {
         assert_eq!(CMap::parse(b"/WMode 0 def", None).wmode(), 0);
         assert_eq!(CMap::parse(b"/WMode 1 def", None).wmode(), 1);
+        assert!(!CMap::parse(b"/WMode 1 def", None).wmode_unusable());
+        // §9.7.5.1 names two modes; another integer is read as the nearer and said.
+        let past = CMap::parse(b"/WMode 2 def", None);
+        assert_eq!((past.wmode(), past.wmode_unusable()), (1, true));
+        let below = CMap::parse(b"/WMode -1 def", None);
+        assert_eq!((below.wmode(), below.wmode_unusable()), (0, true));
         assert_eq!(
             CMap::parse(b"/CMapName /X def", None).wmode(),
             0,

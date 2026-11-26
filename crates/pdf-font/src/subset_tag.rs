@@ -118,6 +118,8 @@ fn in_name_index(cff: &mut [u8], from: [u8; 6], to: [u8; 6]) -> bool {
             .collect()
     };
     let mut changed = false;
+    // not a repair: a Name INDEX that does not read retags nothing, and `retagged` says so with
+    // `None` to its caller.
     for (start, end) in entries().unwrap_or_default() {
         if let Some(name) = cff.get_mut(start..end) {
             changed |= retag_at(name, from, to);
@@ -175,6 +177,8 @@ fn in_name_table(table: &mut [u8], from: [u8; 6], to: [u8; 6]) -> bool {
     };
     let (wide_from, wide_to) = (wide(from), wide(to));
     let mut changed = false;
+    // not a repair: a `name` table that does not read retags nothing, and `retagged` says so
+    // with `None` to its caller.
     for (start, end) in records().unwrap_or_default() {
         let Some(string) = table.get_mut(start..end) else {
             continue;

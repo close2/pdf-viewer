@@ -287,7 +287,17 @@ fn read_item(
     budget: &mut usize,
 ) -> Item {
     let count = document.get_key(dict, "Count").as_integer();
-    let flags = document.get_key(dict, "F").as_integer().unwrap_or(0);
+    // Table 151: `/F` is "Default value: 0"; one of another type is read as that default.
+    let stated_flags = document.get_key(dict, "F");
+    let flags = stated_flags.as_integer().unwrap_or_else(|| {
+        if !stated_flags.is_null() {
+            document.record_repair(
+                &crate::repair::OUTLINE_ENTRY_UNUSABLE,
+                pdf_syntax::Site::Object(id),
+            );
+        }
+        0
+    });
     let (title, title_languages) = match document.get_key(dict, "Title") {
         Object::String(bytes) => (
             document.text_string(&bytes, pdf_syntax::Site::Object(id)),
@@ -305,7 +315,7 @@ fn read_item(
         // bit numbered 1", so bit 1 is the value 1 and bit 2 the value 2.
         italic: flags & 1 != 0,
         bold: flags & 2 != 0,
-        colour: colour(document, dict),
+        colour: colour(document, id, dict),
         children: level(
             document,
             pages,
@@ -345,21 +355,41 @@ fn destination(document: &Document, dict: &Dictionary) -> Option<Destination> {
 /// "An array of three numbers in the range 0.0 to 1.0" — a value outside that range is not a
 /// colour the clause describes, and clamping is what every other `DeviceRGB` component in this
 /// tree gets, so it is what this one gets.
-fn colour(document: &Document, dict: &Dictionary) -> [f32; 3] {
+fn colour(document: &Document, id: ObjectId, dict: &Dictionary) -> [f32; 3] {
     let array = document.get_key(dict, "C");
+    let unusable = || {
+        document.record_repair(
+            &crate::repair::OUTLINE_ENTRY_UNUSABLE,
+            pdf_syntax::Site::Object(id),
+        );
+    };
     let Some(items) = array.as_array() else {
+        // not a repair: an absent `/C` is Table 151's "Default value: [0.0 0.0 0.0]"; one of
+        // another type is that default as well, and logged.
+        if !array.is_null() {
+            unusable();
+        }
         return [0.0; 3];
     };
+    if items.len() != 3 {
+        unusable();
+    }
     let mut out = [0.0f32; 3];
     for (slot, item) in out.iter_mut().zip(items) {
-        if let Some(value) = document.resolve(item).as_number() {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "a colour component is between 0 and 1 and is clamped to it here"
-            )]
-            {
-                *slot = (value as f32).clamp(0.0, 1.0);
-            }
+        let Some(value) = document.resolve(item).as_number() else {
+            unusable();
+            continue;
+        };
+        // A number outside the range is held to its nearer end (`OUTLINE_ENTRY_UNUSABLE`).
+        if !(0.0..=1.0).contains(&value) {
+            unusable();
+        }
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a colour component is between 0 and 1 and is clamped to it here"
+        )]
+        {
+            *slot = (value as f32).clamp(0.0, 1.0);
         }
     }
     out

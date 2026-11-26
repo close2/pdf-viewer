@@ -703,3 +703,63 @@ fn a_type3_base_encoding_naming_the_standard_encoding_is_logged() {
         Site::WholeFile,
     );
 }
+
+/// Table 151 makes an outline item's `/F` an integer and its `/C` three numbers from 0.0 to 1.0:
+/// an `/F` of another type is read as its default 0, a component past the range as the nearer
+/// end, each logged at the item.
+#[test]
+fn an_outline_item_entry_out_of_its_table_is_logged_at_the_item() {
+    let outline = |item: &str| {
+        let document = file(&[
+            "<< /Type /Catalog /Pages 2 0 R /Outlines 3 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [] /Count 0 >>".to_owned(),
+            "<< /First 4 0 R /Last 4 0 R /Count 1 >>".to_owned(),
+            format!("<< /Title (a) /Parent 3 0 R {item} >>"),
+        ]);
+        let _ = pdf_model::outline::Outline::read(&document, &Pages::new(&document));
+        logged_alone(&document)
+    };
+    let unusable = [(
+        repair::OUTLINE_ENTRY_UNUSABLE.name,
+        Site::Object(ObjectId::new(4, 0)),
+    )];
+    assert_eq!(outline("/F /Bold"), unusable);
+    assert_eq!(outline("/C [2 0 0]"), unusable);
+    assert_eq!(outline("/C 1"), unusable);
+    assert_eq!(outline("/F 3 /C [1 0.5 0]"), []);
+    assert_eq!(outline(""), []);
+}
+
+/// Table 161's `/St` "shall be greater than or equal to 1. Default value: 1.": a start below 1,
+/// or of another type, is read as 1 and logged.
+#[test]
+fn a_page_label_start_below_one_is_logged() {
+    let labels = |range: &str| {
+        let document = catalog(&format!("/PageLabels << /Nums [0 << /S /D {range} >>] >>"));
+        let read = pdf_model::page_label::PageLabels::read(&document);
+        (read.label(0), logged_alone(&document))
+    };
+    let unusable = [(repair::PAGE_LABEL_ENTRY_UNUSABLE.name, Site::WholeFile)];
+    assert_eq!(labels("/St 0"), (Some("1".to_owned()), unusable.to_vec()));
+    assert_eq!(labels("/St (5)"), (Some("1".to_owned()), unusable.to_vec()));
+    assert_eq!(labels("/St 5"), (Some("5".to_owned()), Vec::new()));
+}
+
+/// Table 142's `/BC` "shall consist of n numbers, where n is the number of components in the
+/// colour space specified by the CS entry in the group attributes dictionary": one that does not
+/// is read as absent, the space's initial colour the backdrop, and logged.
+#[test]
+fn a_soft_mask_backdrop_of_the_wrong_length_is_logged() {
+    let form = "/BBox [0 0 1 1] /Group << /S /Transparency /CS /DeviceRGB >>";
+    let drawn = |backdrop: &str| {
+        logged(&page_with_resources(
+            "/GS0 gs 0 0 m 1 1 l S",
+            &format!("<< /SMask << /S /Luminosity /G 5 0 R {backdrop} >> >>"),
+            form,
+        ))
+    };
+    assert!(
+        drawn("/BC [0.5]").contains(&(repair::SOFT_MASK_BACKDROP_UNUSABLE.name, Site::WholeFile))
+    );
+    assert_eq!(drawn("/BC [0.5 0.5 0.5]"), []);
+}

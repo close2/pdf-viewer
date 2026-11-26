@@ -547,7 +547,8 @@ impl Document {
         // A chain Table 5 does not admit names no `/Crypt` stage here, and every decode of the
         // stream refuses it by name (`StreamRefusal::Chain`, ADR 3274), so which method the
         // bytes are decrypted under decides nothing a reader is given.
-        // The refusal is recorded by `stated_chain` itself (ADR 3477).
+        // not a repair: a chain Table 5 does not admit is refused, and recorded as
+        // `STREAM_DATA_UNDECODABLE`, by `stated_chain` itself (ADR 3477).
         let chain = self.stated_chain(dict).unwrap_or_default();
         if let Some((_, parms)) = chain.iter().find(|(name, _)| name == b"Crypt") {
             let named = parms
@@ -686,6 +687,9 @@ impl Document {
     /// `value`, or the object it refers to as [`Self::plain_object`] reads it.
     fn plain(&self, value: &Object) -> Object {
         match value {
+            // not a repair: §7.3.10 makes a reference to an object the table does not name null;
+            // one that does not read here only goes unconsidered as an embedded file, and the
+            // object itself is `Document::get`'s to recover or to record.
             Object::Reference(id) => self.plain_object(id.number).unwrap_or(Object::Null),
             other => other.clone(),
         }

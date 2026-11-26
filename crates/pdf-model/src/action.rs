@@ -891,6 +891,8 @@ impl RemoteGoTo {
             && let Some(tree) = crate::structure::Tree::of(target)
             && let Some(element) = tree.element_by_id(target, id)
         {
+            // not a repair: §12.3.2.3, "[i]n the case where no page content is identified, then
+            // the page reference shall be assumed to be the first page in the document".
             let page =
                 crate::destination::structure_element_page(target, &element, pages).unwrap_or(0);
             return Some((page, self.structure_view));
@@ -1984,6 +1986,9 @@ fn uri(document: &Document, dict: &Dictionary) -> Option<Uri> {
 /// URI entry whose value is a URI dictionary", and "\[o]nly one entry shall be defined for
 /// such a dictionary". One corpus document of 974 states it.
 fn base_uri(document: &Document) -> Option<String> {
+    // not a repair: an unreadable catalog declines (None), the answer for a document with no
+    //   `/URI`; the catalog's own failure is recorded where the page tree reads it
+    //   (CATALOG_UNREADABLE).
     let catalog = document.catalog().ok()?;
     let uri = document.get_key(&catalog, "URI");
     let dict = uri.as_dict()?;

@@ -7038,10 +7038,17 @@ fn cloudy(document: &Document, annotation: &Dictionary, width: f32) -> Option<f3
     if document.get_key(effect, "S").as_name().map(Name::as_bytes) != Some(b"C") {
         return None;
     }
-    let intensity = document
-        .get_key(effect, "I")
-        .as_number()
-        .map_or(0.0, narrow);
+    // Table 169's "in the range 0 to 2": a number outside it is held to the nearer end, and one
+    // of another type read as the default, each logged.
+    let stated = document.get_key(effect, "I");
+    let number = stated.as_number();
+    if !stated.is_null() && number.is_none_or(|value| !(0.0..=2.0).contains(&value)) {
+        document.record_repair(
+            &crate::repair::ANNOTATION_ENTRY_UNUSABLE,
+            pdf_syntax::Site::WholeFile,
+        );
+    }
+    let intensity = number.map_or(0.0, narrow);
     Some(crate::cloud::radius(intensity, width))
 }
 

@@ -62,6 +62,8 @@ impl<'a> PostNames<'a> {
     /// Takes the face's `post` table, reading only its header.
     pub(crate) fn new(font: &FontRef<'a>) -> Self {
         Self {
+            // not a repair: §9.6.5.4 consults the `post` table "(if one is present)", and a face
+            // with none, or one that does not read, names no glyph through it.
             post: font.post().ok(),
             by_glyph: OnceCell::new(),
             by_name: OnceCell::new(),
@@ -126,6 +128,8 @@ fn resolve<'a>(post: &Post<'a>) -> Box<[Option<&'a str>]> {
             let Some(indices) = post.glyph_name_index() else {
                 return Box::default();
             };
+            // not a repair: a string that does not read names its glyph nothing, the decline the
+            // paragraph above describes, never a name this reader made up.
             let strings: Vec<Option<&'a str>> = post.string_data().map_or_default(|strings| {
                 strings
                     .iter()

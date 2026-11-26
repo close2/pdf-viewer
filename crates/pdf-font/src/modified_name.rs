@@ -54,6 +54,8 @@ pub fn liberation(program: &[u8]) -> Option<Vec<u8>> {
         if replacement == bytes {
             continue;
         }
+        // not a repair: the bundled Liberation program's own table, not a file's; a string offset
+        // past 16 bits declines the rename, as this function's contract says.
         let offset = u16::try_from(out.len().checked_sub(storage)?).ok()?;
         out.get_mut(at.checked_add(10)?..at.checked_add(12)?)?
             .copy_from_slice(&offset.to_be_bytes());
@@ -69,6 +71,7 @@ pub fn liberation(program: &[u8]) -> Option<Vec<u8>> {
 
 /// A checked big-endian field in the name table.
 fn word(bytes: &[u8], at: usize) -> Option<u16> {
+    // not a repair: a two-byte slice always converts to two bytes; the `get` is the bound.
     Some(u16::from_be_bytes(
         bytes.get(at..at.checked_add(2)?)?.try_into().ok()?,
     ))

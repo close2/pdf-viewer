@@ -36,6 +36,7 @@ pub fn fold(character: char) -> Option<&'static [char]> {
     if !matches!(character, '\u{fb00}'..='\u{fdff}' | '\u{fe70}'..='\u{feff}') {
         return None;
     }
+    // not a repair: a search of this crate's own table, where not found means no decomposition.
     let (_, start, length) = PRESENTATION_DECOMPOSITIONS
         .binary_search_by(|(form, _, _)| form.cmp(&character))
         .ok()
@@ -72,6 +73,7 @@ pub fn decompose(character: char, into: &mut Vec<char>) {
         }
         return;
     }
+    // not a repair: a search of this crate's own table, where not found means no decomposition.
     let expansion = CANONICAL_DECOMPOSITIONS
         .binary_search_by(|(composed, _, _)| composed.cmp(&character))
         .ok()

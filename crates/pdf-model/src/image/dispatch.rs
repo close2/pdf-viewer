@@ -910,6 +910,8 @@ fn inconsistent_entries(
         return None;
     }
     // Asked for its component count and nothing else, as `mask::colour_key_entry` asks it.
+    // not a repair: a space that does not read is refused, by name, where the image is drawn;
+    // this only compares two counts.
     let space = colour_space(document, dict, resources, &Conversion::device()).ok()?;
     let wanted = space.components().saturating_mul(2);
     if decode.len() != wanted {
@@ -1002,6 +1004,7 @@ fn beside<A, B: Send, There: FnOnce() -> B + Send>(
     let answer = |job: Option<There>| {
         if let Some(job) = job {
             let made = job();
+            // not a repair: a poisoned lock of this reader's own threads, as above.
             *answered
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(made);

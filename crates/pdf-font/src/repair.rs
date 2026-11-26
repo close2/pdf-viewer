@@ -121,10 +121,11 @@ classes! {
     DESCRIPTOR_STYLE_UNUSABLE = "font/descriptor-style-unusable", "ISO 32000-2 §9.8.1",
         "a /FontWeight outside 1 to 1000 or a /FontStretch Table 120 does not name was read as \
          absent where a substitute face was chosen";
-    /// An embedded `CMap`'s `/WMode` of another type, or neither 0 nor 1.
+    /// An embedded `CMap`'s `/WMode` of another type, or neither 0 nor 1: the stream
+    /// dictionary's entry, or the `/WMode` the `CMap` file itself defines.
     WMODE_UNUSABLE = "font/wmode-unusable", "ISO 32000-2 §9.7.5.3",
-        "a CMap stream's /WMode that is not the integer 0 or 1 was read as the nearer of the two, \
-         or as 0";
+        "a CMap stream's /WMode, or the one its file defines, that is not the integer 0 or 1 was \
+         read as the nearer of the two, or as 0";
 
     // ---- bounds of this reader ---------------------------------------------------------------
 

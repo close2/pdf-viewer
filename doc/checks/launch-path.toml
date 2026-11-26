@@ -439,7 +439,10 @@ clock_bands = machine
 # huge pages beside them 19.37 to 20.79.
 # Beyond the device's own allocation (ADR 2667), the device's taken unpinned as the gate runs (ADR
 # 2730): 8.03 to 9.67 MiB over five runs on 2026-11-06, this file's allocation rule.
-peak_anon_mib = 7.0 .. 11.0
+# Moved for ADR 3765: `8f54e0483` fits this page's 1.6-pixel `/SA true` box strokes to whole
+# pixels, and a fitted stroke queues no parallel sheet on the device. 4.879 to 5.785 MiB over the
+# five runs since, rounds 2259 (two), 2262, 2264 and 2266, this file's allocation rule.
+peak_anon_mib = 4.0 .. 6.5
 # **What an open allocates, and no longer the open's whole `VmHWM`** (ADR 2244). That figure was
 # seven parts in eight the test binary's and the C library's resident text, so it moved with the
 # page cache: one binary at one path read 8.51 and then 9.89 MiB here in one hold on 2026-10-22,
@@ -477,7 +480,8 @@ clock_bands = machine
 # huge pages beside them 22.76 to 24.11.
 # Beyond the device's own allocation (ADR 2667), the device's taken unpinned as the gate runs (ADR
 # 2730): 11.68 to 12.68 MiB over five runs on 2026-11-06, this file's allocation rule.
-peak_anon_mib = 10.5 .. 14.0
+# Moved for ADR 3765, as the first row: 8.590 to 9.238 MiB over the same five runs.
+peak_anon_mib = 7.5 .. 10.5
 # ADR 2244 (see the first row): 1.273 MiB in all twelve children.
 open_anon_mib = 1.0 .. 1.5
 read_kib = 115 .. 121

@@ -419,6 +419,8 @@ fn group_blends(document: &Document, mask: &Dictionary, inherited: &Dictionary) 
         return false;
     };
     let own = document.get_key(&group.dict, "Resources");
+    // A `/Resources` of another type is `FORM_RESOURCES_NOT_A_DICTIONARY`, logged where the group
+    // is run; this only asks ahead what that run will draw from.
     let resources = own.as_dict().unwrap_or(inherited);
     crate::content::resources_blend(document, resources)
 }
@@ -581,6 +583,8 @@ fn backdrop_values(
                 .collect()
         })
         .filter(|values: &Vec<f32>| values.len() == space.components())
+        // A `/BC` that is not n numbers is read as absent, logged by `table_142_faults` as
+        // `SOFT_MASK_BACKDROP_UNUSABLE`.
         .unwrap_or_else(|| space.initial_colour_of(document, stated, &Dictionary::new()))
 }
 
@@ -623,6 +627,10 @@ fn table_142_faults(
                 && items.len() == space.components()
         });
         if numbers != Some(true) {
+            document.record_repair(
+                &crate::repair::SOFT_MASK_BACKDROP_UNUSABLE,
+                pdf_syntax::Site::WholeFile,
+            );
             faults.push(format!(
                 "a soft mask's /BC is not {} numbers, as Table 142 requires of its group's /CS, \
                  so the space's initial colour stands in for it",

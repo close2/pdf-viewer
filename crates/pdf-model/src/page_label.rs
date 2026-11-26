@@ -225,14 +225,9 @@ impl PageLabels {
                         .and_then(|name| Style::read(name.as_bytes())),
                     prefix: prefix(document, dict),
                     // "shall be greater than or equal to 1. Default value: 1." A file writing
-                    // zero or a negative value has said something the clause forbids, and the
-                    // default is the only value it names.
-                    start: document
-                        .get_key(dict, "St")
-                        .as_integer()
-                        .and_then(|value| u32::try_from(value).ok())
-                        .filter(|value| *value >= 1)
-                        .unwrap_or(1),
+                    // zero, a negative value or no integer has said something the clause
+                    // forbids, and the default is the only value it names.
+                    start: start(document, dict),
                 })
             })
             .collect();
@@ -317,6 +312,29 @@ impl PageLabels {
 /// A *text string*, so §7.9.2.2's three encodings apply and `pdf_syntax::text_string` is what
 /// decodes them — the same function §12.7.4.3's field values use, which is why a prefix in
 /// UTF-16BE works without anything here knowing that it is.
+/// Table 161's `/St`: "The value of the numeric portion for the first page label in the range.
+/// Subsequent pages shall be numbered sequentially from this value, which shall be greater than
+/// or equal to 1. Default value: 1."
+///
+/// An `/St` of another type, or below 1, is read as that default and logged as
+/// `PAGE_LABEL_ENTRY_UNUSABLE`.
+fn start(document: &Document, dict: &Dictionary) -> u32 {
+    let stated = document.get_key(dict, "St");
+    let usable = stated
+        .as_integer()
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| *value >= 1);
+    usable.unwrap_or_else(|| {
+        if !stated.is_null() {
+            document.record_repair(
+                &crate::repair::PAGE_LABEL_ENTRY_UNUSABLE,
+                pdf_syntax::Site::WholeFile,
+            );
+        }
+        1
+    })
+}
+
 fn prefix(document: &Document, dict: &Dictionary) -> String {
     match document.get_key(dict, "P") {
         Object::String(bytes) => document.text_string(&bytes, pdf_syntax::Site::WholeFile),

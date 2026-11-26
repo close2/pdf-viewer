@@ -1001,9 +1001,17 @@ fn field_read_only(
     widget: &Dictionary,
     view: crate::view::AnnotationView<'_>,
 ) -> bool {
-    let stated = crate::inheritance::Inherited::of(document, widget)
-        .integer(document, "Ff")
-        .unwrap_or_default();
+    // Table 226: `/Ff` is "Default value: 0"; one of another type is read as that default.
+    let inherited = crate::inheritance::Inherited::of(document, widget);
+    let stated = inherited.integer(document, "Ff").unwrap_or_else(|| {
+        if !inherited.get(document, "Ff").is_null() {
+            document.record_repair(
+                &crate::repair::FIELD_ENTRY_UNUSABLE,
+                pdf_syntax::Site::WholeFile,
+            );
+        }
+        0
+    });
     let flags = match view.value {
         crate::view::FieldValue::Imported { flags, .. } => flags.applied_to(stated),
         _ => stated,
@@ -2018,14 +2026,23 @@ fn fixed_print(
     let upright = upright.map(|value| value * cancel);
 
     // Table 194: "1.0 represents 100% and 0.0 represents 0%", with the default 0 for both, and
-    // the media's own corner is where a percentage of its width is measured from.
+    // the media's own corner is where a percentage of its width is measured from. An entry of
+    // another type is read as that default, and logged.
     let percentage = |key: &'static str| {
-        document
-            .get_key(fixed, key)
+        let stated = document.get_key(fixed, key);
+        let usable = stated
             .as_number()
             .map(narrow)
-            .filter(|value| value.is_finite())
-            .unwrap_or_default()
+            .filter(|value| value.is_finite());
+        usable.unwrap_or_else(|| {
+            if !stated.is_null() {
+                document.record_repair(
+                    &crate::repair::ANNOTATION_ENTRY_UNUSABLE,
+                    pdf_syntax::Site::WholeFile,
+                );
+            }
+            0.0
+        })
     };
     let across = media[0] + percentage("H") * (media[2] - media[0]);
     let up = media[1] + percentage("V") * (media[3] - media[1]);

@@ -204,6 +204,7 @@ pub fn transition(document: &Document, page: &Dictionary) -> Option<Transition> 
             .as_name()
             .cloned()
     };
+    // not a repair: an absent key is looked up as null, as above.
     let number = |key: &str| {
         document
             .resolve(dict.get(key).unwrap_or(&Object::Null))
@@ -362,6 +363,7 @@ pub fn steps(document: &Document, page: &Dictionary) -> Vec<Node> {
                 .and_then(|entry| entry.as_number())
                 .map(narrow),
         });
+        // not a repair: Table 165's `/Next` is optional, and an absent one ends the steps.
         entry = node.get("Next").cloned().unwrap_or(Object::Null);
     }
     out

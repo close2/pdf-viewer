@@ -575,6 +575,8 @@ impl<'a> Parser<'a> {
         };
         let mut start = past_end_of_line(input, keyword_end.saturating_add(skipped));
 
+        // A `/Length` that is no non-negative integer states no extent, and the data is then cut
+        // at `endstream` and logged as `STREAM_EXTENT_FROM_ENDSTREAM` below.
         let declared = dict
             .get("Length")
             .and_then(Object::as_integer)
@@ -825,6 +827,7 @@ pub(crate) fn endstream_examined(input: &[u8], offset: usize) -> (bool, usize) {
         .iter()
         .position(|&byte| !crate::lexer::is_whitespace(byte))
         .unwrap_or(rest.len());
+    // not a repair: `trimmed` is at most `rest`'s length, so the slice always exists.
     let follows = rest
         .get(trimmed..)
         .unwrap_or_default()

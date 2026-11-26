@@ -112,6 +112,9 @@ pub(crate) fn selected(document: &Document, page: Option<&Dictionary>) -> Option
             return first_usable(document, &own);
         }
     }
+    // not a repair: an unreadable catalog declines (None), the answer for a document with no
+    //   `/OutputIntents`; the catalog's own failure is recorded where the page tree reads it
+    //   (CATALOG_UNREADABLE).
     let catalog = document.catalog().ok()?;
     first_usable(document, &document.get_key(&catalog, "OutputIntents"))
 }
@@ -208,6 +211,7 @@ fn first_usable(document: &Document, intents: &Object) -> Option<Selected> {
 /// starts and an open never does.
 #[must_use]
 pub fn in_force_on_pages(document: &Document) -> Vec<OutputIntent> {
+    // not a repair: an unreadable catalog declines, as in `selected` (CATALOG_UNREADABLE).
     let catalog = document
         .catalog()
         .ok()
