@@ -25,6 +25,12 @@
 //! `TrueType` font's unknown `/Encoding` name is one, since this reader selects its glyphs by
 //! another route once the entry is absent — and, through the output's own check, a font written
 //! directly inside another object, which this pass does not reach.
+//!
+//! **A nonsymbolic `TrueType` font naming the standard encoding is passed over** (ADR 3753): the
+//! validator reports that name under `fonts/non-symbolic-truetype-uses-a-standard-encoding`
+//! rather than this row, and `standard-truetype-encoding`'s rewrite restates it as one of the two
+//! names ISO 19005 admits, proved code by code; removing it here would move the font onto the
+//! route the proof above refuses.
 
 use std::collections::BTreeMap;
 
@@ -88,8 +94,9 @@ pub(super) fn restated(document: &Document) -> Result<Restated, Because> {
             ));
         }
         let encoding_at = font.get("Encoding").and_then(Object::as_reference);
+        let truetype = nonsymbolic_truetype(document, &font);
         match document.resolve(font.get("Encoding").unwrap_or(&Object::Null)) {
-            Object::Name(name) if simple(document, &font) && !predefined(&name) => {
+            Object::Name(name) if simple(document, &font) && !predefined(&name, truetype) => {
                 written.remove("Encoding");
                 lines.push(format!(
                     "object {} {}: Encoding /{} removed",
@@ -99,7 +106,7 @@ pub(super) fn restated(document: &Document) -> Result<Restated, Because> {
                 ));
             }
             Object::Dictionary(encoding) => {
-                if let Some(read) = encoding_as_read(document, &encoding) {
+                if let Some(read) = encoding_as_read(document, &encoding, truetype) {
                     lines.push(format!(
                         "object {} {}: Encoding {}",
                         id.number, id.generation, read.1
@@ -139,13 +146,17 @@ pub(super) fn restated(document: &Document) -> Result<Restated, Because> {
 }
 
 /// An encoding dictionary as this reader read it, and the line that says what changed; `None`
-/// where nothing was read past.
-fn encoding_as_read(document: &Document, encoding: &Dictionary) -> Option<(Dictionary, String)> {
+/// where nothing was read past. `truetype` is [`nonsymbolic_truetype`] of the font naming it.
+fn encoding_as_read(
+    document: &Document,
+    encoding: &Dictionary,
+    truetype: bool,
+) -> Option<(Dictionary, String)> {
     let mut written = encoding.clone();
     let mut changed = Vec::new();
     if let Object::Name(name) =
         document.resolve(encoding.get("BaseEncoding").unwrap_or(&Object::Null))
-        && !predefined(&name)
+        && !predefined(&name, truetype)
     {
         written.remove("BaseEncoding");
         changed.push(format!(
@@ -245,9 +256,34 @@ fn simple(document: &Document, font: &Dictionary) -> bool {
     )
 }
 
-/// Whether `name` is one of the encodings `pdf_font` reads by name.
-fn predefined(name: &Name) -> bool {
+/// Whether `name` is left as written: one of the encodings `pdf_font` reads by name, or the
+/// standard encoding's on a nonsymbolic `TrueType` font, which `standard-truetype-encoding`
+/// restates instead (ADR 3753).
+fn predefined(name: &Name, truetype: bool) -> bool {
     PERMITTED_ENCODING_NAMES.contains(&name.as_bytes())
+        || (truetype && name.as_bytes() == b"StandardEncoding")
+}
+
+/// Whether the font is a `TrueType` font whose descriptor states its flags and clears Table 121's
+/// Symbolic flag: the population of the validator's row for a nonsymbolic `TrueType` font's
+/// encoding, decided as that row decides it.
+fn nonsymbolic_truetype(document: &Document, font: &Dictionary) -> bool {
+    /// Table 121's bit position 3, counting from one as the specification does.
+    const SYMBOLIC: u32 = 1 << 2;
+
+    let is_truetype = matches!(
+        document.resolve(font.get("Subtype").unwrap_or(&Object::Null)),
+        Object::Name(name) if name.as_bytes() == b"TrueType"
+    );
+    let Object::Dictionary(descriptor) = document.get_key(font, "FontDescriptor") else {
+        return false;
+    };
+    is_truetype
+        && document
+            .get_key(&descriptor, "Flags")
+            .as_integer()
+            .is_some()
+        && pdf_font::descriptor_flags(document, &descriptor) & SYMBOLIC == 0
 }
 
 /// A value the report can name: a name as itself, anything else by its kind.

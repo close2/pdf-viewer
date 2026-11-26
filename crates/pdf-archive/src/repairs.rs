@@ -274,6 +274,15 @@ pub static MAPPING: &[Mapped] = &[
     base("font/cmap-damaged"),
     rows("font/differences-malformed", &[MAPS_READ]),
     rows("font/encoding-name-unknown", &[MAPS_READ]),
+    // Table D.1's name (ADR 3753), read as no base encoding as an unknown name is. On a
+    // nonsymbolic TrueType font it is the name section 6.2.11.6 asks to be MacRomanEncoding or
+    // WinAnsiEncoding, which that row reports on its own and the converter's TrueType rewrite
+    // restates; on every other font it is a map restated as read. The class cannot say which
+    // font it was made on, so `fonts/font-maps-read-as-written` reads that from the file.
+    rows(
+        "font/encoding-name-standard",
+        &[MAPS_READ, TRUETYPE_ENCODING],
+    ),
     // The widths. Section 6.2.11.5's row compares the widths the dictionary states with the
     // program's, and a malformed entry the reader read as the missing width is one the row
     // compared without the file stating it; it reads these at the fonts a content stream renders.
@@ -293,6 +302,10 @@ pub(crate) const EMBEDDED: &str = "fonts/font-programs-embedded";
 /// an `/Encoding` or `/BaseEncoding` name the base standard does not predefine, a malformed
 /// `/Differences` (ADR 3570).
 pub(crate) const MAPS_READ: &str = "fonts/font-maps-read-as-written";
+
+/// Section 6.2.11.6's row: a nonsymbolic `TrueType` font names one of the two encodings ISO 19005
+/// admits for it.
+pub(crate) const TRUETYPE_ENCODING: &str = "fonts/non-symbolic-truetype-uses-a-standard-encoding";
 
 /// Section 6.2.11.5's row: the widths the dictionary states agree with the program's.
 pub(crate) const WIDTHS_AGREE: &str = "fonts/widths-agree-with-the-program";
@@ -363,9 +376,16 @@ pub fn rows_named() -> BTreeSet<&'static str> {
 pub(crate) fn record_logged(exam: &Examination<'_>, row: &str, findings: &mut Findings) {
     exam.read_whole();
     for repair in exam.document.repairs() {
-        if breaches_row(repair.class.name, row) {
-            findings.record(place(&repair), what(&repair));
-        }
+        record_repair(&repair, row, findings);
+    }
+}
+
+/// Records `repair` against the requirement `row` where its class breaches it: one entry of
+/// [`record_logged`], for a row that passes over some repairs of a class by what it reads from
+/// the file.
+pub(crate) fn record_repair(repair: &Repair, row: &str, findings: &mut Findings) {
+    if breaches_row(repair.class.name, row) {
+        findings.record(place(repair), what(repair));
     }
 }
 

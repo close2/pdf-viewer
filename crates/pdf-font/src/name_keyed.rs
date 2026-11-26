@@ -308,7 +308,7 @@ mod cff_encoding_tests {
     /// refused by name; Annex D.4's table arrived and it is not.
     ///
     /// The two lists still answer different questions — *may a font say this* and *does this
-    /// crate have the table* — and this asserts that they currently give the same four answers,
+    /// crate have the table* — and this asserts that every name the first holds the second has,
     /// which is what makes [`crate::FontError::UnsupportedEncoding`] a branch with no member
     /// rather than a report that fires. A later edition adding a fifth permitted name would
     /// fail here rather than start refusing fonts quietly.
@@ -327,6 +327,28 @@ mod cff_encoding_tests {
                 String::from_utf8_lossy(name)
             );
         }
+    }
+
+    /// ISO 32000-2 §D.1, Table D.1:
+    ///
+    /// > PDF processors shall not have a predefined encoding named StandardEncoding.
+    ///
+    /// The name draws what no entry draws, as `/NULL` does, and is logged under a class of its
+    /// own rather than as an unknown name (ADR 3753).
+    #[test]
+    fn the_standard_encodings_name_is_no_encoding_and_is_logged_as_itself() {
+        let (own, own_names) = resolve("");
+        let (document, dict) = font_dictionary("/Encoding /StandardEncoding");
+        let (table, names) =
+            simple_code_table(&document, &dict, &fixture(), "F1").expect("the fixture resolves");
+        assert_eq!(table, own);
+        assert_eq!(names[65], own_names[65]);
+        let logged: Vec<_> = document
+            .repairs()
+            .into_iter()
+            .map(|repair| repair.class.name)
+            .collect();
+        assert_eq!(logged, [crate::repair::ENCODING_NAME_STANDARD.name]);
     }
 
     /// Whether [`crate::encoding::BaseEncoding`] has a table for this name.

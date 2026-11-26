@@ -646,19 +646,21 @@ fn matrix(document: &Document, dict: &Dictionary) -> Option<Transform> {
 ///
 /// So a Type 3 font whose `/Encoding` is `/WinAnsiEncoding` still has its mapping "entirely
 /// defined by its Encoding entry" (§9.6.5.3) — Annex D's table defines it — and step b) then
-/// looks each name up in `/CharProcs` like any other. `StandardEncoding` is accepted beside
-/// the three §9.6.5.1 lists, which is the same deliberate extra `pdf_font`'s
-/// `PERMITTED_ENCODING_NAMES` documents for simple fonts and the same leniency the
-/// `/BaseEncoding` arm below already takes.
+/// looks each name up in `/CharProcs` like any other. The standard encoding is not among
+/// them, and ISO 32000-2 §D.1's Table D.1 says of its name:
+///
+/// > PDF processors shall not have a predefined encoding named StandardEncoding.
+///
+/// so a Type 3 font naming it, as its `/Encoding` or its `/BaseEncoding`, has named no table,
+/// read and noted as every simple font's is (`pdf_font`'s `PERMITTED_ENCODING_NAMES`, ADR 3753).
 fn encoding(document: &Document, dict: &Dictionary) -> BTreeMap<u8, Name> {
     let mut table = BTreeMap::new();
     let entry = document.get_key(dict, "Encoding");
 
-    if let Some(base) = entry
-        .as_name()
-        .and_then(|name| pdf_font::encoding::BaseEncoding::by_name(name.as_bytes()))
-    {
-        fill_from(&mut table, base);
+    if let Some(name) = entry.as_name() {
+        if let Some(base) = predefined(document, dict, name) {
+            fill_from(&mut table, base);
+        }
         return table;
     }
 
@@ -666,10 +668,8 @@ fn encoding(document: &Document, dict: &Dictionary) -> BTreeMap<u8, Name> {
         return table;
     };
 
-    if let Some(base) = document
-        .get_key(encoding, "BaseEncoding")
-        .as_name()
-        .and_then(|name| pdf_font::encoding::BaseEncoding::by_name(name.as_bytes()))
+    if let Some(name) = document.get_key(encoding, "BaseEncoding").as_name()
+        && let Some(base) = predefined(document, dict, name)
     {
         fill_from(&mut table, base);
     }
@@ -794,6 +794,24 @@ fn entry_site(dict: &Dictionary, key: &str) -> pdf_syntax::Site {
     dict.get(key)
         .and_then(Object::as_reference)
         .map_or(pdf_syntax::Site::WholeFile, pdf_syntax::Site::Object)
+}
+
+/// The table a named encoding stands for, where Table 109's list holds the name; the standard
+/// encoding's name is noted as the one Table D.1 says no processor has (ADR 3753).
+fn predefined(
+    document: &Document,
+    dict: &Dictionary,
+    name: &Name,
+) -> Option<pdf_font::encoding::BaseEncoding> {
+    if name.as_bytes() == b"StandardEncoding" {
+        noted(
+            document,
+            &pdf_font::repair::ENCODING_NAME_STANDARD,
+            entry_site(dict, "Encoding"),
+        );
+        return None;
+    }
+    pdf_font::encoding::BaseEncoding::by_name(name.as_bytes())
 }
 
 /// Writes every code a predefined encoding names into the table.

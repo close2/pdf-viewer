@@ -105,10 +105,18 @@ classes! {
     DIFFERENCES_MALFORMED = "font/differences-malformed", "ISO 32000-2 §9.6.5.1",
         "a /Differences array with an element that is neither an integer nor a name, or a name \
          before any code, was read with that element skipped";
-    /// An `/Encoding` or `/BaseEncoding` name outside the three the clause permits.
+    /// An `/Encoding` or `/BaseEncoding` name outside the three the clause permits, other than
+    /// the standard encoding's, which is [`ENCODING_NAME_STANDARD`].
     ENCODING_NAME_UNKNOWN = "font/encoding-name-unknown", "ISO 32000-2 §9.6.5.1",
         "an /Encoding or /BaseEncoding naming none of the predefined encodings was read as no \
          base encoding, the program's own standing in its place";
+    /// An `/Encoding` or `/BaseEncoding` naming the standard encoding, which Table D.1 says no
+    /// processor has a predefined encoding under (ADR 3753). A class of its own because what it
+    /// breaches depends on the font: a nonsymbolic `TrueType` font's name is the one ISO 19005
+    /// asks it to restate as a predefined one.
+    ENCODING_NAME_STANDARD = "font/encoding-name-standard", "ISO 32000-2 §D.1",
+        "an /Encoding or /BaseEncoding naming StandardEncoding was read as no base encoding, \
+         the program's own standing in its place";
     /// A font descriptor's `/FontWeight` or `/FontStretch` stated as no value Table 120 admits.
     DESCRIPTOR_STYLE_UNUSABLE = "font/descriptor-style-unusable", "ISO 32000-2 §9.8.1",
         "a /FontWeight outside 1 to 1000 or a /FontStretch Table 120 does not name was read as \

@@ -12,7 +12,7 @@
   "code": "crates/pdf-font/src/glyph_names.rs:76-89 (PERMITTED_ENCODING_NAMES), :112 (base_encoding); crates/pdf-font/src/encoding.rs:54 (BaseEncoding::by_name)",
   "change": "Treat /StandardEncoding as Table 109 treats any other unlisted name (no /Encoding, the built-in encoding standing, noted as the existing ENCODING_NAME_UNKNOWN repair or a class of its own); keep BaseEncoding::Standard for the fallbacks §9.6.5.1 and §9.6.5.4 name. A question to the owner first if a corpus census finds producers relying on the name over a non-standard built-in encoding.",
   "execution": "crates/pdf-font/tests/annex_d_encodings_spec_audit.rs::standard_encoding_is_no_predefined_encoding_spec_audit fails on main (left None, right Some(1)); both controls pass.",
-  "status": "open (doc/questions/Q1082: reading the name as absent moves no page but moves a TrueType font naming it off the archive's mechanical TrueType rewrite onto a loss)"
+  "status": "fixed (round 2263, ADR 3753, the owner's A1082 option 1)"
  },
  {
   "id": "2260-B02",

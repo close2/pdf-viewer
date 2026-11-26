@@ -20,12 +20,6 @@
    "test": "rendering_10_5_10_8_spec_audit::a_grey_on_the_simulated_press_takes_the_gray_transfer_function_alone_spec_audit",
    "finding": "2248-B04",
    "log": "round-2248 nextest of pdf-model"
-  },
-  {
-   "binary": "pdf-font::annex_d_encodings_spec_audit",
-   "test": "standard_encoding_is_no_predefined_encoding_spec_audit",
-   "finding": "2260-B01",
-   "log": "round-2260 nextest of pdf-font"
   }
  ],
  "no_longer_failing": [

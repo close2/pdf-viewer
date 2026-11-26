@@ -685,3 +685,21 @@ fn a_box_colour_info_entry_out_of_its_table_is_logged() {
         []
     );
 }
+
+/// ISO 32000-2 §D.1, Table D.1:
+///
+/// > PDF processors shall not have a predefined encoding named StandardEncoding.
+///
+/// A Type 3 font's `/BaseEncoding` naming it names no table, and is logged under the class every
+/// simple font's is (ADR 3753); its `/Differences` still name its glyphs.
+#[test]
+fn a_type3_base_encoding_naming_the_standard_encoding_is_logged() {
+    has(
+        &type3_page(
+            "/FirstChar 97 /LastChar 98 /Widths [500 500]",
+            "[97 /a /b] /BaseEncoding /StandardEncoding",
+        ),
+        &pdf_font::repair::ENCODING_NAME_STANDARD,
+        Site::WholeFile,
+    );
+}

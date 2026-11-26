@@ -47,7 +47,11 @@ impl BaseEncoding {
     /// Looks up a base encoding by the name `/Encoding` or `/BaseEncoding` uses.
     ///
     /// Returns `None` for a name with no table here, which since Annex D.4 arrived is every
-    /// name outside the four Table 109 and Table 112 permit.
+    /// name outside the three Table 109 and Table 112 permit and the standard encoding's.
+    ///
+    /// The standard encoding has a table because §9.6.5.1 and §9.6.5.4 fill a font's undefined
+    /// codes from it; a font may not *name* it (Table D.1), which is
+    /// `glyph_names::PERMITTED_ENCODING_NAMES`'s question and not this one's (ADR 3753).
     #[must_use]
     pub fn by_name(name: &[u8]) -> Option<Self> {
         match name {

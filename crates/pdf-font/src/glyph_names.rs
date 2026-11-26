@@ -73,25 +73,28 @@ pub(crate) fn encoding_names(
 /// > MacRomanEncoding, MacExpertEncoding , or WinAnsiEncoding , as described in Annex D,
 /// > "Character sets and encodings") or an encoding dictionary
 ///
-/// `StandardEncoding` is not on the table's list, and ISO 32000-2 §D.1's Table D.1 says of the
-/// name:
+/// The standard encoding is not on the table's list, and Table D.1 says of its name, in
+/// ISO 32000-2 §D.1:
 ///
 /// > PDF processors shall not have a predefined encoding named StandardEncoding.
 ///
-/// Accepting it here is therefore a departure from that `shall`, held as it stands while the
-/// owner decides `doc/questions/Q1082`: reading the name as absent leaves every corpus page drawn
-/// as it is (`examples/standard_encoding_census.rs`), but it moves a `TrueType` font naming it
-/// off the archive conversion's mechanical `TrueType` rewrite and onto a loss. The list exists
-/// separately from [`BaseEncoding::by_name`] because the two answer different questions, *may a
-/// font say this* and *does this crate have the table*; today they give the same four answers,
-/// and `an_encoding_name_the_table_does_not_permit_is_no_encoding_at_all` asserts every name
-/// here has a table.
-pub const PERMITTED_ENCODING_NAMES: [&[u8]; 4] = [
-    b"StandardEncoding",
+/// So a font naming it has named no encoding, and `base_encoding` reads it as it reads any
+/// other name the table does not list, noting it under a class of its own
+/// (`font/encoding-name-standard`, ADR 3753) because a validator answers it
+/// differently from a name that means nothing at all. [`BaseEncoding::by_name`] still knows the
+/// name: §9.6.5.1 and §9.6.5.4 fill a font's undefined codes from the standard encoding, and
+/// a Type 3 font's `/BaseEncoding` is read through the same table and the same refusal of the
+/// name. The two lists answer different questions, *may a font say this* and *does this crate
+/// have the table*; `an_encoding_name_the_table_does_not_permit_is_no_encoding_at_all` asserts
+/// every name here has a table.
+pub const PERMITTED_ENCODING_NAMES: [&[u8]; 3] = [
     b"MacRomanEncoding",
     b"MacExpertEncoding",
     b"WinAnsiEncoding",
 ];
+
+/// The name Table D.1 says no processor has an encoding under.
+pub(crate) const STANDARD_ENCODING_NAME: &[u8] = b"StandardEncoding";
 
 /// Reads the base encoding a font dictionary names, if it names one.
 ///
@@ -100,7 +103,7 @@ pub const PERMITTED_ENCODING_NAMES: [&[u8]; 4] = [
 /// Table 109 makes `/Encoding` **optional** and says what its absence means in the same cell —
 /// it is "\[a] specification of the font's character encoding **if different from its built-in
 /// encoding**" — so a font that states nothing readable there has stated nothing, and the
-/// built-in encoding stands. A name outside the four above is therefore treated as absent
+/// built-in encoding stands. A name outside the three above is therefore treated as absent
 /// rather than refused: refusing draws no text at all where the clause states which text to
 /// draw, which is ADR 0106's rule about an optional entry erasing what a clause requires.
 /// `bug859204.pdf` writes `/Encoding /NULL` on an embedded Type 1 program and lost its whole
@@ -132,11 +135,12 @@ pub(crate) fn base_encoding(
     match named {
         None => Ok(None),
         Some(named) if !PERMITTED_ENCODING_NAMES.contains(&named.as_slice()) => {
-            crate::repair::noted(
-                document,
-                &crate::repair::ENCODING_NAME_UNKNOWN,
-                crate::repair::site(dict, "Encoding"),
-            );
+            let class = if named == STANDARD_ENCODING_NAME {
+                &crate::repair::ENCODING_NAME_STANDARD
+            } else {
+                &crate::repair::ENCODING_NAME_UNKNOWN
+            };
+            crate::repair::noted(document, class, crate::repair::site(dict, "Encoding"));
             Ok(None)
         }
         Some(named) => {

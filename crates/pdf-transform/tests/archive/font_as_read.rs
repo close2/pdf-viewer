@@ -152,6 +152,56 @@ fn an_unknown_encoding_the_proof_does_not_hold_for_is_refused_by_name() {
     assert!(output.is_none());
 }
 
+/// ISO 32000-2 §D.1, Table D.1:
+///
+/// > PDF processors shall not have a predefined encoding named StandardEncoding.
+///
+/// On a nonsymbolic TrueType font the name is the one ISO 19005-2 section 6.2.11.6 asks to be
+/// `MacRomanEncoding` or `WinAnsiEncoding`, so it is that row's and not this one's (ADR 3753):
+/// the font-maps row passes, and the TrueType rewrite restates the name.
+#[test]
+fn a_nonsymbolic_truetype_fonts_standard_encoding_is_the_truetype_rows() {
+    let source = a_page_in(LIBERATION_SANS, "/Encoding /StandardEncoding");
+    assert!(!fails(&source, "fonts/font-maps-read-as-written"));
+    assert!(fails(
+        &source,
+        "fonts/non-symbolic-truetype-uses-a-standard-encoding"
+    ));
+    let (report, output) = convert(&source, TARGET, authorised_by("as-if-printed"));
+    assert_eq!(
+        decision(
+            &report,
+            "fonts/non-symbolic-truetype-uses-a-standard-encoding"
+        ),
+        Decision::Mechanical(Rewrite::StandardTrueTypeEncoding)
+    );
+    let output = written(&report, output);
+    let held = holds(&output, TARGET);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+}
+
+/// The same name on a Type 1 font is a map this reader read past (ADR 3753): Table D.1 leaves the
+/// font's built-in encoding standing, which is the font-maps row's to restate.
+#[test]
+fn a_type1_fonts_standard_encoding_is_a_map_read_past() {
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        contents: Some((String::new(), b"BT /F1 12 Tf 10 100 Td (A) Tj ET".to_vec())),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /FirstChar 65 /LastChar 65 \
+             /Widths [667] /FontDescriptor 7 0 R /Encoding /StandardEncoding >>"
+                .to_owned(),
+            "<< /Type /FontDescriptor /FontName /Helvetica /Flags 32 \
+             /FontBBox [-166 -225 1000 931] /ItalicAngle 0 /Ascent 718 /Descent -207 \
+             /CapHeight 718 /StemV 88 >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    assert!(fails(&source, "fonts/font-maps-read-as-written"));
+}
+
 #[test]
 fn nothing_is_restated_without_the_loss() {
     let source = a_page_in(LIBERATION_SANS, "/ToUnicode /Identity-H");

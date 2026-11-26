@@ -1932,8 +1932,47 @@ fn font_programs_embedded(exam: &Examination<'_>, findings: &mut Findings) {
 /// ISO 19005-2 section 5.1, ISO 19005-4 section 5.1, through ISO 32000-2 §9.10.3 and §9.6.5.1:
 /// every font map this reader read past, from its log (ADR 3570). The population is the file's,
 /// as section 5.1's is, so a font no page renders is named too.
+///
+/// **A nonsymbolic `TrueType` font naming the standard encoding is not this row's** (ADR 3753):
+/// section 6.2.11.6 asks that font to name `MacRomanEncoding` or `WinAnsiEncoding`, which
+/// [`non_symbolic_truetype_uses_a_standard_encoding`] reports and the converter's `TrueType`
+/// rewrite answers by restating the name, where restating it as read would move the font onto
+/// another of §9.6.5.4's routes. The reader places the repair where `pdf_font` places every
+/// encoding repair — the `/Encoding` object, else the descriptor — so a repair placed where only
+/// such fonts are is passed over here.
 fn font_maps_read_as_written(exam: &Examination<'_>, findings: &mut Findings) {
-    crate::repairs::record_logged(exam, crate::repairs::MAPS_READ, findings);
+    let document = exam.document;
+    let mut truetype = BTreeSet::new();
+    let mut other = BTreeSet::new();
+    for_each_font(exam, |_, font| {
+        if base_encoding_name(document, font).as_deref() != Some("StandardEncoding") {
+            return;
+        }
+        let Some(at) = font
+            .get("Encoding")
+            .and_then(Object::as_reference)
+            .or_else(|| font.get("FontDescriptor").and_then(Object::as_reference))
+        else {
+            return;
+        };
+        if subtype(document, font).as_deref() == Some("TrueType")
+            && is_symbolic(document, font) == Some(false)
+        {
+            truetype.insert(at);
+        } else {
+            other.insert(at);
+        }
+    });
+    let answered_elsewhere: BTreeSet<ObjectId> = truetype.difference(&other).copied().collect();
+    exam.read_whole();
+    for repair in document.repairs() {
+        if repair.class.name == pdf_font::repair::ENCODING_NAME_STANDARD.name
+            && matches!(repair.at, pdf_syntax::Site::Object(id) if answered_elsewhere.contains(&id))
+        {
+            continue;
+        }
+        crate::repairs::record_repair(&repair, crate::repairs::MAPS_READ, findings);
+    }
 }
 
 /// §9.9's Table 120 keys a descriptor names its embedded program under.

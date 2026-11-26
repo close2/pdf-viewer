@@ -11,13 +11,22 @@
 //! its glyph name, looked up in the CFF charset. So the retyped font keeps every glyph only where
 //! each code's name is the name of the glyph it drew, and §9.6.5.1's Table 112 makes a
 //! `/Differences` array the place a name is given to a code. Every code that drew a glyph is given
-//! that glyph's charset name, `.notdef` for glyph 0 among them; a code that drew none is left to a
-//! base encoding stated as `StandardEncoding` rather than to the program's own, so that what it
-//! reaches is the clause's to say and the comparison below decides whether it still reaches
-//! nothing — `StandardEncoding` names no glyph at the codes a font most often leaves unmapped,
-//! 0 to 31 among them. Nothing else in the dictionary
-//! changes: `/Widths`, `/FirstChar`, `/LastChar` and the descriptor's `/MissingWidth` mean the same
-//! under both subtypes (Table 109), and `/ToUnicode` is the producer's.
+//! that glyph's charset name, `.notdef` for glyph 0 among them; a code that drew none is left to
+//! the base encoding, and the comparison below decides whether it still reaches nothing.
+//!
+//! **The base is the first of four that keeps every such code on nothing**: none, so that Table
+//! 112 makes the program's built-in encoding the base, then `WinAnsiEncoding`,
+//! `MacRomanEncoding` and `MacExpertEncoding`, the three Table 109 permits. In this reader an
+//! empty slot of a named base reaches no glyph, and a slot naming a glyph the charset lacks
+//! reaches none either, so a named base often holds where a program's own encoding fills the
+//! codes the producer left unmapped. The standard encoding, which leaves 0 to 31 and 127 to 160
+//! empty, is not among them, because Table D.1 says of it (ADR 3753), in ISO 32000-2 §D.1:
+//!
+//! > PDF processors shall not have a predefined encoding named StandardEncoding.
+//!
+//! Nothing else in the dictionary changes: `/Widths`, `/FirstChar`, `/LastChar` and the
+//! descriptor's `/MissingWidth` mean the same under both subtypes (Table 109), and `/ToUnicode` is
+//! the producer's.
 //!
 //! **The glyphs and advances are this reader's**, read through `pdf_font::LoadedFont` for each of
 //! the 256 codes, and the retyped dictionary is loaded again over the same program and compared
@@ -25,7 +34,8 @@
 //!
 //! What refuses, each by a sentence: a font this reader substituted or did not load, or loaded
 //! with metrics only; a glyph the charset gives no name of its own; a retyped font that would
-//! draw a code otherwise, a code that drew nothing and that `StandardEncoding` names among them.
+//! draw a code otherwise under every base, a code that drew nothing and that each base names
+//! among them.
 
 use pdf_font::LoadedFont;
 use pdf_syntax::Document;
@@ -76,30 +86,45 @@ pub(super) fn encoding(
         }
         differences.push(Object::Name(Name::new(name.as_bytes())));
     }
-    let mut encoding = Dictionary::new();
-    encoding.insert(
-        Name::new(&b"Type"[..]),
-        Object::Name(Name::new(&b"Encoding"[..])),
-    );
-    encoding.insert(
-        Name::new(&b"BaseEncoding"[..]),
-        Object::Name(Name::new(&b"StandardEncoding"[..])),
-    );
-    encoding.insert(Name::new(&b"Differences"[..]), Object::Array(differences));
-    let encoding = Object::Dictionary(encoding);
-    let mut retyped = dict.clone();
-    as_type1(&mut retyped, encoding.clone());
-    let written = loaded(document, &retyped)?;
-    for byte in 0..=u8::MAX {
-        let same_glyph = glyph_of(&source, byte) == glyph_of(&written, byte);
-        let same_advance =
-            advance_of(&source, byte).to_bits() == advance_of(&written, byte).to_bits();
-        if !same_glyph || !same_advance {
-            return Err(Because::NotBuiltYet(DRAWN_OTHERWISE));
+    for base in BASES {
+        let mut encoding = Dictionary::new();
+        encoding.insert(
+            Name::new(&b"Type"[..]),
+            Object::Name(Name::new(&b"Encoding"[..])),
+        );
+        if let Some(base) = base {
+            encoding.insert(
+                Name::new(&b"BaseEncoding"[..]),
+                Object::Name(Name::new(base)),
+            );
+        }
+        encoding.insert(
+            Name::new(&b"Differences"[..]),
+            Object::Array(differences.clone()),
+        );
+        let encoding = Object::Dictionary(encoding);
+        let mut retyped = dict.clone();
+        as_type1(&mut retyped, encoding.clone());
+        let written = loaded(document, &retyped)?;
+        let drawn_alike = (0..=u8::MAX).all(|byte| {
+            glyph_of(&source, byte) == glyph_of(&written, byte)
+                && advance_of(&source, byte).to_bits() == advance_of(&written, byte).to_bits()
+        });
+        if drawn_alike {
+            return Ok(encoding);
         }
     }
-    Ok(encoding)
+    Err(Because::NotBuiltYet(DRAWN_OTHERWISE))
 }
+
+/// The base encodings a retyped font is tried under, in order: none, the program's built-in
+/// encoding standing, then the three names Table 109 permits.
+const BASES: [Option<&[u8]>; 4] = [
+    None,
+    Some(b"WinAnsiEncoding"),
+    Some(b"MacRomanEncoding"),
+    Some(b"MacExpertEncoding"),
+];
 
 /// Writes `dict` as the `Type1` font over the same program, its codes named by `encoding`.
 pub(in crate::archive) fn as_type1(dict: &mut Dictionary, encoding: Object) {
