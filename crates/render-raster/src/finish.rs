@@ -27,8 +27,9 @@ pub(crate) enum Plane {
     /// A plane of ink — the page itself, §11.4.7's black list or one of §10.8.3's spot planes —
     /// whose cost is the page's.
     Ink,
-    /// §11.7.5.2's object shapes, which `pdf_render::resolve_transfers` draws to choose each
-    /// pixel's function, and whose cost is not a page's.
+    /// §11.7.5.2's object shapes, which `pdf_render::resolve_transfers` and
+    /// `pdf_render::resolve_press_transfers` draw to choose each pixel's function, and whose cost
+    /// is not a page's.
     Shapes,
 }
 
@@ -51,7 +52,8 @@ pub(crate) fn needs_finishing(list: &DisplayList) -> bool {
 /// Finishes `data`, the page `list` drawn at `target` as straight-alpha RGBA8 by `draw`, in the
 /// order the clauses put the passes: §11.4.7's and §10.8.3's conversions over the premultiplied
 /// raster, §14.11.2.1's crop, §11.4.7's medium under the result, and §10.5's transfer functions
-/// last of all. `imposed` says the device already composited the page onto its medium and crop
+/// last of all on the screen — on §10.8.3's simulated press they go on the planes, before the
+/// conversion (ADR 3769). `imposed` says the device already composited the page onto its medium and crop
 /// (ADR 2150), which it does only for a page that does not [`convert`](converts).
 ///
 /// `draw` is asked for every further list at the same target: §11.4.7's black list and §10.8.3's
@@ -101,12 +103,35 @@ pub(crate) fn finish(
         if let Some((space, black)) = four_components {
             let mut ink = draw(black, Plane::Ink)?;
             premultiply(&mut ink);
+            // §10.8.3's spot planes: every one is one more whole render against the same device.
+            let mut spots = match list.separation() {
+                Some(separation) => spot_planes(separation, &mut draw)?,
+                None => Vec::new(),
+            };
+            // ISO 32000-2 §10.5 on §10.8.3's simulated press, a CMYK device: "Transfer functions
+            // shall always operate in the native colour space of the output device", so each
+            // plane takes its own function here, before steps b) to d) compose the planes, and
+            // not on the composed colour below (`pdf_render::resolve_press_transfers`, ADR 3769).
+            if let Some(channel) = list
+                .transfers()
+                .filter(|channel| channel.device() == pdf_render::TransferDevice::SimulatedPress)
+            {
+                let mut planes: Vec<&mut [u8]> = spots.iter_mut().map(Vec::as_mut_slice).collect();
+                pdf_render::resolve_press_transfers(
+                    channel,
+                    list,
+                    target,
+                    data,
+                    &mut ink,
+                    &mut planes,
+                    |shapes| draw(shapes, Plane::Shapes),
+                )?;
+            }
             match list.separation() {
-                // §10.8.3's simulated press on a page naming a spot colourant: every spot plane
-                // is one more whole render against the same device, and steps b) to d) multiply
-                // them in over the read-back (`pdf_render::separation`, ADR 1317).
+                // §10.8.3's simulated press on a page naming a spot colourant: steps b) to d)
+                // multiply the spot planes in over the read-back (`pdf_render::separation`,
+                // ADR 1317).
                 Some(separation) => {
-                    let spots = spot_planes(separation, &mut draw)?;
                     let spots: Vec<&[u8]> = spots.iter().map(Vec::as_slice).collect();
                     pdf_render::resolve_separation(data, &ink, &spots, space, separation);
                 }
@@ -157,7 +182,12 @@ pub(crate) fn finish(
     // colour under it, so `pdf_model` leaves it off the colours and hands the marks' shapes over
     // on the list instead; a shape list is the page's own marks with their paint replaced, and
     // the alpha that comes back *is* §11.7.5.2's object shape.
-    if let Some(channel) = list.transfers() {
+    //
+    // On §10.8.3's simulated press the functions were applied to the planes above instead.
+    if let Some(channel) = list
+        .transfers()
+        .filter(|channel| channel.device() == pdf_render::TransferDevice::Screen)
+    {
         pdf_render::resolve_transfers(channel, list, target, data, |shapes| {
             draw(shapes, Plane::Shapes)
         })?;

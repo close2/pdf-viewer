@@ -82,6 +82,32 @@ impl CpuRasterizer {
         Ok(spots)
     }
 
+    /// One shape list of §11.7.5.2's transfer channel drawn at `target`, for
+    /// `pdf_render::resolve_transfers` and `pdf_render::resolve_press_transfers` to read each
+    /// object's shape off.
+    ///
+    /// Onto transparency and without the medium, so the alpha read back *is* §11.7.5.2's object
+    /// shape — the same path the page itself took, minus the passes that put a colour under it.
+    ///
+    /// # Errors
+    ///
+    /// As [`CpuRasterizer::encode`], and an allocation refused.
+    pub(crate) fn coverage(
+        &self,
+        shapes: &DisplayList,
+        target: TargetSpec,
+        surface: Surface,
+    ) -> Result<Vec<u8>, CpuRasterError> {
+        let mut coverage = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
+            CpuRasterError::Allocation {
+                width: target.width,
+                height: target.height,
+            },
+        )?;
+        self.encode_in_strips(&mut coverage, shapes, surface)?;
+        Ok(coverage.take())
+    }
+
     /// Draws the whole list into `pixmap`, in parallel where the page permits it exactly.
     ///
     /// # Why a strip is not simply a band

@@ -1078,6 +1078,15 @@ fn draw_separated(
                 colourants: colourants.join(", "),
             });
     }
+    let mut list = list;
+    // §10.5 on the simulated device: "Transfer functions shall always operate in the native
+    // colour space of the output device", and a press's is its process and spot colourants, so a
+    // backend applies the functions to the planes before steps b) to d) compose them rather than
+    // to the composed colour (ADR 3769). A page whose group composites in one or three components
+    // has no process plates to apply them on (ADR 1329), and keeps the screen's application.
+    if list.blending().is_some() {
+        list.set_transfer_device(pdf_render::TransferDevice::SimulatedPress);
+    }
     interpretation.display_list = list;
     interpretation.separation = Some(record);
 }

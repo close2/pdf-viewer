@@ -188,15 +188,23 @@ impl Interpreter<'_> {
     /// §11.7.4.3's special mode, [`pdf_render::BlendMode::Overprint`]: a page or isolated group
     /// composited in `DeviceCMYK`, `OPM` 1 and a zero tint among the four
     /// (`Interpreter::overprint_blend`). Everywhere else §8.6.7 NOTE 1 has the parameter ignored
-    /// on this device, which yields the source colour for every component. The components
-    /// §10.5's function maps are the device's three, and §11.7.4.2 says the group's four "are not
-    /// the device's actual process colourants": each device component is converted from all
-    /// four through §10.3's route — a profile's table, or the ink cube standing in for one, in
-    /// which each of the four inks moves all three device components — so a component taken
-    /// from the backdrop reaches all three. Asked
-    /// independently for each, the answer is the same for all of them — opaque for none — and
-    /// the page's default is used wherever such a mark is topmost. It still occludes, because
+    /// on this device, which yields the source colour for every component.
+    ///
+    /// **On the screen**, an RGB device, the components §10.5's function maps are the device's
+    /// three, and §11.7.4.2 says the group's four "are not the device's actual process
+    /// colourants": each device component is converted from all four through §10.3's route — a
+    /// profile's table, or the ink cube standing in for one, in which each of the four inks moves
+    /// all three device components — so a component taken from the backdrop reaches all three.
+    /// Asked independently for each, the answer is the same for all of them — opaque for none —
+    /// and the page's default is used wherever such a mark is topmost. It still occludes, because
     /// its shape is unchanged. ADR 1279.
+    ///
+    /// **On §10.8.3's simulated press**, a CMYK device, the four *are* the device's components and
+    /// a component taken from the backdrop is that one component alone, so the clause's answer
+    /// differs per component: opaque for the components the mark paints, and not for the one it
+    /// keeps. This tree still hands such a mark no function for any component — the screen's
+    /// answer — which on the press is the page's default for the components it paints as well
+    /// (ADR 3771 records it as the departure it is).
     ///
     /// Asked only of a mark that carries a function, so a page that states none pays the one
     /// `Option` test it already paid.
@@ -231,7 +239,17 @@ impl Interpreter<'_> {
         {
             return Arc::clone(map);
         }
-        let mut channels = [[0_u8; 256]; 3];
+        // not a repair: a colour this reader computed, clamped to a byte, not a value the file
+        // states.
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to 0..=255 before the cast, and NaN clamps to the low bound"
+        )]
+        let byte = |out: f32| (out * 255.0).clamp(0.0, 255.0).round() as u8;
+        let mut additive = [[0_u8; 256]; 3];
+        let mut process = [[0_u8; 256]; 4];
+        let mut nonprimary = [0_u8; 256];
         for index in 0..256_usize {
             #[expect(
                 clippy::cast_precision_loss,
@@ -244,21 +262,23 @@ impl Interpreter<'_> {
                 b: value,
                 a: 1.0,
             });
-            for (channel, out) in channels.iter_mut().zip([mapped.r, mapped.g, mapped.b]) {
-                // not a repair: a colour this reader computed, clamped to a byte, not a value the
-                // file states.
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    clippy::cast_sign_loss,
-                    reason = "clamped to 0..=255 before the cast, and NaN clamps to the low bound"
-                )]
-                let byte = (out * 255.0).clamp(0.0, 255.0).round() as u8;
-                if let Some(slot) = channel.get_mut(index) {
-                    *slot = byte;
+            for (table, out) in additive.iter_mut().zip([mapped.r, mapped.g, mapped.b]) {
+                if let Some(slot) = table.get_mut(index) {
+                    *slot = byte(out);
                 }
             }
+            for (table, colourant) in process.iter_mut().zip(crate::transfer::Process::ALL) {
+                if let Some(slot) = table.get_mut(index) {
+                    *slot = byte(transfer.on_the_press(colourant, value));
+                }
+            }
+            if let Some(slot) = nonprimary.get_mut(index) {
+                *slot = byte(transfer.on_a_spot_colourant(value));
+            }
         }
-        let map = Arc::new(pdf_render::TransferMap::from_samples(channels));
+        let map = Arc::new(pdf_render::TransferMap::from_samples(
+            additive, process, nonprimary,
+        ));
         self.transfer_maps
             .push((Arc::clone(transfer), Arc::clone(&map)));
         map

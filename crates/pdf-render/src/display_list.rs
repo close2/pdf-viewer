@@ -1019,6 +1019,17 @@ impl DisplayList {
         self.transfers = Some(Box::new(channel));
     }
 
+    /// States the device §10.5's functions on this page are applied on, where a mark carried one;
+    /// a list with no channel has nothing to apply and is left alone.
+    ///
+    /// `pdf_model` states [`crate::TransferDevice::SimulatedPress`] on a page it drew as §10.8.3's
+    /// separations, whose device is a CMYK one (ADR 3769).
+    pub fn set_transfer_device(&mut self, device: crate::transfer_channel::TransferDevice) {
+        if let Some(channel) = self.transfers.as_deref_mut() {
+            channel.set_device(device);
+        }
+    }
+
     /// §11.7.5.2's channel for this page, or `None` where no mark carried a transfer function.
     #[must_use]
     pub fn transfers(&self) -> Option<&crate::transfer_channel::TransferChannel> {

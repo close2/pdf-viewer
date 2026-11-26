@@ -531,12 +531,36 @@ impl Interpreter<'_> {
     /// (ADR 0479), but the channel does not apply it to the ramp at all — it applies it to the
     /// finished device pixel, where the clause puts it, so the ramp is sampled raw and the curve
     /// is evaluated once per pixel instead of once per stop. ADR 1266.
+    ///
+    /// # A `DeviceGray` colour
+    ///
+    /// ISO 32000-2 §10.5:
+    ///
+    /// > When the current colour space is DeviceGray and the output device's native colour space
+    /// > is DeviceCMYK , a PDF processor shall use only the gray transfer function.
+    ///
+    /// `DeviceGray` reaches a CMYK device in this tree as §10.4.2.3's black ink alone — the space
+    /// `output_intent::grey_reading` chooses and `pdf_colour`'s `intent_grey` builds, on §10.8.3's
+    /// simulated press and on a CMYK intent's preview — so a fill or a stroke painted in that
+    /// space carries [`crate::content::Transfer::grey_alone`]. Which device the result reaches is
+    /// still the backend's: the screen takes the three functions it always took. A `/DefaultGray`
+    /// outranks the reading by §8.6.5.6, and its colour is then not a `DeviceGray` one by the
+    /// time it is painted. ADR 3770.
     pub(super) fn mark_transfer(
         &mut self,
         state: &GraphicsState,
         painted: Painted,
     ) -> Option<Arc<crate::content::Transfer>> {
-        self.transfer_for_mark(state, painted).cloned()
+        let chosen = self.transfer_for_mark(state, painted)?;
+        let space = match painted {
+            Painted::Filled => &state.fill_space,
+            Painted::Stroked => &state.stroke_space,
+            Painted::Image { .. } | Painted::Shading { .. } => return Some(Arc::clone(chosen)),
+        };
+        if space.is_grey_as_intent_black() {
+            return state.transfer.shared_grey_alone().cloned();
+        }
+        Some(Arc::clone(chosen))
     }
 
     /// Reads the invoking mark's opacity and transfer before definition-state evaluation.

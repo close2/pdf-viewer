@@ -464,6 +464,77 @@ impl CpuRasterizer {
 
     /// [`Rasterizer::rasterize`] of what `whole` shows: the page, or a window of it. `target` below
     /// is what that is to everything but a mark's geometry — the page's own target, for a page.
+    /// §11.4.7's four-component page put back together from its two rasters, with §10.8.3's spot
+    /// planes multiplied in where the page is the simulated press's, and §10.5's functions on the
+    /// press's planes before either (ADR 3769). `pixmap` is the chromatic raster, premultiplied.
+    ///
+    /// # Errors
+    ///
+    /// As [`CpuRasterizer::encode`], and an allocation refused.
+    fn resolve_four_components(
+        &self,
+        list: &DisplayList,
+        pixmap: &mut tiny_skia::Pixmap,
+        space: &pdf_render::BlendingSpace,
+        black: &DisplayList,
+        whole: Surface,
+    ) -> Result<(), CpuRasterError> {
+        let target = whole.shown.target(whole.page);
+        let mut ink = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
+            CpuRasterError::Allocation {
+                width: target.width,
+                height: target.height,
+            },
+        )?;
+        self.encode_in_strips(&mut ink, black, whole)?;
+        // §10.8.3's spot planes, drawn here rather than in the arm below so that §10.5's
+        // functions can reach them with the process pair's.
+        let mut spots = match list.separation() {
+            Some(separation) => self.spot_planes(separation, whole)?,
+            None => Vec::new(),
+        };
+        // ISO 32000-2 §10.5 on §10.8.3's simulated press, a CMYK device: "Transfer functions
+        // shall always operate in the native colour space of the output device", so each
+        // plane takes its own function here, before steps b) to d) compose the planes, and
+        // not on the composed colour at the end (`pdf_render::resolve_press_transfers`,
+        // ADR 3769).
+        if let Some(channel) = list
+            .transfers()
+            .filter(|channel| channel.device() == pdf_render::TransferDevice::SimulatedPress)
+        {
+            let mut planes: Vec<&mut [u8]> =
+                spots.iter_mut().map(tiny_skia::Pixmap::data_mut).collect();
+            pdf_render::resolve_press_transfers(
+                channel,
+                list,
+                target,
+                pixmap.data_mut(),
+                ink.data_mut(),
+                &mut planes,
+                |shapes| self.coverage(shapes, target, whole),
+            )?;
+        }
+        match list.separation() {
+            // ISO 32000-2 §10.8.3, under a reader's request for the simulation on a page naming
+            // a spot colourant: the pair above is the simulated press's process separation,
+            // and every spot plane is drawn beside it and multiplied in by steps b) to d),
+            // before the medium as the pair's own conversion is (`pdf_render::separation`,
+            // ADR 1317). Each plane is a page of its own for `check_group_blit`'s budget.
+            Some(separation) => {
+                let spots: Vec<&[u8]> = spots.iter().map(tiny_skia::Pixmap::data).collect();
+                pdf_render::resolve_separation(
+                    pixmap.data_mut(),
+                    ink.data(),
+                    &spots,
+                    space,
+                    separation,
+                );
+            }
+            None => pdf_render::resolve_blending(pixmap.data_mut(), ink.data(), space),
+        }
+        Ok(())
+    }
+
     fn draw_shown(&mut self, list: &DisplayList, whole: Surface) -> Result<Raster, CpuRasterError> {
         let target = whole.shown.target(whole.page);
         self.declined.clear();
@@ -522,32 +593,7 @@ impl CpuRasterizer {
         // rasters are put back together here — *before* `impose_on_medium`, which is where
         // the clause puts the conversion. See `pdf_render::blending`.
         if let (Some(space), Some(black)) = (list.blending(), list.black()) {
-            let mut ink = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
-                CpuRasterError::Allocation {
-                    width: target.width,
-                    height: target.height,
-                },
-            )?;
-            self.encode_in_strips(&mut ink, black, whole)?;
-            match list.separation() {
-                // ISO 32000-2 §10.8.3, under a reader's request for the simulation on a page naming
-                // a spot colourant: the pair above is the simulated press's process separation,
-                // and every spot plane is drawn beside it and multiplied in by steps b) to d),
-                // before the medium as the pair's own conversion is (`pdf_render::separation`,
-                // ADR 1317). Each plane is a page of its own for `check_group_blit`'s budget.
-                Some(separation) => {
-                    let spots = self.spot_planes(separation, whole)?;
-                    let spots: Vec<&[u8]> = spots.iter().map(tiny_skia::Pixmap::data).collect();
-                    pdf_render::resolve_separation(
-                        pixmap.data_mut(),
-                        ink.data(),
-                        &spots,
-                        space,
-                        separation,
-                    );
-                }
-                None => pdf_render::resolve_blending(pixmap.data_mut(), ink.data(), space),
-            }
+            self.resolve_four_components(list, &mut pixmap, space, black, whole)?;
         }
         // §10.8.3 on a page whose group composites in one or three components: the list is its
         // own process separation, so step b)'s matte goes under it in its own components here,
@@ -636,21 +682,15 @@ impl CpuRasterizer {
         //
         // Nothing runs here on a list that states no transfer, which is all but one of the corpus
         // (`pdf-model`'s `examples/transfer_function_census`).
-        if let Some(channel) = list.transfers() {
-            let coverage_of = |shapes: &DisplayList| -> Result<Vec<u8>, CpuRasterError> {
-                // Onto transparency and without the medium, so the alpha read back *is*
-                // §11.7.5.2's object shape — the same path the page itself took above, minus the
-                // passes that put a colour under it.
-                let mut coverage = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
-                    CpuRasterError::Allocation {
-                        width: target.width,
-                        height: target.height,
-                    },
-                )?;
-                self.encode_in_strips(&mut coverage, shapes, whole)?;
-                Ok(coverage.take())
-            };
-            pdf_render::resolve_transfers(channel, list, target, &mut data, coverage_of)?;
+        //
+        // On §10.8.3's simulated press the functions were applied to the planes above instead.
+        if let Some(channel) = list
+            .transfers()
+            .filter(|channel| channel.device() == pdf_render::TransferDevice::Screen)
+        {
+            pdf_render::resolve_transfers(channel, list, target, &mut data, |shapes| {
+                self.coverage(shapes, target, whole)
+            })?;
         }
 
         Ok(Raster {

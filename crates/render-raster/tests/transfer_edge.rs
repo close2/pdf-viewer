@@ -92,7 +92,7 @@ fn inverting() -> TransferMap {
     for (index, entry) in table.iter_mut().enumerate() {
         *entry = 255_u8.saturating_sub(u8::try_from(index).unwrap_or(255));
     }
-    TransferMap::from_samples([table, table, table])
+    TransferMap::uniform(table)
 }
 
 /// A closed axis-aligned rectangle.

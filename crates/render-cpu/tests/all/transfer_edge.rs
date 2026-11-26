@@ -79,7 +79,7 @@ fn inverting() -> TransferMap {
     for (index, entry) in table.iter_mut().enumerate() {
         *entry = 255_u8.saturating_sub(u8::try_from(index).unwrap_or(255));
     }
-    TransferMap::from_samples([table, table, table])
+    TransferMap::uniform(table)
 }
 
 /// A closed axis-aligned rectangle.
@@ -243,5 +243,5 @@ fn a_list_without_a_transfer_carries_no_channel() {
     for (index, entry) in identity.iter_mut().enumerate() {
         *entry = u8::try_from(index).unwrap_or(255);
     }
-    assert!(TransferMap::from_samples([identity, identity, identity]).is_identity());
+    assert!(TransferMap::uniform(identity).is_identity());
 }

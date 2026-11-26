@@ -24,14 +24,16 @@
 //! # What this module is
 //!
 //! The channel is what carries the clause's answer from `pdf_model`'s interpreter to a backend,
-//! and [`resolve_transfers`] is the one statement of what it means — **trap 2**: two backends
+//! and [`resolve_transfers`] — with [`resolve_press_transfers`] for the simulated press, which
+//! chooses by the same walk — is the one statement of what it means — **trap 2**: two backends
 //! asked to decide which function a pixel takes would answer it apart, and the divergence would
 //! be invisible.
 //!
-//! - [`TransferMap`] is one function triple as the device sees it: three 256-entry tables, one
-//!   per additive component. Exact rather than sampled, because the value it maps is one byte and
-//!   the table holds every byte there is — the same argument [`crate::Transfer`] makes for
-//!   §11.5.3's mask curve.
+//! - [`TransferMap`] is one stated transfer as each device sees it: 256-entry tables, three for
+//!   the screen's additive components and five for §10.8.3's simulated press — its four process
+//!   colourants and its spot colourants. Exact rather than sampled, because the value it maps is
+//!   one byte and the table holds every byte there is — the same argument [`crate::Transfer`]
+//!   makes for §11.5.3's mask curve.
 //! - [`TransferChannel`] is the page's elementary marks grouped into **runs**: a maximal stretch
 //!   of consecutive marks painted under one function. Run numbers rise with painting order, so
 //!   the topmost mark covering a pixel is the one in the *highest* run covering it, and no
@@ -54,49 +56,80 @@ use crate::backend::TargetSpec;
 use crate::display_list::{Command, DisplayList};
 use crate::paint::{BlendMode, Color, Paint};
 
-/// §10.5's transfer function as the device receives it: one table per additive component.
+/// §10.5's transfer function as each device this tree draws on receives it: one table per
+/// component, every table indexed and answered in additive form.
 ///
 /// > If only a single function is specified, it shall apply to all components. An RGB device
-/// > shall use the first three
+/// > shall use the first three, a monochrome device shall use the gray transfer function only,
+/// > and a CMYK device shall use all four.
 ///
-/// — so three tables, red then green then blue. `pdf_model` evaluates the file's functions at
-/// every eight-bit input and hands the result over, which keeps PDF function evaluation out of
-/// both backends for the reason [`crate::Ramp`] is a table as well.
+/// — so the screen, an RGB device, takes three tables, red then green then blue
+/// ([`TransferMap::apply_to`]), and §10.8.3's simulated press, a CMYK device, takes four, cyan
+/// then magenta then yellow then black, and one more for its spot colourants
+/// ([`resolve_press_transfers`]). `pdf_model` evaluates the file's functions at every eight-bit
+/// input and hands the result over, which keeps PDF function evaluation out of the backends for
+/// the reason [`crate::Ramp`] is a table as well. ADR 3769.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransferMap {
-    /// Red, green, blue; `channels[c][i]` is the component's value at input `i`.
-    channels: [[u8; 256]; 3],
+    /// The screen's red, green, blue; `additive[c][i]` is the component's value at input `i`.
+    additive: [[u8; 256]; 3],
+    /// The simulated press's cyan, magenta, yellow and black, each on its complement: §10.5's "If
+    /// the component is subtractive … it shall be converted to additive form by subtracting it
+    /// from 1.0 before it is passed to the transfer function".
+    process: [[u8; 256]; 4],
+    /// The simulated press's spot colourants, on their complements as well.
+    nonprimary: [u8; 256],
 }
 
 impl TransferMap {
-    /// Builds a map from three functions already evaluated at every eight-bit input.
+    /// Builds a map from the functions already evaluated at every eight-bit input: the screen's
+    /// three, the simulated press's four process colourants' and its spot colourants' one.
     #[must_use]
-    pub fn from_samples(channels: [[u8; 256]; 3]) -> Self {
-        Self { channels }
+    pub fn from_samples(
+        additive: [[u8; 256]; 3],
+        process: [[u8; 256]; 4],
+        nonprimary: [u8; 256],
+    ) -> Self {
+        Self {
+            additive,
+            process,
+            nonprimary,
+        }
     }
 
-    /// Whether this map changes no component of any colour, which is what `/Identity` means and
-    /// what an absent `/TR` leaves in force.
+    /// One function's samples on every component of every device: §10.5's "If only a single
+    /// function is specified, it shall apply to all components."
+    #[must_use]
+    pub fn uniform(table: [u8; 256]) -> Self {
+        Self::from_samples([table; 3], [table; 4], table)
+    }
+
+    /// Whether this map changes no component of any colour on either device, which is what
+    /// `/Identity` means and what an absent `/TR` leaves in force.
     ///
     /// A page whose only stated function is this one needs no channel at all, which is what
-    /// [`TransferBuilder::push`] asks it.
+    /// [`TransferBuilder::push`] asks it. A map that is the identity on the screen's three and not
+    /// on the press's black is not one: on the simulated press it changes the page.
     #[must_use]
     pub fn is_identity(&self) -> bool {
-        self.channels.iter().all(|table| {
+        let identity = |table: &[u8; 256]| {
             table
                 .iter()
                 .enumerate()
                 .all(|(index, &value)| usize::from(value) == index)
-        })
+        };
+        self.additive.iter().all(identity)
+            && self.process.iter().all(identity)
+            && identity(&self.nonprimary)
     }
 
-    /// Maps one RGBA pixel in place, leaving its alpha alone.
+    /// Maps one RGBA pixel of the screen in place, leaving its alpha alone.
     ///
     /// §10.5 speaks of "the value of a colour component in the device's native colour space", and
     /// §11's shape and opacity are a different quantity in a different clause, so alpha is not a
     /// component this touches.
     pub fn apply_to(&self, pixel: &mut [u8]) {
-        for (component, table) in pixel.iter_mut().take(3).zip(self.channels.iter()) {
+        for (component, table) in pixel.iter_mut().take(3).zip(self.additive.iter()) {
             // A 256-entry table indexed by a `u8` cannot be out of bounds; `get` keeps that
             // resting on the compiler rather than on the reader.
             if let Some(&mapped) = table.get(*component as usize) {
@@ -104,6 +137,31 @@ impl TransferMap {
             }
         }
     }
+}
+
+/// One premultiplied component of a press plane through `table`, at the pixel's `alpha`.
+///
+/// The planes are stored as §11.3.4's additive complements premultiplied by the page's one alpha
+/// (`crate::separation`), so the value the press is handed is the stored one over the alpha, which
+/// is already the additive form §10.5 asks for; the answer is multiplied back by the same alpha.
+/// Exact at an opaque pixel, which is every pixel an opaque object's interior covers; at an
+/// antialiased edge it is one level of rounding each way.
+fn premultiplied_through(table: &[u8; 256], value: u8, alpha: u8) -> u8 {
+    if alpha == 0 {
+        return value;
+    }
+    let alpha = u32::from(alpha);
+    let straight = u32::from(value)
+        .saturating_mul(255)
+        .saturating_add(alpha / 2)
+        .checked_div(alpha)
+        .unwrap_or(0);
+    let mapped = table
+        .get(straight.min(255) as usize)
+        .copied()
+        .map_or(0, u32::from);
+    // not a repair: arithmetic on this tree's own planes, at most 255 × 255 ÷ 255.
+    u8::try_from(mapped.saturating_mul(alpha).saturating_add(127) / 255).unwrap_or(u8::MAX)
 }
 
 /// One maximal stretch of consecutive elementary marks painted under one transfer function.
@@ -139,9 +197,38 @@ impl TransferRun {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransferChannel {
     runs: Vec<TransferRun>,
+    /// The device the channel's functions are applied on.
+    device: TransferDevice,
+}
+
+/// The device a page's §10.5 functions are applied on, which decides which of a [`TransferMap`]'s
+/// tables apply and where.
+///
+/// > An RGB device shall use the first three, a monochrome device shall use the gray transfer
+/// > function only, and a CMYK device shall use all four.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TransferDevice {
+    /// The screen, an RGB device: [`resolve_transfers`], over the finished raster.
+    #[default]
+    Screen,
+    /// §10.8.3's simulated press, a CMYK device with spot colourants:
+    /// [`resolve_press_transfers`], over its planes before steps b) to d) compose them. Set by
+    /// `pdf_model` on a page it drew as that device's separations, and nowhere else.
+    SimulatedPress,
 }
 
 impl TransferChannel {
+    /// The device the channel's functions are applied on.
+    #[must_use]
+    pub fn device(&self) -> TransferDevice {
+        self.device
+    }
+
+    /// States the device the channel's functions are applied on.
+    pub fn set_device(&mut self, device: TransferDevice) {
+        self.device = device;
+    }
+
     /// The runs, in painting order: `runs[0]` is the earliest.
     #[must_use]
     pub fn runs(&self) -> &[TransferRun] {
@@ -200,7 +287,10 @@ impl TransferBuilder {
         if self.runs.iter().all(|run| run.map.is_none()) {
             return None;
         }
-        Some(TransferChannel { runs: self.runs })
+        Some(TransferChannel {
+            runs: self.runs,
+            device: TransferDevice::Screen,
+        })
     }
 }
 
@@ -376,8 +466,102 @@ pub fn resolve_transfers<E>(
     list: &DisplayList,
     target: TargetSpec,
     page: &mut [u8],
-    mut coverage: impl FnMut(&DisplayList) -> Result<Vec<u8>, E>,
+    coverage: impl FnMut(&DisplayList) -> Result<Vec<u8>, E>,
 ) -> Result<(), E> {
+    let chosen = choose(channel, list, target, coverage)?;
+    for (index, map) in chosen_maps(channel, &chosen) {
+        let at = index.saturating_mul(4);
+        if let Some(pixel) = page.get_mut(at..at.saturating_add(4)) {
+            map.apply_to(pixel);
+        }
+    }
+    Ok(())
+}
+
+/// Applies §11.7.5.2's chosen function to the planes of §10.8.3's simulated press, before steps
+/// b) to d) compose them — the press's counterpart of [`resolve_transfers`], which a backend
+/// calls instead of it on a list whose channel is [`TransferDevice::SimulatedPress`]'s. ISO
+/// 32000-2 §10.5:
+///
+/// > Transfer functions shall always operate in the native colour space of the output device,
+/// > regardless of the colour space in which colours were originally specified.
+///
+/// The simulated device's native colour space is its process colourants and its spot colourants
+/// (§10.8.3 a)), so each plane takes its own function where the planes still are: `chromatic`'s
+/// three channels cyan, magenta and yellow, `black`'s the black, and every channel of every plane
+/// in `spots` the spot colourants' function. All of them premultiplied RGBA8 as the backend drew
+/// them, before `crate::blending::resolve` or `crate::separation::resolve` reads them; and the
+/// stored values are the complements §10.5 calls additive form, so nothing is subtracted here
+/// (`premultiplied_through`). The choice of function per pixel is [`resolve_transfers`]'s, by
+/// the same walk, because §11.7.5.2's topmost object is the same object on every plane: §11.7.3
+/// keeps "a single shape value and opacity value" for process and spot components alike.
+/// ADR 3769.
+///
+/// A spot plane's channels past the colourants it carries are mapped too and never read.
+///
+/// # Errors
+///
+/// Whatever `coverage` returns: a backend's own failure to rasterise a shape list.
+pub fn resolve_press_transfers<E>(
+    channel: &TransferChannel,
+    list: &DisplayList,
+    target: TargetSpec,
+    chromatic: &mut [u8],
+    black: &mut [u8],
+    spots: &mut [&mut [u8]],
+    coverage: impl FnMut(&DisplayList) -> Result<Vec<u8>, E>,
+) -> Result<(), E> {
+    let chosen = choose(channel, list, target, coverage)?;
+    for (index, map) in chosen_maps(channel, &chosen) {
+        let at = index.saturating_mul(4);
+        let range = at..at.saturating_add(4);
+        if let Some(pixel) = chromatic.get_mut(range.clone()) {
+            let alpha = pixel[3];
+            for (component, table) in pixel.iter_mut().take(3).zip(map.process.iter()) {
+                *component = premultiplied_through(table, *component, alpha);
+            }
+        }
+        if let Some(pixel) = black.get_mut(range.clone()) {
+            let alpha = pixel[3];
+            for component in pixel.iter_mut().take(3) {
+                *component = premultiplied_through(&map.process[3], *component, alpha);
+            }
+        }
+        for plane in spots.iter_mut() {
+            if let Some(pixel) = plane.get_mut(range.clone()) {
+                let alpha = pixel[3];
+                for component in pixel.iter_mut().take(3) {
+                    *component = premultiplied_through(&map.nonprimary, *component, alpha);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Every pixel §11.7.5.2 hands a function other than the page's default, with that function.
+fn chosen_maps<'channel>(
+    channel: &'channel TransferChannel,
+    chosen: &[Option<u32>],
+) -> impl Iterator<Item = (usize, &'channel TransferMap)> {
+    chosen.iter().enumerate().filter_map(move |(index, slot)| {
+        let number = (*slot)?;
+        let map = channel
+            .runs()
+            .get(number as usize)
+            .and_then(TransferRun::map)?;
+        Some((index, map))
+    })
+}
+
+/// Which run's function each pixel of `target` takes, by §11.7.5.2's topmost object: an index into
+/// `channel.runs()`, or `None` for the page's default. [`resolve_transfers`] says how.
+fn choose<E>(
+    channel: &TransferChannel,
+    list: &DisplayList,
+    target: TargetSpec,
+    mut coverage: impl FnMut(&DisplayList) -> Result<Vec<u8>, E>,
+) -> Result<Vec<Option<u32>>, E> {
     let pixels = (target.width as usize).saturating_mul(target.height as usize);
     // Which run each pixel takes, as an index into `channel.runs()`; `None` is the page's
     // default, which is every pixel no run covers.
@@ -414,21 +598,56 @@ pub fn resolve_transfers<E>(
             }
         }
     }
-    for (index, slot) in chosen.iter().enumerate() {
-        let Some(number) = slot else {
-            continue;
-        };
-        let Some(map) = channel
-            .runs()
-            .get(*number as usize)
-            .and_then(TransferRun::map)
-        else {
-            continue;
-        };
-        let at = index.saturating_mul(4);
-        if let Some(pixel) = page.get_mut(at..at.saturating_add(4)) {
-            map.apply_to(pixel);
+    Ok(chosen)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TransferMap, premultiplied_through};
+
+    /// The identity table, and its complement: `1 − x`.
+    fn tables() -> ([u8; 256], [u8; 256]) {
+        let mut identity = [0_u8; 256];
+        let mut inverse = [0_u8; 256];
+        for (index, (same, opposite)) in identity.iter_mut().zip(inverse.iter_mut()).enumerate() {
+            let byte = u8::try_from(index).unwrap_or(u8::MAX);
+            *same = byte;
+            *opposite = u8::MAX.saturating_sub(byte);
         }
+        (identity, inverse)
     }
-    Ok(())
+
+    /// ISO 32000-2 §10.5: "An RGB device shall use the first three … and a CMYK device shall use
+    /// all four." A map that changes only the press's black changes the page on the press, so it
+    /// is not the identity and keeps its channel.
+    #[test]
+    fn a_map_that_moves_only_the_press_black_is_no_identity() {
+        let (identity, inverse) = tables();
+        assert!(TransferMap::uniform(identity).is_identity());
+        let black_only = TransferMap::from_samples(
+            [identity; 3],
+            [identity, identity, identity, inverse],
+            identity,
+        );
+        assert!(!black_only.is_identity());
+        let mut pixel = [10_u8, 20, 30, 255];
+        black_only.apply_to(&mut pixel);
+        assert_eq!(pixel, [10, 20, 30, 255], "the screen takes the first three");
+    }
+
+    /// A press plane is stored premultiplied, and §10.5's input is the component itself: at an
+    /// opaque pixel the stored value is the component, and at half coverage the stored value over
+    /// the alpha is.
+    #[test]
+    fn a_premultiplied_plane_is_mapped_on_its_straight_value() {
+        let (_, inverse) = tables();
+        assert_eq!(premultiplied_through(&inverse, 255, 255), 0);
+        assert_eq!(premultiplied_through(&inverse, 0, 255), 255);
+        // Additive 1.0 at alpha 128 is stored as 128; its inverse, 0.0, is stored as 0.
+        assert_eq!(premultiplied_through(&inverse, 128, 128), 0);
+        // Additive 0.0 at alpha 128 maps to 1.0, stored as the alpha.
+        assert_eq!(premultiplied_through(&inverse, 0, 128), 128);
+        // A pixel nothing covers is left alone.
+        assert_eq!(premultiplied_through(&inverse, 0, 0), 0);
+    }
 }

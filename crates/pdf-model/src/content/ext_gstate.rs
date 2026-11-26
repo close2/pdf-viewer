@@ -68,14 +68,18 @@ enum Component {
 pub(super) struct TransferState {
     /// Table 57's `/TR` or `/TR2`.
     stated: Option<Arc<Transfer>>,
-    /// The current halftone's `TransferFunction`, per component, red then green then blue.
-    halftone: [Component; 3],
+    /// The current halftone's `TransferFunction`, per component of each device.
+    halftone: HalftoneTransfer,
     /// The two composed, which is what every mark on the page is coloured through.
     ///
     /// Derived, never assigned: [`TransferState::compose`] is the only writer, and it runs
     /// whenever either source moves. Kept rather than computed at each mark because a page has one
     /// `gs` per state and many marks under it.
     effective: Option<Arc<Transfer>>,
+    /// The same, as a `DeviceGray` colour takes it on §10.8.3's simulated press: the black
+    /// function alone ([`Transfer::grey_alone`]). Derived beside `effective` so that every grey
+    /// mark under one state shares one `Arc`, which is what the interpreter's map cache is keyed by.
+    grey_alone: Option<Arc<Transfer>>,
 }
 
 impl TransferState {
@@ -90,25 +94,72 @@ impl TransferState {
         self.effective.as_ref()
     }
 
+    /// [`TransferState::shared`]'s counterpart for a mark whose colour is `DeviceGray`, asked by
+    /// the same caller once it has chosen the function.
+    pub(super) fn shared_grey_alone(&self) -> Option<&Arc<Transfer>> {
+        self.grey_alone.as_ref()
+    }
+
     /// Composes the two sources, the halftone's overriding "the corresponding one" per component.
     ///
     /// A state in which no component is mapped is `None` rather than three identities, which keeps
     /// every "is a transfer function in force" question — the shading cache's, §11.7.5.2's report's
     /// — asking what it means to ask.
     fn compose(&mut self) {
-        let channels: [Option<Arc<crate::function::Function>>; 3] =
-            std::array::from_fn(|index| match &self.halftone[index] {
-                Component::Unsaid => self
-                    .stated
-                    .as_ref()
-                    .and_then(|stated| stated.channel(index)),
+        let stated = self.stated.as_deref();
+        let pick =
+            |halftone: &Component, stated: Option<Arc<crate::function::Function>>| match halftone {
+                Component::Unsaid => stated,
                 Component::Identity => None,
                 Component::Function(function) => Some(Arc::clone(function)),
-            });
-        self.effective = channels
-            .iter()
-            .any(Option::is_some)
-            .then(|| Arc::new(Transfer::from_channels(channels)));
+            };
+        let additive = std::array::from_fn(|index| {
+            pick(
+                &self.halftone.additive[index],
+                stated.and_then(|stated| stated.additive_channel(index)),
+            )
+        });
+        let process = pdf_colour::transfer::Process::ALL.map(|colourant| {
+            pick(
+                &self.halftone.process[colourant.index()],
+                stated.and_then(|stated| stated.process_channel(colourant)),
+            )
+        });
+        let nonprimary = pick(
+            &self.halftone.nonprimary,
+            stated.and_then(Transfer::nonprimary_channel),
+        );
+        let effective = Transfer::from_components(additive, process, nonprimary);
+        self.grey_alone = effective
+            .maps_anything()
+            .then(|| Arc::new(effective.grey_alone()));
+        self.effective = effective.maps_anything().then(|| Arc::new(effective));
+    }
+}
+
+/// A halftone dictionary's `TransferFunction`s, per component of each device this tree draws on.
+///
+/// §10.6.5.6 names a Type 5 halftone's components by the device's colourants, "Red , Green , and
+/// Blue for `DeviceRGB` ; Cyan , Magenta , Yellow , and Black for `DeviceCMYK`", so the screen and
+/// §10.8.3's simulated press read different keys of one dictionary (ADR 3769).
+#[derive(Debug, Clone, Default)]
+struct HalftoneTransfer {
+    /// The screen's red, green and blue.
+    additive: [Component; 3],
+    /// The simulated press's cyan, magenta, yellow and black.
+    process: [Component; 4],
+    /// The simulated press's spot colourants, which only a halftone's `/Default` reaches here.
+    nonprimary: Component,
+}
+
+impl HalftoneTransfer {
+    /// One answer for every component of both devices.
+    fn every(component: &Component) -> Self {
+        Self {
+            additive: std::array::from_fn(|_| component.clone()),
+            process: std::array::from_fn(|_| component.clone()),
+            nonprimary: component.clone(),
+        }
     }
 }
 
@@ -123,11 +174,13 @@ impl TransferState {
 ///   suitable device dependent value" — so it is *this device's* halftone, and a device halftone is
 ///   not a halftone dictionary in the file and specifies no `TransferFunction`. `/HT /Default`
 ///   therefore takes an earlier `/HT`'s override off and reveals whatever `/TR` states, which is
-///   [`Component::Unsaid`] in all three components rather than `None` here.
+///   [`Component::Unsaid`] in every component rather than `None` here.
 /// - **a Type 5 dictionary**, whose keys are colourant names: each component takes its own entry's
 ///   `TransferFunction`, and a component with no entry of its own takes `/Default`'s, which Table
-///   132 requires. This device's native colour space is `DeviceRGB`, and §10.6.5.6 names its
-///   primaries — "Red , Green , and Blue for `DeviceRGB`".
+///   132 requires. §10.6.5.6 names each device's primaries — "Red , Green , and Blue for
+///   `DeviceRGB` ; Cyan , Magenta , Yellow , and Black for `DeviceCMYK`" — so the screen reads the
+///   first three and §10.8.3's simulated press the four; a spot colourant's own entry is not read,
+///   and the press's spot planes take `/Default`'s.
 /// - **any other dictionary or stream**, whose single `TransferFunction` applies to every
 ///   component. §10.6.5.6 used to say so in a sentence contrasting the two uses of a component
 ///   dictionary, and **erratum #311 strikes that whole paragraph**, so the reason is the one that
@@ -149,7 +202,7 @@ fn halftone_transfer(
     document: &Document,
     state: &Dictionary,
     repaired: &mut Vec<&'static RepairClass>,
-) -> Option<[Component; 3]> {
+) -> Option<HalftoneTransfer> {
     let entry = document.get_key(state, "HT");
     if entry.is_null() {
         return None;
@@ -160,7 +213,7 @@ fn halftone_transfer(
         if name.as_bytes() != b"Default" {
             repaired.push(&crate::repair::HALFTONE_UNREADABLE);
         }
-        return (name.as_bytes() == b"Default").then(Component::default_all);
+        return (name.as_bytes() == b"Default").then(HalftoneTransfer::default);
     }
     let halftone = match &entry {
         Object::Dictionary(dict) => dict.clone(),
@@ -174,18 +227,29 @@ fn halftone_transfer(
         // "Its keys shall be name objects representing the names of individual colourants or
         // colour components", and "Default" is "[a] halftone that shall be used for any colourant
         // or colour component that does not have an entry of its own".
-        let default = document.get_key(&halftone, "Default");
-        return Some(std::array::from_fn(|index| {
-            let colourant = ["Red", "Green", "Blue"][index];
-            let component = match document.get_key(&halftone, colourant) {
-                Object::Null => document.resolve(&default),
-                named => named,
-            };
-            component_transfer(document, &component, repaired)
-        }));
+        // The screen reads §10.6.5.6's `DeviceRGB` names and the simulated press its CMYK
+        // device's, and a spot colourant takes `/Default` (ADR 3769). `/Default` is read once,
+        // so an unreadable one is one repair however many components fall back to it.
+        let default = component_transfer(
+            document,
+            &document.resolve(&document.get_key(&halftone, "Default")),
+            repaired,
+        );
+        let mut own = |colourant: &str| match document.get_key(&halftone, colourant) {
+            Object::Null => default.clone(),
+            named => component_transfer(document, &named, repaired),
+        };
+        let additive = ["Red", "Green", "Blue"].map(&mut own);
+        let process = ["Cyan", "Magenta", "Yellow", "Black"].map(&mut own);
+        return Some(HalftoneTransfer {
+            additive,
+            process,
+            nonprimary: default,
+        });
     }
-    let one = component_transfer(document, &entry, repaired);
-    Some([one.clone(), one.clone(), one])
+    Some(HalftoneTransfer::every(&component_transfer(
+        document, &entry, repaired,
+    )))
 }
 
 /// One halftone dictionary's `TransferFunction`, for the component or components it governs.
@@ -231,13 +295,6 @@ fn component_transfer(
     } else {
         repaired.push(&crate::repair::HALFTONE_TRANSFER_FUNCTION_UNREADABLE);
         Component::Unsaid
-    }
-}
-
-impl Component {
-    /// Three components none of which the halftone speaks for.
-    fn default_all() -> [Self; 3] {
-        [Self::Unsaid, Self::Unsaid, Self::Unsaid]
     }
 }
 

@@ -40,7 +40,7 @@
   "code": "crates/pdf-colour/src/transfer.rs:88-107 (take(3); the doc comment: \"this device is RGB, so the fourth is read and never asked\"); crates/pdf-model/src/content/marked.rs:205-212 and transfer_map (three tables); crates/pdf-render/src/transfer_channel.rs (TransferMap: three additive tables over the finished raster); crates/pdf-model/src/content.rs:712 and 878 (separate_drawn, draw_separated)",
   "change": "Keep all four functions in Transfer; under the simulation apply them to each process plane (cyan, magenta, yellow, black, and the gray function or the halftone's own to each spot plane, §10.5's second bullet) in additive form before steps b) to d), per §11.7.5.2's topmost-object choice on the separations; the screen keeps the first three after compositing.",
   "execution": "Executed on the CPU oracle: crates/pdf-model/tests/rendering_10_5_10_8_spec_audit.rs::the_simulated_press_takes_all_four_transfer_functions_spec_audit (content_suite) — control (screen) white passes; press [255, 255, 255].",
-  "status": "open"
+  "status": "fixed (ADR 3769; Transfer keeps all four of Table 57's functions and a spot colourant's, and on §10.8.3's simulated press render-cpu and render_raster::finish, for rasterize and the window's present, apply them to the process and spot planes before steps b) to d) through pdf_render::resolve_press_transfers; rendering_10_5_10_8_spec_audit::the_simulated_press_takes_all_four_transfer_functions_spec_audit passes)"
  },
  {
   "id": "2248-B04",
@@ -54,7 +54,7 @@
   "code": "as 2248-B03; crates/pdf-model/src/output_intent.rs grey_reading and intent_grey (where DeviceGray reaches the press)",
   "change": "With B03's fix: a mark whose colour space is DeviceGray carries the gray function alone on the black plane and none on the other three.",
   "execution": "Executed on the CPU oracle: crates/pdf-model/tests/rendering_10_5_10_8_spec_audit.rs::a_grey_on_the_simulated_press_takes_the_gray_transfer_function_alone_spec_audit — control (screen, zero functions) black passes; press [0, 0, 0].",
-  "status": "open"
+  "status": "fixed (ADR 3770; a fill or stroke in the space grey_reading and intent_grey give DeviceGray on a CMYK device carries Transfer::grey_alone, the black function alone; rendering_10_5_10_8_spec_audit::a_grey_on_the_simulated_press_takes_the_gray_transfer_function_alone_spec_audit passes)"
  },
  {
   "id": "2248-B05",
@@ -81,6 +81,6 @@
   "code": "crates/pdf-colour/src/transfer.rs:29-31; crates/pdf-model/src/content/marked.rs:183-192; crates/render-gpu/src/lib.rs:927-930",
   "change": "State the device each sentence is true of, citing §10.8.3 for the simulated one.",
   "execution": "Read, not executed.",
-  "status": "open"
+  "status": "fixed (ADRs 3769 and 3771; transfer.rs, marked.rs's draw_mark and render-gpu's comment name the device each sentence is true of, §10.8.3 for the simulated one)"
  }
 ]

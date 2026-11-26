@@ -926,9 +926,13 @@ impl Rasterizer for GpuRasterizer {
         }
         // ISO 32000-2 §11.7.5.2's transfer function is chosen by the topmost elementary object
         // covering a point and applied "only when all colour compositing has been completed"
-        // (§11.7.5.3's NOTE), which `pdf_model` carries as a channel on the list and the two
-        // shipping backends apply over their own read-back (`pdf_render::resolve_transfers`).
-        // This backend has no pass of its own over a Vello scene's result, and a page drawn
+        // (§11.7.5.3's NOTE), which `pdf_model` carries as a channel on the list. `render-cpu` and
+        // `render-raster` — its `rasterize` and the window's present, which draws a page's own
+        // passes as `rasterize` does — apply it over their own read-back: on the screen, an RGB
+        // device, to the finished pixel (`pdf_render::resolve_transfers`), and on §10.8.3's
+        // simulated press, a CMYK device, to the planes before they are composed
+        // (`pdf_render::resolve_press_transfers`, ADR 3769). This backend has no pass of its own
+        // over a Vello scene's result on either device, and a page drawn
         // without the map would be drawn in the colours the file states *before* §10.5 — which
         // for `issue6931_reduced.pdf` is a black square where the page says "The color should be
         // red". Refused by name, which sends the frame to the CPU backend — the job `CLAUDE.md`
