@@ -587,6 +587,11 @@ pub(crate) struct Work {
     /// Per band and set, the winding of the partial edges beside the pixel
     /// ([`partial_windings`]).
     band_partials: Vec<i32>,
+    /// `through`'s indices ordered by their top, for the two sweeps ([`crossings`],
+    /// [`band_area`]).
+    by_top: Vec<usize>,
+    /// The sweep's edges spanning the height it stands at, by index into `through`.
+    active: Vec<usize>,
 }
 
 /// The area, in `0 ..= 1`, of the intersection of every set in `sets` inside device pixel
@@ -617,7 +622,14 @@ pub(crate) fn area_in_pixel(x: i32, y: i32, sets: &[&RowEdges], work: &mut Work)
         }
         sort_row(index, &row, (xl, xr), (yt, yb), work);
     }
-    crossings(&work.through, &mut work.cuts, (yt, yb));
+    // Both sweeps below walk the edges through the pixel by their tops. The sort is stable
+    // on the index, so two edges with one top are taken in the order the row listed them.
+    work.by_top.clear();
+    work.by_top.extend(0..work.through.len());
+    let through = &work.through;
+    work.by_top
+        .sort_by(|&a, &b| through[a].ya.total_cmp(&through[b].ya));
+    crossings(work, (yt, yb));
     work.cuts.sort_by(f64::total_cmp);
     work.cuts.dedup();
 
@@ -625,11 +637,27 @@ pub(crate) fn area_in_pixel(x: i32, y: i32, sets: &[&RowEdges], work: &mut Work)
 
     let mut area = 0.0;
     let mut band = 0;
+    let mut next = 0;
+    work.active.clear();
     for k in 1..work.cuts.len() {
         let (ya, yz) = (work.cuts[k - 1], work.cuts[k]);
         if yz <= ya {
             continue;
         }
+        // The edges a band's middle crosses, `ya ≤ ym < yb`, kept in `through`'s order: the
+        // middles rise, so an edge enters once its top is reached and leaves for good once
+        // its bottom is.
+        let ym = f64::midpoint(ya, yz);
+        while let Some(&index) = work.by_top.get(next) {
+            if work.through[index].ya > ym {
+                break;
+            }
+            let at = work.active.partition_point(|&held| held < index);
+            work.active.insert(at, index);
+            next += 1;
+        }
+        let through = &work.through;
+        work.active.retain(|&index| ym < through[index].yb);
         area += band_area(sets, (xl, xr), (ya, yz), band, work);
         band += 1;
     }
@@ -776,24 +804,56 @@ fn partial_windings(sets: usize, work: &mut Work) {
     }
 }
 
-/// The heights inside `rows` where two edges through the pixel cross.
-#[expect(clippy::arithmetic_side_effects)] // `i + 1` is at most the slice's length
-fn crossings(through: &[Through], cuts: &mut Vec<f64>, (yt, yb): (f64, f64)) {
-    for (i, a) in through.iter().enumerate() {
-        for b in &through[i + 1..] {
-            let (lo, hi) = (a.ya.max(b.ya), a.yb.min(b.yb));
-            if lo >= hi {
-                continue;
-            }
-            let (d0, d1) = (a.x_at(lo) - b.x_at(lo), a.x_at(hi) - b.x_at(hi));
-            if d0 * d1 < 0.0 {
-                let y = lo + d0 / (d0 - d1) * (hi - lo);
-                if y > yt && y < yb {
-                    cuts.push(y);
-                }
+/// The heights inside `rows` where two edges through the pixel cross, into `work.cuts`.
+///
+/// **Only edges whose heights overlap are compared, found by a sweep down their tops** (ADR
+/// 3705). Two edges cross only where both stand, so an edge is compared with the edges still
+/// standing at its top and with no other. Comparing every pair is quadratic in the edges
+/// through the pixel, and a stroke of a glyph two pixels high states over a thousand of them
+/// in one pixel, each standing a few hundredths of a pixel. Each pair is still worked in
+/// `through`'s order, by [`crossing`], so a height is the same bits it was, and the cuts are
+/// sorted afterwards whatever order they arrive in.
+fn crossings(work: &mut Work, rows: (f64, f64)) {
+    let Work {
+        through,
+        cuts,
+        by_top,
+        active,
+        ..
+    } = work;
+    active.clear();
+    for &index in by_top.iter() {
+        let edge = &through[index];
+        // An edge ending at or above this top meets no edge after it: they come in by top.
+        active.retain(|&held| through[held].yb > edge.ya);
+        for &held in active.iter() {
+            let (first, second) = if held < index {
+                (&through[held], edge)
+            } else {
+                (edge, &through[held])
+            };
+            if let Some(y) = crossing(first, second, rows) {
+                cuts.push(y);
             }
         }
+        active.push(index);
     }
+}
+
+/// The height inside `rows` where edges `a` and `b` cross, `a` listed before `b`, if they do.
+fn crossing(a: &Through, b: &Through, (yt, yb): (f64, f64)) -> Option<f64> {
+    let (lo, hi) = (a.ya.max(b.ya), a.yb.min(b.yb));
+    if lo >= hi {
+        return None;
+    }
+    let (d0, d1) = (a.x_at(lo) - b.x_at(lo), a.x_at(hi) - b.x_at(hi));
+    if d0 * d1 < 0.0 {
+        let y = lo + d0 / (d0 - d1) * (hi - lo);
+        if y > yt && y < yb {
+            return Some(y);
+        }
+    }
+    None
 }
 
 /// The area of one band's strips that every set calls inside.
@@ -812,10 +872,9 @@ fn band_area(
         *winding += partial;
     }
     work.boundaries.clear();
-    for edge in &work.through {
-        if !(edge.ya <= ym && ym < edge.yb) {
-            continue;
-        }
+    // `active` is exactly the edges with `ya ≤ ym < yb`, in `through`'s order, so the stable
+    // sort below meets ties in the order a scan of every edge would have.
+    for edge in work.active.iter().map(|&index| &work.through[index]) {
         let xm = edge.x_at(ym);
         if xm < xl {
             work.windings[edge.set] += edge.dir;
@@ -1194,5 +1253,110 @@ mod tests {
         let tall = polygon(&[(0.0, -4.0), (1.0, -4.0), (1.0, 12.0), (0.0, 12.0)]);
         assert!(RowEdges::of(std::slice::from_ref(&tall), Rule::NonZero, -4, 16, 31).is_none());
         assert!(RowEdges::of(&[tall], Rule::NonZero, -4, 16, 32).is_some());
+    }
+
+    /// [`area_in_pixel`] as it reads with every pair of edges through the pixel compared and
+    /// every edge scanned for every band: the construction the two sweeps must equal to the
+    /// bit (ADR 3705).
+    fn area_comparing_every_pair(x: i32, y: i32, sets: &[&RowEdges], work: &mut Work) -> f64 {
+        let (xl, xr) = (f64::from(x), f64::from(x) + 1.0);
+        let (yt, yb) = (f64::from(y), f64::from(y) + 1.0);
+        work.through.clear();
+        work.partial.clear();
+        work.left.clear();
+        work.left.resize(sets.len(), 0);
+        work.cuts.clear();
+        work.cuts.extend([yt, yb]);
+        for (index, set) in sets.iter().enumerate() {
+            let row = set.row(y);
+            for level in row.levels {
+                if level.y > yt && level.y < yb && level.lo <= xr && level.hi >= xl {
+                    work.cuts.push(level.y);
+                }
+            }
+            super::sort_row(index, &row, (xl, xr), (yt, yb), work);
+        }
+        for (i, a) in work.through.iter().enumerate() {
+            for b in &work.through[i + 1..] {
+                if let Some(y) = super::crossing(a, b, (yt, yb)) {
+                    work.cuts.push(y);
+                }
+            }
+        }
+        work.cuts.sort_by(f64::total_cmp);
+        work.cuts.dedup();
+        super::partial_windings(sets.len(), work);
+        let mut area = 0.0;
+        let mut band = 0;
+        for k in 1..work.cuts.len() {
+            let (ya, yz) = (work.cuts[k - 1], work.cuts[k]);
+            if yz <= ya {
+                continue;
+            }
+            let ym = f64::midpoint(ya, yz);
+            work.active.clear();
+            work.active.extend(
+                (0..work.through.len())
+                    .filter(|&e| work.through[e].ya <= ym && ym < work.through[e].yb),
+            );
+            area += super::band_area(sets, (xl, xr), (ya, yz), band, work);
+            band += 1;
+        }
+        area.clamp(0.0, 1.0)
+    }
+
+    /// **The sweeps change the work and not one bit of the answer** (ADR 3705): a stroke of a
+    /// glyph two pixels high, stated as hundreds of small quadrilaterals overlapping along a
+    /// closed curve, met with a curved clip, is measured in every pixel it reaches both ways,
+    /// under both rules, and the two areas are compared as bits. The pieces are drawn from a
+    /// fixed generator, so every run measures the same figures.
+    #[test]
+    #[expect(clippy::cast_precision_loss)] // a piece index far below 2^24
+    fn the_sweeps_measure_the_same_bits_as_every_pair() {
+        let mut state = 0x2251_u64;
+        let mut next = move || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            f32::from(u16::try_from(state >> 48).expect("sixteen bits")) / 65_535.0
+        };
+        let (mut swept, mut paired) = (Work::default(), Work::default());
+        for figure in 0..6 {
+            let pieces = 150 + figure * 60;
+            let mut polylines = Vec::new();
+            for k in 0..pieces {
+                let turn = std::f32::consts::TAU * k as f32 / pieces as f32;
+                let (cx, cy) = (3.0 + 0.9 * turn.cos(), 3.0 + 0.7 * turn.sin());
+                let (w, h) = (0.05 + 0.3 * next(), 0.05 + 0.3 * next());
+                let (dx, dy) = (0.1 * next() - 0.05, 0.1 * next() - 0.05);
+                polylines.push(polygon(&[
+                    (cx - w, cy - h + dy),
+                    (cx + w + dx, cy - h),
+                    (cx + w, cy + h - dy),
+                    (cx - w - dx, cy + h),
+                ]));
+            }
+            let clip: Vec<(f32, f32)> = (0..40)
+                .map(|k| {
+                    let turn = std::f32::consts::TAU * k as f32 / 40.0;
+                    (2.6 + 1.3 * turn.cos(), 3.4 + 1.1 * turn.sin())
+                })
+                .collect();
+            for rule in [Rule::NonZero, Rule::EvenOdd] {
+                let mark = set(&polylines, rule);
+                let region = set(&[polygon(&clip)], Rule::NonZero);
+                for (x, y) in (1..5).flat_map(|x| (1..5).map(move |y| (x, y))) {
+                    for sets in [&[&mark][..], &[&mark, &region][..]] {
+                        let fast = area_in_pixel(x, y, sets, &mut swept);
+                        let slow = area_comparing_every_pair(x, y, sets, &mut paired);
+                        assert_eq!(
+                            fast.to_bits(),
+                            slow.to_bits(),
+                            "figure {figure}, {rule:?}, pixel ({x}, {y}): {fast} against {slow}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }
