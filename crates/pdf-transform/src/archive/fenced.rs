@@ -31,6 +31,9 @@ use pdf_syntax::repair::Site;
 /// The operator row, whose pages the survey names exactly.
 pub(super) const OPERATORS: &str = "graphics/only-operators-the-base-standard-defines";
 
+/// ISO 19005-2 section 6.1.6's row for a hexadecimal string holding a byte that is no digit.
+pub(super) const STRAY_BYTES: &str = "file-structure/hexadecimal-string-holds-only-digits";
+
 /// The rows a page's content stream fails and that nothing repairs on the page, besides
 /// [`OPERATORS`] (ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2): an inline image's
 /// interpolation, a hexadecimal string holding a byte that is no digit, a glyph procedure whose
@@ -41,7 +44,7 @@ pub(super) const OPERATORS: &str = "graphics/only-operators-the-base-standard-de
 pub(super) const ROWS: [&str; 9] = [
     OPERATORS,
     "graphics/inline-image-interpolation-is-off",
-    "file-structure/hexadecimal-string-holds-only-digits",
+    STRAY_BYTES,
     "fonts/type3-glyph-procedures-state-their-width",
     "fonts/actual-text-states-no-private-use",
     "file-structure/bound-names-are-valid-utf8",
@@ -107,6 +110,11 @@ pub(super) fn pages(
         let Some(row) = ROWS.iter().copied().find(|row| *row == judgement.id) else {
             continue;
         };
+        // A string holding a byte this reader skipped, written without it where the page draws
+        // the same, holds no page (`doc/adr/3735`).
+        if row == STRAY_BYTES && drawn.is_some_and(|drawn| drawn.strays_written) {
+            continue;
+        }
         let pages: BTreeSet<usize> = if row == OPERATORS {
             let unwritten = || {
                 survey.unlisted_operators().iter().filter(|unlisted| {
@@ -209,7 +217,9 @@ fn content_repair_holders(
             Site::Content(Some(holder))
                 if super::as_drawn::WRITTEN_OUT_WHERE_DRAWN_THE_SAME
                     .contains(&logged.class.name)
-                    && drawn.is_some_and(|drawn| drawn.wrote_out_of(document, holder)) =>
+                    && drawn.is_some_and(|drawn| {
+                        drawn.wrote_out_of(document, holder, logged.class.name)
+                    }) =>
             {
                 None
             }

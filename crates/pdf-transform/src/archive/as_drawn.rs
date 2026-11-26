@@ -70,8 +70,20 @@
 //! three or four operands that do not fit the current space (§8.6.8) is drawn by this reader in the
 //! device space with that many components, so it is written as `G`, `RG` or `K` (or the
 //! non-stroking form) with its operands kept (`doc/adr/3679`); and an inline image entry this
-//! reader did not read, its key stated twice, is written out (`doc/adr/3678`). Each of the last two
-//! stands only where the page draws the same, as above.
+//! reader did not read, its key stated twice, is written out (`doc/adr/3678`). Inline image data
+//! past the end its own decoding states, up to the `EI` this reader found by searching, is cut
+//! (§8.9.7), and a hexadecimal string holding a byte that is neither a digit nor white space is
+//! written without it, as this reader skipped it (§7.3.4.3, `doc/adr/3735`). A marked-content
+//! section left open where its content stream ends is closed there by an `EMC`, where this reader
+//! ended it (§14.6.1, `doc/adr/3734`). Each stands only where the page draws the same, as above.
+//!
+//! # A write answers only what it took
+//!
+//! The proof's second file is read again, and a class it still needs at a page or form is
+//! answered nowhere in it (`doc/adr/3733`): a page whose content holds a class this write left
+//! keeps the answer it had without the write — refused by that class's sentence under
+//! `as-shown`, photographed under `as-if-printed` — however many other classes on it were
+//! written.
 //!
 //! # A text operator this reader drew outside a text object
 //!
@@ -89,9 +101,10 @@
 //! > graphics state, colour, and marked-content, as shown in "Figure 9 -Graphics objects".
 //!
 //! An `ET` of the producer's that this reader ignored, standing outside any text object, closes
-//! the one added. Where the walk cannot state the matrix — a glyph's width moved the text matrix
-//! past the line matrix, or a `Td` composed one — no object is added and the class keeps its
-//! refusal. The proof by drawing both files decides as for an operator written out, and the loss
+//! the one added. A `Td` or `TD` from a matrix the walk can state is composed onto it as the reader
+//! composes it (Table 106), so the matrix stays stated (`doc/adr/3736`). Where the walk cannot
+//! state the matrix — a glyph's width moved the text matrix past the line matrix, or a `T*`, `'`
+//! or `"` moved it by the leading — no object is added and the class keeps its refusal. The proof by drawing both files decides as for an operator written out, and the loss
 //! is `content-as-drawn`: no byte of the producer's is removed, but which matrix the text is drawn
 //! by outside a text object is this reader's reading, not the standard's (`doc/adr/3661`).
 
@@ -102,6 +115,7 @@ use pdf_archive::survey::{Survey, UnlistedOperator};
 use pdf_model::Pages;
 use pdf_model::content::grammar::{Grammar, Operand, Spaces, components, signature};
 use pdf_model::content::reader::draws_the_salvage;
+use pdf_render::geom::Transform;
 use pdf_syntax::object::{Name, Object, ObjectId};
 use pdf_syntax::{Document, Lexer, Token};
 
@@ -127,12 +141,13 @@ const NOT_DRAWN_THE_SAME: &str = "writing out the operators this reader repaired
 /// well-typed one keeps it, and the name is defined instead (`doc/adr/2684`). Operands left over in
 /// front of an operator's own are written out without it where they are its only repair, and with
 /// it where it needs another (§7.8.2, `doc/adr/3641`), and an `EMC` with no section open is written
-/// out alone (Table 352), each only where the page draws the same. A
-/// class the write takes nothing at — a section left open at its stream's end — stays in the
-/// output, whose own check then refuses the write rather than let it be wrong. An inline image's
-/// key stated twice is not an operator's, but its entry this reader did not read is written out
-/// under the same proof (`doc/adr/3678`).
-pub(super) const WRITTEN_OUT_WHERE_DRAWN_THE_SAME: [&str; 9] = [
+/// out alone (Table 352), and a section left open at its stream's end is closed there
+/// (`doc/adr/3734`), each only where the page draws the same. An inline image's key stated twice
+/// is not an operator's, but its entry this reader did not read is written out under the same
+/// proof (`doc/adr/3678`); so are inline image data this reader never decoded and a byte of a
+/// hexadecimal string it skipped (`doc/adr/3735`). A class the write left at a page or form is
+/// answered nowhere in it (`doc/adr/3733`).
+pub(super) const WRITTEN_OUT_WHERE_DRAWN_THE_SAME: [&str; 11] = [
     "model/operator-short-of-operands",
     "model/operand-of-the-wrong-type",
     "model/restore-with-nothing-saved",
@@ -142,6 +157,8 @@ pub(super) const WRITTEN_OUT_WHERE_DRAWN_THE_SAME: [&str; 9] = [
     "model/operands-left-over",
     "model/marked-content-unbalanced",
     "model/inline-image-key-twice",
+    "model/inline-image-data-extent",
+    "syntax/hexadecimal-string-stray-byte",
 ];
 
 /// The most pages the proof draws twice; past it the operators are left.
@@ -222,6 +239,20 @@ pub(super) struct Drawn {
     /// How many text objects were added around operators this reader ran outside one
     /// (`doc/adr/3661`).
     pub(super) text_objects_added: usize,
+    /// How many marked-content sections left open at their content stream's end were closed there
+    /// (`doc/adr/3734`).
+    pub(super) sections_closed: usize,
+    /// How many inline images had the data this reader never decoded cut (`doc/adr/3735`).
+    pub(super) data_cut: usize,
+    /// Whether every hexadecimal string inside a content stream holding a byte this reader
+    /// skipped was written without it, at a holder that needs no such repair afterwards, so that
+    /// ISO 19005-2 section 6.1.6's row holds no page (`doc/adr/3735`).
+    pub(super) strays_written: bool,
+    /// Each page or form whose content, read again from the proof's file, still needed a repair
+    /// that breaches section 5.1 and that no other rewrite writes out, with the repair's class: the
+    /// write answers that class nowhere in the holder, and the page keeps the answer it had
+    /// without the write, the photograph's included (`doc/adr/3733`).
+    still_repaired: BTreeSet<(ObjectId, &'static str)>,
 }
 
 impl Drawn {
@@ -239,6 +270,9 @@ impl Drawn {
         for place in places {
             written.extend_from_slice(data.get(from..place.start).unwrap_or_default());
             if place.text_object {
+                if place.start < place.end {
+                    self.data_cut = self.data_cut.saturating_add(1);
+                }
                 self.text_object_added(id, &place.number, &mut written);
                 from = place.end;
                 continue;
@@ -288,11 +322,21 @@ impl Drawn {
         if added.starts_with(OPENS) {
             self.text_objects_added = self.text_objects_added.saturating_add(1);
         }
+        let closed = added
+            .windows(CLOSES_A_SECTION.len())
+            .filter(|window| *window == CLOSES_A_SECTION)
+            .count();
+        self.sections_closed = self.sections_closed.saturating_add(closed);
     }
 
-    /// Whether every content stream of the page or form `holder` is one this write rewrote and an
-    /// operator was written out of one of them (`doc/adr/3558`).
-    pub(super) fn wrote_out_of(&self, document: &Document, holder: ObjectId) -> bool {
+    /// Whether the repair of `class` at the page or form `holder` is one this write answers: every
+    /// content stream of the holder is one it rewrote, an operator was written out of one of them
+    /// (`doc/adr/3558`), and the holder's content, read from the proof's file, no longer needs
+    /// that repair (`doc/adr/3733`).
+    pub(super) fn wrote_out_of(&self, document: &Document, holder: ObjectId, class: &str) -> bool {
+        if self.left_repaired(holder, class) {
+            return false;
+        }
         let streams = match document.get(holder) {
             Object::Stream(_) => vec![holder],
             Object::Dictionary(page) => hexadecimal::contents_of(document, &page),
@@ -303,6 +347,14 @@ impl Drawn {
             && streams
                 .iter()
                 .any(|stream| self.written_out.contains(stream))
+    }
+
+    /// Whether the content of the page or form `holder`, read from the proof's file, still needed
+    /// the repair of `class`, so that the write does not answer it there (`doc/adr/3733`).
+    pub(super) fn left_repaired(&self, holder: ObjectId, class: &str) -> bool {
+        self.still_repaired
+            .iter()
+            .any(|(at, left)| *at == holder && *left == class)
     }
 
     /// Whether every operator the survey reports under `spelling` is one this write answers: a run
@@ -411,6 +463,7 @@ fn write_places(
             }
         }
     }
+    let followed: BTreeSet<ObjectId> = follows.values().copied().collect();
     let began_in = streams_began_in(survey);
     // An operator no table defines is not written as white space in a file one of whose streams
     // did not decode, where such a keyword may be the damage's bytes rather than anything a
@@ -446,7 +499,7 @@ fn write_places(
             continue;
         };
         let room = MOST_RUNS.saturating_sub(out.runs.len());
-        let (places, delimiter_left) = salvaged_runs(
+        let (mut places, delimiter_left) = salvaged_runs(
             document,
             &data,
             &resources,
@@ -456,6 +509,11 @@ fn write_places(
         )
         .ok_or(Because::NotBuiltYet(TOO_MANY_RUNS))?;
         out.delimiter_left |= delimiter_left;
+        // A section still open where the last stream of a page's `/Contents`, or a form's own
+        // stream, ends is closed there (`doc/adr/3734`).
+        if operators && !followed.contains(&id) {
+            places.extend(walk.sections_left_open(data.len()));
+        }
         if places.is_empty() {
             continue;
         }
@@ -471,12 +529,14 @@ fn write_places(
         return Err(Because::NotBuiltYet(NO_STREAM_HOLDS_ONE));
     }
     let proved: BTreeSet<ObjectId> = out.written_out.union(&out.blanked).copied().collect();
-    if !proved.is_empty() && !drawn_the_same(document, &out.at, &proved) {
-        return Err(Because::NotBuiltYet(NOT_DRAWN_THE_SAME));
+    if !proved.is_empty() {
+        out.still_repaired = drawn_the_same(document, &out.at, &proved)
+            .ok_or(Because::NotBuiltYet(NOT_DRAWN_THE_SAME))?;
     }
     // A run left in a stream this write could not read is an operator the numbers do not answer,
     // and so is a delimiter left where it changes the drawing.
     out.answers_every_operator &= out.unread.is_empty() && !out.delimiter_left;
+    out.strays_written = wrote_every_stray(document, &out);
     Ok(out)
 }
 
@@ -510,14 +570,18 @@ fn streams_began_in(survey: Option<&Survey>) -> BTreeMap<ObjectId, Spaces> {
 /// every page that draws one of `written_out` is drawn from both files; the write stands where
 /// each page's display list and text are the same. The pages' annotations are drawn too, since an
 /// appearance stream is one of the streams this write reaches.
+///
+/// `Some` where it stands, holding each page or form whose content, drawn from the second file,
+/// still needed a repair section 5.1 refuses, with its class ([`still_repaired`]); `None` where it
+/// does not.
 fn drawn_the_same(
     document: &Document,
     at: &BTreeMap<ObjectId, Object>,
     written_out: &BTreeSet<ObjectId>,
-) -> bool {
+) -> Option<BTreeSet<(ObjectId, &'static str)>> {
     let pages = super::fenced::pages_drawing(document, written_out);
     if pages.is_empty() || pages.len() > MOST_PAGES_PROVED {
-        return false;
+        return None;
     }
     // A file whose cross-reference table was rebuilt by scanning has no section an update could
     // chain to, so the second file is written whole from the objects this reader read
@@ -527,13 +591,10 @@ fn drawn_the_same(
     } else {
         pdf_syntax::write::incremental_update(document, at).ok()
     };
-    let Some(after) =
-        bytes.and_then(|bytes| Document::open_with_limits(bytes, document.limits()).ok())
-    else {
-        return false;
-    };
+    let after =
+        bytes.and_then(|bytes| Document::open_with_limits(bytes, document.limits()).ok())?;
     let (before_pages, after_pages) = (Pages::new(document), Pages::new(&after));
-    pages.into_iter().all(|index| {
+    let same = pages.into_iter().all(|index| {
         let (Some(before), Some(written)) = (before_pages.get(index), after_pages.get(index))
         else {
             return false;
@@ -541,7 +602,70 @@ fn drawn_the_same(
         let was = pdf_model::content::interpret(document, &before);
         let is = pdf_model::content::interpret(&after, &written);
         was.display_list == is.display_list && was.text == is.text
-    })
+    });
+    if same { still_repaired(&after) } else { None }
+}
+
+/// Whether `drawn` wrote every hexadecimal string holding a byte this reader skipped inside a
+/// content stream without that byte, wherever the reader logged one (`doc/adr/3735`): each holder
+/// named, none unnamed, and at least one.
+fn wrote_every_stray(document: &Document, drawn: &Drawn) -> bool {
+    let stray = pdf_syntax::repair::HEXADECIMAL_STRING_STRAY_BYTE.name;
+    let mut any = false;
+    document
+        .repairs()
+        .iter()
+        .filter(|logged| logged.class.name == stray)
+        .all(|logged| match logged.at {
+            pdf_syntax::repair::Site::Content(Some(holder)) => {
+                any = true;
+                drawn.wrote_out_of(document, holder, stray)
+            }
+            pdf_syntax::repair::Site::Content(None) => false,
+            _ => true,
+        })
+        && any
+}
+
+/// **What a write left is not answered by it** (`doc/adr/3733`): each page or form at which the
+/// proof's second file, `after`, read with the write made, still logged a repair inside a content
+/// stream that breaches section 5.1 and that no other rewrite of this converter writes out
+/// (`super::base_standard::written_out_by_a_rewrite`), with the repair's class.
+///
+/// The fence answers a class at a holder by the write only where the class is gone from it, so a
+/// page whose content holds a class the write left keeps the answer it had — refused by that
+/// class's sentence under `as-shown`, photographed under `as-if-printed` — even where another
+/// class on it was written. Reading the written content again, rather than counting what the walk
+/// wrote, is what makes that hold for every class at once, including a repair the walk never met.
+///
+/// `None` where such a class was made at more sites than the log keeps
+/// (`pdf_syntax::repair::SITES_KEPT_PER_CLASS`): the holders past it are not known, so the write
+/// is not shown to have answered any of them.
+fn still_repaired(after: &Document) -> Option<BTreeSet<(ObjectId, &'static str)>> {
+    let refused = |name: &str| {
+        pdf_archive::repairs::breaches_row(name, pdf_archive::repairs::BASE_STANDARD)
+            && !super::base_standard::written_out_by_a_rewrite(name)
+    };
+    if after
+        .repair_classes()
+        .iter()
+        .any(|class| refused(class.name) && after.repairs_beyond_the_log(class.name) > 0)
+    {
+        return None;
+    }
+    Some(
+        after
+            .repairs()
+            .iter()
+            .filter(|logged| refused(logged.class.name))
+            .filter_map(|logged| match logged.at {
+                pdf_syntax::repair::Site::Content(Some(holder)) => {
+                    Some((holder, logged.class.name))
+                }
+                _ => None,
+            })
+            .collect(),
+    )
 }
 
 /// The most bytes [`whole_file`] writes; past it the proof is not made and the operators are left.
@@ -658,6 +782,24 @@ pub(super) fn history(drawn: &Drawn, citation: &str) -> String {
             drawn.text_objects_added
         );
     }
+    if drawn.data_cut > 0 {
+        let _ = write!(
+            out,
+            "; {} inline image(s) had the bytes between the end their decoding states and the EI \
+             this reader found removed, bytes it never decoded (ISO 32000-2 §8.9.7, \
+             doc/adr/3735)",
+            drawn.data_cut
+        );
+    }
+    if drawn.sections_closed > 0 {
+        let _ = write!(
+            out,
+            "; {} marked-content section(s) left open at the end of their content stream were \
+             closed there by an EMC, where this reader ended them (ISO 32000-2 §14.6.1, \
+             doc/adr/3734)",
+            drawn.sections_closed
+        );
+    }
     out
 }
 
@@ -749,9 +891,11 @@ struct Place {
     /// Whether the place is an operator a repair was logged at, with its operands
     /// (`doc/adr/3558`).
     operator: bool,
-    /// Whether the place is the `BT` or the `ET` this write adds around operators this reader ran
-    /// outside a text object (`doc/adr/3661`): `start` and `end` are the same byte, nothing of the
-    /// producer's is replaced, and `number` holds the bytes added.
+    /// Whether `number` stands for the bytes from `start` to `end` with nothing else written: the
+    /// `BT` or the `ET` this write adds around operators this reader ran outside a text object
+    /// (`doc/adr/3661`) and the `EMC` closing a section left open (`doc/adr/3734`), where `start`
+    /// and `end` are the same byte, or inline image data this reader never decoded, cut with
+    /// `number` empty (`doc/adr/3735`).
     text_object: bool,
     /// Whether the place is an operator no table defines with no operand before it, written as
     /// white space under the proof (`doc/adr/3698`).
@@ -803,6 +947,32 @@ impl Place {
             start,
             end,
             number: device,
+            operator: true,
+            text_object: false,
+            undefined: false,
+        }
+    }
+
+    /// The bytes from `start` to `end` removed with nothing in their place: inline image data this
+    /// reader never decoded (`doc/adr/3735`).
+    const fn cut(start: usize, end: usize) -> Self {
+        Self {
+            start,
+            end,
+            number: Vec::new(),
+            operator: false,
+            text_object: true,
+            undefined: false,
+        }
+    }
+
+    /// A hexadecimal string from `start` to `end` written as `digits`, the producer's digits and
+    /// white space without the bytes this reader skipped (`doc/adr/3735`).
+    const fn hexadecimal(start: usize, end: usize, digits: Vec<u8>) -> Self {
+        Self {
+            start,
+            end,
+            number: digits,
             operator: true,
             text_object: false,
             undefined: false,
@@ -866,8 +1036,9 @@ enum Matrices {
     /// object, which this reader resets them to (ADR 3353) and a `BT` sets them to.
     #[default]
     Identity,
-    /// Both are the matrix a `Tm` set: its six numbers, each respelled as §7.3.3 spells it.
-    Stated(Vec<u8>),
+    /// Both are a matrix the walk can state: the one a `Tm` set, or one a `Td` or `TD` composed
+    /// onto a matrix it could state (`doc/adr/3736`).
+    Stated(StatedMatrix),
     /// A glyph was shown since the text line matrix was set, so the text matrix has moved past it
     /// by the glyphs' widths, which the walk does not measure; the line matrix is the one held.
     Shown(Box<Self>),
@@ -886,7 +1057,7 @@ impl Matrices {
             Self::Identity => Some(OPENS.to_vec()),
             Self::Stated(matrix) => {
                 let mut bytes = OPENS.to_vec();
-                bytes.extend_from_slice(matrix);
+                bytes.extend_from_slice(&matrix.written);
                 bytes.extend_from_slice(b" Tm ");
                 Some(bytes)
             }
@@ -901,13 +1072,33 @@ impl Matrices {
         }
     }
 
-    /// The matrices after `word` ran, `stated` being a `Tm`'s six operands where this reader ran
-    /// it as written.
-    fn after(&mut self, word: &[u8], stated: Option<Vec<u8>>) {
-        *self = match word {
-            b"Tm" => stated.map_or(Self::Moved, Self::Stated),
-            b"Td" | b"TD" | b"T*" | b"'" | b"\"" => Self::Moved,
-            b"Tj" | b"TJ" => match std::mem::take(self) {
+    /// The matrices after `word` ran, `stated` being a `Tm`'s six operands, or the move a `Td`
+    /// or `TD` composes, where this reader ran it as written.
+    ///
+    /// Table 106's `Td` sets Tm and Tlm to the product of a translation by its operands and the
+    /// line matrix held, so a move from a matrix the walk can state is one it can state too:
+    /// computed as the reader computes it, in single precision, and written as the shortest
+    /// decimal that reads back as the same number (`doc/adr/3736`). `T*`, `'` and `"` move by the
+    /// leading, which the walk does not follow.
+    fn after(&mut self, word: &[u8], stated: Option<Moved>) {
+        *self = match (word, stated) {
+            (b"Tm", Some(Moved::To(matrix))) => Self::Stated(matrix),
+            (b"Td" | b"TD", Some(Moved::By(x, y))) => {
+                let line = match std::mem::take(self) {
+                    Self::Shown(held) => *held,
+                    held => held,
+                };
+                let value = match &line {
+                    Self::Identity => Some(Transform::IDENTITY),
+                    Self::Stated(matrix) => Some(matrix.value),
+                    Self::Shown(_) | Self::Moved => None,
+                };
+                value
+                    .and_then(|value| StatedMatrix::of(Transform::translate(x, y).then(value)))
+                    .map_or(Self::Moved, Self::Stated)
+            }
+            (b"Tm" | b"Td" | b"TD" | b"T*" | b"'" | b"\"", _) => Self::Moved,
+            (b"Tj" | b"TJ", _) => match std::mem::take(self) {
                 Self::Moved => Self::Moved,
                 shown @ Self::Shown(_) => shown,
                 held => Self::Shown(Box::new(held)),
@@ -916,6 +1107,42 @@ impl Matrices {
         };
     }
 }
+
+/// A text matrix the walk can state: its value as this reader holds it, and the six operands of
+/// the `Tm` that sets it, each spelled as ISO 32000-2 §7.3.3 spells a number.
+#[derive(Clone)]
+struct StatedMatrix {
+    /// The six operands, each preceded by a space.
+    written: Vec<u8>,
+    /// The matrix, in the single precision the reader holds it in.
+    value: Transform,
+}
+
+impl StatedMatrix {
+    /// `value` written as the shortest decimals that read back as its numbers, or `None` where
+    /// one is not finite.
+    fn of(value: Transform) -> Option<Self> {
+        let mut written = Vec::new();
+        for number in [value.a, value.b, value.c, value.d, value.e, value.f] {
+            written.push(b' ');
+            written.extend_from_slice(super::operand(number).ok()?.as_bytes());
+        }
+        Some(Self { written, value })
+    }
+}
+
+/// What a `Tm`, `Td` or `TD` this reader ran as written states: the matrix a `Tm` sets, or the
+/// move a `Td` or `TD` makes.
+enum Moved {
+    /// A `Tm`'s matrix.
+    To(StatedMatrix),
+    /// A `Td`'s or `TD`'s two operands, narrowed as the reader narrows them.
+    By(f32, f32),
+}
+
+/// The bytes that close one marked-content section left open at its stream's end (`doc/adr/3734`):
+/// an end-of-line marker first, so that a comment the stream ends in cannot take the operator.
+const CLOSES_A_SECTION: &[u8] = b"\nEMC";
 
 /// The bytes that open a text object this write adds (`doc/adr/3661`).
 const OPENS: &[u8] = b" BT ";
@@ -1209,6 +1436,26 @@ impl Walk {
         self.end_added_text_object()
     }
 
+    /// The `EMC` closing each marked-content section this reader left open where its content
+    /// stream ended at `end`, a place of no bytes with the bytes added, or `None` where none is
+    /// open or one cannot be closed there (`doc/adr/3734`).
+    ///
+    /// Table 352 has `BMC` and `BDC` each begin a sequence "terminated by a balancing EMC
+    /// operator", and §14.6.1 has each sequence "entirely contained within a single content
+    /// stream"; this reader ends the sequence where the stream ends, which is what an `EMC` there
+    /// states. A section whose opening operator is written out needs none. None is added inside a
+    /// text object the producer left open (the sequence would cross its edge), after operands no
+    /// operator took (the `EMC` would take them), or past the sections the walk follows.
+    fn sections_left_open(&mut self, end: usize) -> Option<Place> {
+        let open = self.sections.iter().filter(|written| !**written).count();
+        let closable = open > 0
+            && !self.in_text
+            && self.has_no_operands()
+            && self.sections.len() < MOST_SECTIONS;
+        self.sections.clear();
+        closable.then(|| Place::text_object(end, CLOSES_A_SECTION.repeat(open)))
+    }
+
     /// An inline image ends the operands before it, and §9.4.1 keeps it out of a text object, so
     /// the one this write added ends in front of it: the `ET` closing it, where one is open.
     fn inline_image(&mut self) -> Option<Place> {
@@ -1247,18 +1494,65 @@ impl Walk {
                 self.in_text = false;
                 self.matrices = Matrices::Identity;
             }
-            b"Tm" => {
+            b"Tm" | b"Td" | b"TD" => {
                 let as_written = found.classes().all(|class| {
                     class.name == pdf_model::repair::TEXT_OPERATOR_OUTSIDE_A_TEXT_OBJECT.name
                         || class.name == pdf_model::repair::OPERANDS_LEFT_OVER.name
                 });
-                let stated = as_written
-                    .then(|| six_numbers(data.get(own_from..start).unwrap_or_default()))
-                    .flatten();
+                let span = data.get(own_from..start).unwrap_or_default();
+                let stated = as_written.then(|| moved(word, span)).flatten();
                 self.matrices.after(word, stated);
             }
             _ => self.matrices.after(word, None),
         }
+    }
+}
+
+/// What the `Tm`, `Td` or `TD` `word` whose own operands are `span` states, or `None` where they
+/// are not the numbers it takes, each read whole.
+fn moved(word: &[u8], span: &[u8]) -> Option<Moved> {
+    let numbers = numbers_in(span)?;
+    // The reader narrows each operand to single precision (`pdf_model::content::run`).
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the reader's own narrowing, which the matrix must match to draw the same"
+    )]
+    let narrowed: Vec<f32> = numbers.iter().map(|number| *number as f32).collect();
+    if narrowed.iter().any(|number| !number.is_finite()) {
+        return None;
+    }
+    match (word, narrowed.as_slice()) {
+        (b"Tm", &[x0, x1, x2, x3, x4, x5]) => Some(Moved::To(StatedMatrix {
+            written: six_numbers(span)?,
+            value: Transform::new(x0, x1, x2, x3, x4, x5),
+        })),
+        (b"Td" | b"TD", &[x, y]) => Some(Moved::By(x, y)),
+        _ => None,
+    }
+}
+
+/// Every token of `span` read as a number, or `None` where one is not a number the lexer reads
+/// whole.
+fn numbers_in(span: &[u8]) -> Option<Vec<f64>> {
+    let mut lexer = Lexer::new(span);
+    let mut out = Vec::new();
+    loop {
+        lexer.skip_whitespace();
+        let Some(token) = lexer.next_token() else {
+            return Some(out);
+        };
+        if lexer.salvaged().is_some() {
+            return None;
+        }
+        out.push(match token {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "the reader reads an integer operand as this double"
+            )]
+            Token::Integer(value) => value as f64,
+            Token::Real(value) => value,
+            _ => return None,
+        });
     }
 }
 
@@ -1327,6 +1621,7 @@ fn salvaged_runs(
     loop {
         lexer.skip_whitespace();
         let start = lexer.position();
+        let strayed = lexer.hexadecimal_strings().strayed;
         let Some(token) = lexer.next_token() else {
             break;
         };
@@ -1424,6 +1719,15 @@ fn salvaged_runs(
             }
         }
         let end = lexer.position();
+        // A hexadecimal string holding a byte that is neither a digit nor white space, which this
+        // reader skipped: written without it, proved like an operator (`doc/adr/3735`).
+        if operators
+            && lexer.hexadecimal_strings().strayed > strayed
+            && let Some(digits) = data.get(start..end).and_then(without_stray_bytes)
+        {
+            placed(&mut out, most, Place::hexadecimal(start, end, digits))?;
+            continue;
+        }
         let number = if lexer.salvaged().is_some_and(draws_the_salvage) {
             number_drawn(&token)
         } else {
@@ -1459,7 +1763,30 @@ fn entries_set_aside(
     for (from, to) in set_aside {
         placed(out, most, Place::white_space(from, to, true))?;
     }
+    // The bytes between the end the image's own decoding states and the `EI` this reader found
+    // by searching are bytes it held and never decoded: cut, the data ends where every answer of
+    // §8.9.7's reading predicts, proved like an operator (`doc/adr/3735`).
+    if let Some((from, to)) = scan.unread_data {
+        placed(out, most, Place::cut(from, to))?;
+    }
     Some(())
+}
+
+/// A hexadecimal string, `<` to `>`, with every byte that is neither a hexadecimal digit nor white
+/// space removed: what this reader read it as, since it skips such a byte and reads the digits
+/// around it (`pdf_syntax::Lexer`). `None` where `string` is not one closed hexadecimal string.
+fn without_stray_bytes(string: &[u8]) -> Option<Vec<u8>> {
+    let inside = string.strip_prefix(b"<")?.strip_suffix(b">")?;
+    let mut out = Vec::with_capacity(string.len());
+    out.push(b'<');
+    out.extend(
+        inside
+            .iter()
+            .copied()
+            .filter(|byte| byte.is_ascii_hexdigit() || is_white_space(*byte)),
+    );
+    out.push(b'>');
+    Some(out)
 }
 
 /// Whether `byte` is one of ISO 32000-2 §7.2.3's six white-space characters (Table 1).

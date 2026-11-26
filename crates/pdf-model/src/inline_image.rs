@@ -149,6 +149,13 @@ pub struct Scan {
     /// kept is the other (`read_dictionary`). Empty where the dictionary did not read. A writer
     /// that removes these spans leaves the dictionary this reader read (`doc/adr/3678`).
     pub set_aside: Vec<(usize, usize)>,
+    /// Where the image's data ran past the end its own decoding states — §8.9.3's arithmetic for
+    /// unfiltered samples, or the first filter's end-of-data marker (§7.3.8.2) — to the `EI` this
+    /// reader found by searching: the span of bytes it held as data and the decoding never read,
+    /// `None` everywhere else. Set only where `/L`, if stated, names the decoded extent, so that a
+    /// writer removing the span leaves the data at the extent every answer of this module predicts
+    /// (`doc/adr/3735`).
+    pub unread_data: Option<(usize, usize)>,
 }
 
 /// Reads the inline image whose `BI` has just been consumed, from `at`.
@@ -196,6 +203,7 @@ pub fn scan(
                 image: Err(error),
                 repairs,
                 set_aside: Vec::new(),
+                unread_data: None,
             };
         }
     };
@@ -222,10 +230,16 @@ pub fn scan(
         }
     }
 
+    let mut unread_data = None;
     let (end, resume) = match data_extent(document, &dict, content, start, complete) {
         Extent::At { end, resume } => (end, resume),
-        Extent::Searched { end, resume } => {
+        Extent::Searched {
+            end,
+            resume,
+            decoded_to,
+        } => {
             note(&mut repairs, &crate::repair::INLINE_IMAGE_DATA_EXTENT);
+            unread_data = decoded_to.filter(|&to| to < end).map(|to| (to, end));
             (end, resume)
         }
         Extent::PastTheBuffer => {
@@ -234,6 +248,7 @@ pub fn scan(
                 image: Err(InlineImageError::Truncated),
                 repairs,
                 set_aside,
+                unread_data: None,
             };
         }
         Extent::Missing => {
@@ -243,6 +258,7 @@ pub fn scan(
                 image: Err(InlineImageError::NoTerminator),
                 repairs,
                 set_aside,
+                unread_data: None,
             };
         }
     };
@@ -260,6 +276,7 @@ pub fn scan(
         }),
         repairs,
         set_aside,
+        unread_data,
     }
 }
 
@@ -545,6 +562,9 @@ enum Extent {
         end: usize,
         /// The offset after the terminator.
         resume: usize,
+        /// Where the image's own decoding ends its data — §8.9.3's arithmetic, or the first
+        /// filter's end-of-data marker — where it states one and `/L` names no other extent.
+        decoded_to: Option<usize>,
     },
     /// No `EI` ends the data.
     Missing,
@@ -571,6 +591,8 @@ fn data_extent(
     // Whether a length the file states or §8.9.3 computes ended somewhere other than at `EI`:
     // the search below then reads the image to an `EI` no stated length predicted (ADR 3541).
     let mut missed = false;
+    // Where the image's own decoding ends the data, where that end missed `EI`.
+    let mut decoded_to = None;
 
     // §8.9.7: `/L` "shall be present on all inline images" and is "the length of the data
     // between the ID and EI operators excluding the white-space delimiting those operators".
@@ -599,7 +621,10 @@ fn data_extent(
             match terminator_at(content, end) {
                 Terminator::At(resume) => return Extent::At { end, resume },
                 Terminator::PastTheBuffer => past_the_buffer |= !complete,
-                Terminator::No => missed = true,
+                Terminator::No => {
+                    missed = true;
+                    decoded_to = Some(end);
+                }
             }
         }
     } else {
@@ -622,7 +647,10 @@ fn data_extent(
                 match terminator_at(content, end) {
                     Terminator::At(resume) => return Extent::At { end, resume },
                     Terminator::PastTheBuffer => past_the_buffer |= !complete,
-                    Terminator::No => missed = true,
+                    Terminator::No => {
+                        missed = true;
+                        decoded_to = Some(end);
+                    }
                 }
             }
             // The filter ran out of input before its end-of-data. Through a window that is more
@@ -638,7 +666,13 @@ fn data_extent(
     }
 
     match search_for_terminator(content, start) {
-        Some((end, resume)) if missed => Extent::Searched { end, resume },
+        Some((end, resume)) if missed => Extent::Searched {
+            end,
+            resume,
+            // A stated `/L` naming another extent would still miss once the data were cut.
+            decoded_to: decoded_to
+                .filter(|to| stated.is_none_or(|length| start.checked_add(length) == Some(*to))),
+        },
         Some((end, resume)) => Extent::At { end, resume },
         None => Extent::Missing,
     }

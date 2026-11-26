@@ -2332,8 +2332,8 @@ pub(super) fn decide(
             // ISO 32000-2 §7.3.4.3 says the missing final digit "shall be assumed to be 0", so
             // writing it down transcribes a decision the standard already took and changes
             // nothing a reader computes; a byte that is neither a digit nor white space has no
-            // value in that clause at all, so removing one would be a guess about the producer.
-            // `doc/adr/1176` is the argument and `super::hexadecimal` the rewrite.
+            // value in that clause at all, so removing one is this reader's reading, at its loss
+            // (ADR 3735). `doc/adr/1176` is the argument and `super::hexadecimal` the rewrite.
             if judgement.id == ODD_HEXADECIMAL_DIGITS {
                 return answer_of(
                     Answer::Mechanical(Rewrite::HexadecimalDigitCompleted),
@@ -2341,7 +2341,8 @@ pub(super) fn decide(
                     prepared,
                 );
             }
-            return Decision::Refused(Because::TheFence(SYNTAX_INSIDE_CONTENT));
+            return content_stream_fences::stray_bytes_written(judgement, authorised, prepared)
+                .unwrap_or(Decision::Refused(Because::TheFence(SYNTAX_INSIDE_CONTENT)));
         }
         return Decision::Mechanical(Rewrite::WholeFileRewritten);
     }

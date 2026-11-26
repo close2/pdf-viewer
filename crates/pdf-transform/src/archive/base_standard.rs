@@ -223,11 +223,13 @@ pub(super) fn settled(
             if super::fenced::taken_with_the_photographs(document, id, photographed) {
                 return true;
             }
-            // An operator written out where the page draws the same (`doc/adr/3558`); the
-            // output's own check holds the write to having taken every one.
+            // An operator written out where the page draws the same (`doc/adr/3558`), at a
+            // holder the proof's file needs no other repair at (`doc/adr/3733`); the output's own
+            // check holds the write to having taken every one.
             if super::as_drawn::WRITTEN_OUT_WHERE_DRAWN_THE_SAME.contains(&class.name)
                 && drawn.is_some_and(|drawn| {
                     written_by(&drawn.at)
+                        && !drawn.left_repaired(id, class.name)
                         && streams
                             .iter()
                             .any(|stream| drawn.written_out.contains(stream))
@@ -631,9 +633,9 @@ const IN_CONTENT_BY_CLASS: &[(&str, &str, &str)] = &[
     in_content_because!(
         "syntax/hexadecimal-string-stray-byte",
         "ISO 32000-2 §7.3.4.3",
-        "this reader skipped the byte and read the digits around it; writing the string without \
-         it is not built, since the corpus's one carrier holds the byte among other classes this \
-         converter does not write (ADR 3680)"
+        "this reader skipped the byte and read the digits around it, and the string is written \
+         without it only where the profile grants content-as-drawn and this reader draws the page \
+         the same (ADR 3735), and here one of those does not hold"
     ),
     in_content!("syntax/integer-past-i64", "ISO 32000-2 §7.3.3"),
     in_content_because!(
@@ -674,8 +676,9 @@ const IN_CONTENT_BY_CLASS: &[(&str, &str, &str)] = &[
         "model/inline-image-data-extent",
         "ISO 32000-2 §8.9.7",
         "this reader found the image's end by searching for EI where the dictionary's extent did \
-         not reach it; restating the data at the extent read, or the dictionary's length, is not \
-         built (ADR 3680)"
+         not reach it; the bytes its decoding never read are cut only where they run past the end \
+         that decoding states, /L names no other, the profile grants content-as-drawn and this \
+         reader draws the page the same (ADR 3735), and here one of those does not hold"
     ),
     in_content_operator!("model/operand-of-the-wrong-type", "ISO 32000-2 §7.8.2"),
     in_content_operator!("model/operator-short-of-operands", "ISO 32000-2 §7.8.2"),
@@ -703,14 +706,15 @@ const IN_CONTENT_BY_CLASS: &[(&str, &str, &str)] = &[
     // Answered where the operator is written out with every operand before it (ADR 3631).
     in_content_operator!("model/operands-left-over", "ISO 32000-2 §7.8.2"),
     // What a stream leaves open, which the checker's grammar reads off the tokens (ADR 3614); an
-    // `EMC` closing nothing is written out alone where the page draws the same (ADR 3631).
+    // `EMC` closing nothing is written out alone (ADR 3631), and one is added where a section is
+    // left open at its stream's end (ADR 3734), each where the page draws the same.
     in_content_because!(
         "model/marked-content-unbalanced",
         "ISO 32000-2 §14.6.1",
-        "an EMC closing nothing is written out only where the profile grants content-as-drawn and \
-         this reader draws the page the same (ADR 3631); a section the content leaves open is \
-         not closed, since where the content ends is this reader's reading and a write that \
-         answers part of a page keeps its photograph from it (ADR 3679)"
+        "an EMC closing nothing is written out (ADR 3631), and a section left open where its \
+         content stream ends is closed there by an EMC (ADR 3734), only where the profile grants \
+         content-as-drawn, the section ends after a whole operator outside any text object, and \
+         this reader draws the page the same; here one of those does not hold"
     ),
     in_content!(
         "model/compatibility-sections-unbalanced",

@@ -358,12 +358,19 @@ per document
   opening with a `Tm` stating the matrix this reader drew it by where that is not the identity,
   closed before the first operator §9.4.1 keeps out of a text object (or by the producer's own
   stray `ET`), under the same proof and loss, and refused by name where the walk cannot state the
-  matrix (ADR 3661); where the source's cross-reference table was rebuilt by scanning, the proof's
+  matrix (ADR 3661), a `Td` or `TD` from a matrix the walk states being composed onto it (ADR
+  3736); where the source's cross-reference table was rebuilt by scanning, the proof's
   second file is written whole rather than appended (ADR 3662); a colour operator whose one, three
   or four operands do not fit the space is written as the device operator this reader drew them by,
-  operands kept (ADR 3679; a section left open is not closed), the space judged in a form being
+  operands kept (ADR 3679), the space judged in a form being
   the one its `Do` left in force (§8.10.1, ADR 3697); an inline image entry this reader did not read, its key stated twice, is written out
-  (ADR 3678) — each under the same proof and loss; a number in exponential form is written as the
+  (ADR 3678); a marked-content section left open where its content stream ends is closed there by
+  an `EMC` (ADR 3734); inline image data past the end its decoding states, up to the `EI` found by
+  searching, is cut, and a hexadecimal string's byte that is neither a digit nor white space is
+  written out, which answers ISO 19005-2 section 6.1.6's `hexadecimal-string-holds-only-digits`
+  in a content stream too (ADR 3735) — each under the same proof and loss, and a class the proof's
+  second file still needs at a page or form is answered nowhere in it, so the page keeps its
+  refusal or its photograph (ADR 3733); a number in exponential form is written as the
   decimal of the value read, at `content-as-drawn` with no proof needed (ADR 3677); a property list nothing defines is defined as a membership dictionary
   naming no group, losing nothing (ADR 2684, ADR 3631); under
   `as-if-printed` the page holding any other is photographed at `page-as-image` (ADR 3557); a repair

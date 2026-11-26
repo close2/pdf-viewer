@@ -16,11 +16,12 @@
 //! `CLAUDE.md`'s fourth amendment makes mark *provenance* the test the fence applies. ADR 1176 is
 //! the argument, and ADR 0947 decision 3 is what it supersedes.
 //!
-//! **The sibling row stays refused, and the difference is the point.** A hexadecimal string
+//! **The sibling row is not answered here, and the difference is the point.** A hexadecimal string
 //! holding a byte that is neither a digit nor white space
 //! (`file-structure/hexadecimal-string-holds-only-digits`) has no value the standard states:
-//! §7.3.4.3 gives that byte no meaning at all, so deleting it is a guess about what the producer
-//! meant rather than a transcription of what the standard already decided.
+//! §7.3.4.3 gives that byte no meaning at all, so deleting it is no transcription of what the
+//! standard already decided. It is written out only as this reader's reading, where the profile
+//! grants `content-as-drawn` and the page draws the same (`super::as_drawn`, `doc/adr/3735`).
 //!
 //! # One stream at a time, which is the standard's own division
 //!

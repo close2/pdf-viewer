@@ -88,6 +88,31 @@ pub(super) fn run_written_as_drawn(authorised: Authorisations, prepared: &Prepar
     }
 }
 
+/// ISO 19005-2 section 6.1.6's row for a hexadecimal string holding a byte that is neither a
+/// digit nor white space, inside a content stream, where the profile grants `content-as-drawn` and
+/// `super::super::as_drawn` wrote every such string as this reader read it, the byte gone, where
+/// the page draws the same (`doc/adr/3735`). §7.3.4.3 gives the byte no value and this reader
+/// skips it, so the reading is this reader's and the loss is stated. `None` elsewhere.
+pub(super) fn stray_bytes_written(
+    judgement: &Judgement,
+    authorised: Authorisations,
+    prepared: &Prepared,
+) -> Option<Decision> {
+    (judgement.id == crate::archive::fenced::STRAY_BYTES
+        && authorised.grants(Loss::ContentAsDrawn)
+        && prepared
+            .as_drawn
+            .as_ref()
+            .is_ok_and(|drawn| drawn.strays_written))
+    .then(|| {
+        answer_of(
+            Answer::Loses(Loss::ContentAsDrawn, Rewrite::RunWrittenAsDrawn),
+            authorised,
+            prepared,
+        )
+    })
+}
+
 /// This family's rows of [`super::REFUSED_BY_NAME`].
 pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     // ISO 19005-2 section 6.7.3.2 asks for space characters *inside show strings*, which is the

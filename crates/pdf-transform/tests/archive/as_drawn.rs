@@ -470,3 +470,65 @@ fn a_form_whose_bytes_are_written_as_drawn_keeps_its_cid_font_s_identity_map() {
         assert_eq!(written.run, b">");
     }
 }
+
+// The guard: in a file one of whose streams did not decode, an undefined keyword may be the
+// damage's bytes rather than anything a producer wrote, so nothing is written for it (`doc/adr/3698`
+// item 5). pdf.js's `issue19484_2` is the case: its content stream decrypts to noise. Here the page
+// also paints a form whose `/LZWDecode` filter is given an `/EarlyChange` Table 8 does not admit
+// ("0" or "1"), which the decode refuses, so the reader logs `syntax/stream-data-undecodable`, and
+// the `ETBT` on the page, which a clean file would have written as white space, is left:
+// `as-shown` keeps the fence's refusal.
+#[test]
+fn an_undefined_operator_is_not_written_in_a_file_with_a_stream_that_did_not_decode() {
+    let noise = b"\x80\x0b\x60\x50\x22\x0c\x0c\x85\x01";
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >> /XObject << /Fm0 7 0 R >>".to_owned(),
+        contents: Some((
+            String::new(),
+            b"BT /F1 12 Tf 10 80 Td (Hello) Tj ETBT 0 -14 Td (World) Tj ET q /Fm0 Do Q".to_vec(),
+        )),
+        objects: vec![HELVETICA.to_owned()],
+        binary_objects: vec![stream(
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [0 0 20 20] /Filter /LZWDecode \
+                 /DecodeParms << /EarlyChange 7 >> /Length {}",
+                noise.len()
+            ),
+            noise,
+        )],
+        ..Conforming::part_two()
+    }
+    .build();
+    let document = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+    let _ = pdf_archive::check(&document, Target::Two(Level::B));
+    assert!(
+        document
+            .repairs()
+            .iter()
+            .any(|logged| logged.class.name == "syntax/stream-data-undecodable"),
+        "the form does not decode: {:?}",
+        document
+            .repairs()
+            .iter()
+            .map(|logged| logged.class.name)
+            .collect::<Vec<_>>()
+    );
+    let (report, output) = convert_with_plan(&source, &under("as-shown", Target::Two(Level::B)));
+    assert!(
+        conversion(&report)
+            .runs_written_as_drawn
+            .iter()
+            .all(|written| written.run != b"ETBT"),
+        "{:?}",
+        conversion(&report).runs_written_as_drawn
+    );
+    assert!(
+        matches!(
+            decision(&report, OPERATORS),
+            Decision::Refused(Because::TheFence(_))
+        ),
+        "{:?}",
+        decision(&report, OPERATORS)
+    );
+    assert!(output.is_none());
+}

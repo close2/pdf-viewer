@@ -262,42 +262,107 @@ fn a_media_box_that_is_no_rectangle_is_written_as_the_box_this_reader_drew() {
     }
 }
 
-/// ISO 32000-2 Table 352's `BMC` begins a sequence "terminated by a balancing EMC operator", and
-/// §7.8.2's `BX` and `EX` "shall occur in pairs": a stream ending inside a section, or closing one
-/// it never opened, is read as if balanced, and the checker's grammar finds it before the fence
-/// asks which pages to photograph (`doc/adr/3614`). A section left open is not closed (ADR 3679).
-/// Under `as-shown` the row keeps its refusal by the class's name; under `as-if-printed` the page is
-/// photographed.
+/// §7.8.2's `BX` and `EX` "shall occur in pairs": a stream closing a compatibility section it never
+/// opened is read as if balanced, and the checker's grammar finds it before the fence asks which
+/// pages to photograph (`doc/adr/3614`). No write answers it: under `as-shown` the row keeps its
+/// refusal by the class's name; under `as-if-printed` the page is photographed.
 #[test]
-fn a_section_left_open_or_closed_twice_is_found_before_the_photographs() {
+fn a_compatibility_section_closed_twice_is_found_before_the_photographs() {
     let target = Target::Two(Level::B);
-    for (stream, class) in [
-        (
-            &b"/Tag BMC 0 0 10 10 re f"[..],
-            "model/marked-content-unbalanced",
-        ),
-        (
-            &b"0 0 10 10 re f EX"[..],
-            "model/compatibility-sections-unbalanced",
-        ),
-    ] {
-        let source = a_page_whose_stream_is(stream);
-        let (report, output) = convert_with_plan(&source, &under("as-shown", target));
-        assert!(output.is_none(), "{class}: as-shown writes no file");
-        let refused = refusals(&report);
-        assert!(
-            refused.iter().any(|sentence| sentence.contains(class)),
-            "refused by the class's name: {refused:?}"
-        );
-        let (report, output) = convert_with_plan(&source, &under("as-if-printed", target));
-        let output = output.expect("as-if-printed photographs the page");
-        assert_eq!(
-            holds(&output, target).verdict(),
-            Verdict::Conforms,
-            "{class}"
-        );
-        assert_eq!(conversion(&report).photographed.len(), 1, "{class}");
+    let class = "model/compatibility-sections-unbalanced";
+    let source = a_page_whose_stream_is(b"0 0 10 10 re f EX");
+    let (report, output) = convert_with_plan(&source, &under("as-shown", target));
+    assert!(output.is_none(), "as-shown writes no file");
+    let refused = refusals(&report);
+    assert!(
+        refused.iter().any(|sentence| sentence.contains(class)),
+        "refused by the class's name: {refused:?}"
+    );
+    let (report, output) = convert_with_plan(&source, &under("as-if-printed", target));
+    let output = output.expect("as-if-printed photographs the page");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert_eq!(conversion(&report).photographed.len(), 1);
+}
+
+/// ISO 32000-2 Table 352's `BMC` begins a sequence "terminated by a balancing EMC operator", and
+/// §14.6.1 has each sequence "entirely contained within a single content stream". This reader
+/// ends a section left open where its stream ends, so an `EMC` written there draws the same page,
+/// and both profiles write it rather than photograph the page (`doc/adr/3734`). The loss is
+/// `content-as-drawn`: where the producer meant the section to end is this reader's reading.
+#[test]
+fn a_section_left_open_is_closed_where_its_stream_ends() {
+    let source = a_page_whose_stream_is(b"/Tag BMC 0 0 10 10 re f /Inner BMC 0 0 5 5 re f % ends");
+    for profile in ["as-shown", "as-if-printed"] {
+        for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+            let (report, output) = convert_with_plan(&source, &under(profile, target));
+            let Decision::Authorised { losses, .. } = decision(&report, BASE_STANDARD) else {
+                panic!("{profile}: {:?}", decision(&report, BASE_STANDARD));
+            };
+            assert!(
+                losses.iter().eq([Loss::ContentAsDrawn]),
+                "{profile}: {}",
+                losses.words()
+            );
+            assert!(conversion(&report).photographed.is_empty(), "{profile}");
+            let output = output.expect("a file is written");
+            assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+            let text = contents_text(&output);
+            // The comment the stream ends in is ended by the line before each `EMC`.
+            assert!(text.ends_with("0 0 5 5 re f % ends EMC EMC"), "{text}");
+        }
     }
+}
+
+/// **A write that answers one class on a page answers none it left** (`doc/adr/3733`). The page's
+/// `/Contents` is two streams, which §7.8.2 reads as one: the first opens a section and ends with
+/// an operand the `Q` opening the second takes, so that `Q` restores nothing (§8.4.2) and has an
+/// operand left over (§7.8.2). Its operand stands in the other stream, so the walk cannot write it
+/// out; it writes the section's `EMC` where the second stream ends (`doc/adr/3734`) and the
+/// exponent's decimal in the first (`doc/adr/3677`), and the page draws the same. Read again with
+/// those written, the page still needs both of the `Q`'s repairs: `as-shown` refuses by one of
+/// their names, and `as-if-printed` photographs the page rather than count it answered.
+#[test]
+fn a_page_holding_a_class_the_write_left_is_photographed_though_another_was_written() {
+    let second = b"Q";
+    let built = Conforming {
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        contents: Some((String::new(), b"/Tag BMC 1e1 0 10 10 re f 5".to_vec())),
+        objects: vec![HELVETICA.to_owned()],
+        binary_objects: vec![stream(&format!("/Length {}", second.len()), second)],
+        // Room for the array below, so that no offset in the file moves.
+        page: " ".repeat(8),
+        ..Conforming::part_two()
+    }
+    .build();
+    let (was, now) = (
+        &b"/Contents 4 0 R          "[..],
+        &b"/Contents [4 0 R 7 0 R]  "[..],
+    );
+    let at = built
+        .windows(was.len())
+        .position(|window| window == was)
+        .expect("the fixture names its content stream");
+    let mut source = built.clone();
+    source[at..at + was.len()].copy_from_slice(now);
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(&source, &under("as-shown", target));
+    assert!(output.is_none(), "as-shown writes no file");
+    let refused = refusals(&report);
+    assert!(
+        refused.iter().any(|sentence| {
+            sentence.contains("model/restore-with-nothing-saved")
+                || sentence.contains("model/operands-left-over")
+        }),
+        "refused by a class the write left: {refused:?}"
+    );
+    let (report, output) = convert_with_plan(&source, &under("as-if-printed", target));
+    let output = output.expect("as-if-printed photographs the page");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let Decision::Authorised { losses, .. } = decision(&report, BASE_STANDARD) else {
+        panic!("{:?}", decision(&report, BASE_STANDARD));
+    };
+    assert!(losses.contains(Loss::PageAsImage), "{}", losses.words());
+    assert_eq!(conversion(&report).photographed.len(), 1);
 }
 
 /// A `BDC` whose tag is not a name (Table 352: "tag shall be a name object") and whose property
@@ -639,4 +704,83 @@ fn an_inline_image_key_stated_twice_keeps_the_entry_this_reader_read() {
         assert!(text.contains("BI /W 1 /H 1 /BPC 8 /CS /G ID"), "{text}");
         assert!(!text.contains("/Width"), "{text}");
     }
+}
+
+/// Table 106's `Td` sets the text matrix and the line matrix to a translation by its operands
+/// times the line matrix held, so a move from a matrix the walk can state is one it states too
+/// (`doc/adr/3736`). The second `Td` stands outside a text object after the `q Q` that ended the
+/// one added around the first, and reads the line matrix the first `Td` set; the text object added
+/// around it opens with a `Tm` stating that matrix.
+#[test]
+fn a_move_from_a_matrix_the_walk_can_state_is_restated_across_a_cut() {
+    let source = a_page_whose_stream_is(b"/F1 12 Tf 10 100 Td (A) Tj q Q 0 -20 Td (B) Tj");
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (output, losses) = as_shown(&source, target);
+        assert!(
+            losses.iter().eq([Loss::ContentAsDrawn]),
+            "{}",
+            losses.words()
+        );
+        let text = contents_text(&output);
+        assert!(
+            text.contains("BT 10 100 Td (A) Tj ET q Q BT 1 0 0 1 10 100 Tm 0 -20 Td (B) Tj ET"),
+            "{text}"
+        );
+    }
+}
+
+/// ISO 32000-2 §7.3.4.3 gives a hexadecimal string's bytes as digits and white space, and gives a
+/// byte that is neither no meaning; this reader skips it and reads the digits around it. Written
+/// without it, the string is the one the reader read and the page draws the same, so both section
+/// 5.1's repair and section 6.1.6's row are answered at `content-as-drawn`, the reading being this
+/// reader's (`doc/adr/3735`).
+#[test]
+fn a_byte_a_hexadecimal_string_holds_that_is_no_digit_is_written_out_as_this_reader_skipped_it() {
+    let source = a_page_whose_stream_is(b"BT /F1 12 Tf 10 100 Td <48 65 6Cz6C 6F> Tj ET");
+    for profile in ["as-shown", "as-if-printed"] {
+        let target = Target::Two(Level::B);
+        let (report, output) = convert_with_plan(&source, &under(profile, target));
+        let output = output.unwrap_or_else(|| panic!("{profile}: {:?}", refusals(&report)));
+        assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+        assert!(conversion(&report).photographed.is_empty(), "{profile}");
+        for row in [
+            BASE_STANDARD,
+            "file-structure/hexadecimal-string-holds-only-digits",
+        ] {
+            let Decision::Authorised { losses, .. } = decision(&report, row) else {
+                panic!("{profile} {row}: {:?}", decision(&report, row));
+            };
+            assert!(
+                losses.iter().eq([Loss::ContentAsDrawn]),
+                "{profile} {row}: {}",
+                losses.words()
+            );
+        }
+        let text = contents_text(&output);
+        assert!(text.contains("<48 65 6C6C 6F> Tj"), "{profile}: {text}");
+    }
+}
+
+/// §8.9.7: unfiltered inline image data is exactly as long as §8.9.3's arithmetic says, here one
+/// byte. Three more stand before `EI`, which this reader found by searching and never decoded; cut,
+/// the data ends where the arithmetic predicts, the page draws the same, and section 5.1's repair
+/// is answered at `content-as-drawn` (`doc/adr/3735`).
+#[test]
+fn inline_image_data_past_the_extent_its_decoding_reads_is_cut() {
+    let source =
+        a_page_whose_stream_is(b"q 10 0 0 10 0 0 cm BI /W 1 /H 1 /BPC 8 /CS /G ID \x80XYZ EI Q");
+    let target = Target::Two(Level::B);
+    let (output, losses) = as_shown(&source, target);
+    assert!(
+        losses.iter().eq([Loss::ContentAsDrawn]),
+        "{}",
+        losses.words()
+    );
+    let contents = decoded_contents(&output);
+    assert!(
+        contents.windows(5).any(|window| window == b"\x80 EI "),
+        "{}",
+        String::from_utf8_lossy(&contents)
+    );
+    assert!(!contents.windows(3).any(|window| window == b"XYZ"));
 }
