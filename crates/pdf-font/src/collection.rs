@@ -50,10 +50,12 @@ const MAX_TABLES: usize = 512;
 /// tells "not a collection" from "a collection this cannot read".
 #[must_use]
 pub fn extract(data: &[u8], wanted: Option<&str>) -> Option<Vec<u8>> {
+    // not a repair: a decline: bytes that are no readable collection answer None, which the
+    //   loader takes as not a collection and keeps the program as it was given.
     let FileRef::Collection(collection) = FileRef::new(data).ok()? else {
         return None;
     };
-    // Either face is a repair of one class, `font/collection-cut-to-one-face`, which the loader
+    // Either face is a repair of one class, `COLLECTION_CUT_TO_ONE_FACE`, which the loader
     // records where it calls this (ADR 3565): Table 124 files one font program, not a collection.
     let chosen = wanted
         .and_then(|wanted| face_named(&collection, wanted))
@@ -69,6 +71,8 @@ pub fn extract(data: &[u8], wanted: Option<&str>) -> Option<Vec<u8>> {
 /// 0141), so it is given only the face the descriptor names.
 #[must_use]
 pub fn extract_named(data: &[u8], wanted: &str) -> Option<Vec<u8>> {
+    // not a repair: a decline: bytes that are no readable collection answer None, and the caller
+    //   states no face of this program.
     let FileRef::Collection(collection) = FileRef::new(data).ok()? else {
         return None;
     };
@@ -83,9 +87,13 @@ pub fn extract_named(data: &[u8], wanted: &str) -> Option<Vec<u8>> {
 /// collection or holds no face at `index`.
 #[must_use]
 pub fn extract_at(data: &[u8], index: u32) -> Option<Vec<u8>> {
+    // not a repair: a decline: bytes that are no readable collection answer None, and the caller
+    //   takes the machine's face as not offered.
     let FileRef::Collection(collection) = FileRef::new(data).ok()? else {
         return None;
     };
+    // not a repair: a decline: an index that names no face answers None, and no face is put in
+    //   its place.
     rebuild(&collection.get(index).ok()?)
 }
 
@@ -99,10 +107,14 @@ fn face_named<'a>(collection: &read_fonts::CollectionRef<'a>, wanted: &str) -> O
 
 /// A face's PostScript name, from its `name` table (name ID 6).
 fn postscript_name(font: &FontRef<'_>) -> Option<String> {
+    // not a repair: a decline: a face whose name table does not read has no name, so `face_named`
+    //   does not select it.
     let name = font.name().ok()?;
     name.name_record()
         .iter()
         .find(|record| record.name_id() == read_fonts::tables::name::NameId::POSTSCRIPT_NAME)
+        // not a repair: a decline: a name record that does not decode names no face, and
+        //   `face_named` skips it.
         .and_then(|record| record.string(name.string_data()).ok())
         .map(|string| string.chars().collect())
 }

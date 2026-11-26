@@ -283,6 +283,8 @@ fn scaled_glyph(data: &[u8], scale: f32, glyph: u16) -> Result<Scaled, StretchEr
         simple(
             data,
             &mut out,
+            // not a repair: a conversion of a value already checked: `contours >= 0` is the
+            //   branch's own condition.
             usize::try_from(contours).unwrap_or(0),
             scale,
             glyph,
@@ -406,6 +408,8 @@ fn simple(
     }
     out.extend_from_slice(&x_bytes);
     out.extend_from_slice(ys);
+    // not a repair: a bound over this program's own scaled points, written as the box it states;
+    //   a glyph with no points has none to enclose.
     let min = scaled.iter().copied().min().unwrap_or(0);
     let max = scaled.iter().copied().max().unwrap_or(0);
     let field = |value: i32, field| {
@@ -543,6 +547,8 @@ impl Extent {
         let width = i32::from(max).saturating_sub(i32::from(min));
         let extent = i32::from(bearing).saturating_add(width);
         let right = i32::from(advance).saturating_sub(extent);
+        // not a repair: a writer: the `hhea` summary this program states over its own scaled
+        //   glyphs, narrowed to the field's width, which is not a value the file stated.
         let clamp = |value: i32| {
             i16::try_from(value.clamp(i32::from(i16::MIN), i32::from(i16::MAX))).unwrap_or(0)
         };
@@ -623,10 +629,15 @@ impl OutlinePen for Points {
 /// One glyph's points through `read-fonts`' reader, or `None` where it draws nothing.
 fn drawn(program: &[u8], glyph: u16) -> Option<Points> {
     use skrifa::MetadataProvider as _;
+    // not a repair: a decline: a program skrifa cannot read answers None, which `proved` compares
+    //   with the other program's reading and refuses the restatement where they differ.
     let font = skrifa::FontRef::new(program).ok()?;
     let mut points = Points::default();
     font.outline_glyphs()
         .get(skrifa::GlyphId::from(glyph))?
+        // not a repair: a decline: a glyph skrifa cannot draw answers None, which `proved`
+        //   compares with the other program's reading and refuses the restatement where they
+        //   differ.
         .draw(skrifa::instance::Size::unscaled(), &mut points)
         .ok()?;
     Some(points)
@@ -638,6 +649,9 @@ fn drawn(program: &[u8], glyph: u16) -> Option<Points> {
 fn proved(original: &[u8], scaled: &[u8], scale: f32, glyphs: u16) -> Result<(), StretchError> {
     let advances = |program: &[u8]| -> Option<BTreeMap<u16, f32>> {
         use skrifa::MetadataProvider as _;
+        // not a repair: a decline: a program skrifa cannot read answers None for the whole map,
+        //   which `proved` compares between the two programs and refuses the restatement where
+        //   they differ.
         let font = skrifa::FontRef::new(program).ok()?;
         let metrics = font.glyph_metrics(
             skrifa::instance::Size::unscaled(),

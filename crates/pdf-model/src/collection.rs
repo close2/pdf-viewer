@@ -385,6 +385,9 @@ impl Collection {
     /// Reads the catalog's `/Collection`, which almost no document has.
     #[must_use]
     pub fn read(document: &Document) -> Option<Self> {
+        // not a repair: an unreadable catalog declines (None), the answer for a document with no
+        //   `/Collection`; nothing is read in its place, and the catalog's own failure is
+        //   recorded where the catalog is read (CATALOG_UNREADABLE).
         let catalog = document.catalog().ok()?;
         let collection = document.get_key(&catalog, "Collection");
         let dict = collection.as_dict()?;
@@ -472,6 +475,8 @@ pub fn folder_of(key: &str) -> Option<(u32, &str)> {
     if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
+    // not a repair: digits too many for a folder number make the key one that does not conform,
+    //   which §12.3.5.2 has read as the root folder's (None); no folder number is invented.
     Some((digits.parse().ok()?, name))
 }
 
@@ -1091,6 +1096,8 @@ pub fn sorted_keys(
             (
                 at,
                 attachment,
+                // not a repair: a lookup in this reader's own index; an attachment with no item
+                //   has no field values, which is the empty set.
                 items.get(&attachment.name).unwrap_or(&EMPTY),
             )
         })

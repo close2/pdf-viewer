@@ -4776,7 +4776,7 @@ fn jpx_codestream_extensions(
         return;
     }
     let broken = codestream.collections.iter().any(|collection| {
-        collection.count != 1
+        collection.count != Some(1)
             || collection.kind != Some(Collection::DECORRELATION)
             || collection.reversible != Some(false)
     }) || codestream.orderings.iter().any(|stages| *stages != 1);

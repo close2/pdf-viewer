@@ -184,8 +184,9 @@ classes! {
          six numbers it holds";
     /// A form's `/BBox` absent, or not an array of four numbers.
     FORM_BBOX_UNUSABLE = "model/form-bbox-unusable", "ISO 32000-2 §8.10.2",
-        "a form with no /BBox of four numbers was drawn unclipped, or clipped to the first four \
-         numbers its /BBox holds";
+        "a form with no /BBox of four numbers was drawn unclipped, clipped to the first four \
+         numbers its /BBox holds, or, as an annotation's appearance, given the annotation \
+         rectangle's dimensions at the origin";
     /// A catalog's `/PageMode`, `/PageLayout` or `/ViewerPreferences` of a type or name Table 29
     /// does not give it.
     CATALOG_DISPLAY_ENTRY_UNUSABLE = "model/catalog-display-entry-unusable", "ISO 32000-2 §7.7.2",
@@ -239,6 +240,34 @@ classes! {
         "ISO 32000-2 §10.6.5.2",
         "a halftone's /TransferFunction that could not be read was ignored, and the transfer \
          function of the graphics state used for its component";
+
+    // ---- rich text, §12.7.4.3 and the XFA 3.3 grammar it names ---------------------------------
+
+    /// A field's `/RV` or an annotation's `/RC` that is not well-formed XML.
+    RICH_TEXT_MALFORMED = "model/rich-text-malformed", "ISO 32000-2 §12.7.4.3",
+        "a rich text string (/RV or /RC) that is not well-formed XML was not read as rich text, \
+         and the field's or the annotation's plain text was drawn in its place";
+    /// An attribute of a rich text string's markup that does not read as its grammar's value.
+    RICH_TEXT_ATTRIBUTE_UNUSABLE = "model/rich-text-attribute-unusable", "ISO 32000-2 §12.7.4.3",
+        "an ol start, an li value or a body's xfa:spec in a rich text string that does not read \
+         as the number or version its grammar gives it was read as absent";
+
+    // ---- a coordinate system's Well Known Text, §12.10.3 and ISO 19162 ------------------------
+
+    /// A system, a datum or a unit of a `/WKT` string with no name.
+    WKT_NAME_ABSENT = "model/wkt-name-absent", "ISO 32000-2 §12.10.3",
+        "a coordinate system, datum or unit that the /WKT string's grammar (ISO 19162) gives a \
+         name and the string states without one was named by the empty string";
+    /// An `ID` or `AUTHORITY` of a `/WKT` string whose EPSG code is text that is not a number.
+    WKT_IDENTIFIER_UNUSABLE = "model/wkt-identifier-unusable", "ISO 32000-2 §12.10.3",
+        "an EPSG identifier in a /WKT string whose code is not a whole number was read as no \
+         identifier, the component then known by its name alone";
+    /// A `Mercator_Auxiliary_Sphere` projection of a `/WKT` string with no
+    /// `Auxiliary_Sphere_Type`.
+    WKT_AUXILIARY_SPHERE_TYPE_ABSENT = "model/wkt-auxiliary-sphere-type-absent",
+        "ISO 32000-2 §12.10.4",
+        "a Mercator_Auxiliary_Sphere projection stating no Auxiliary_Sphere_Type was read as \
+         type 0, the sphere of the ellipsoid's semi-major axis";
 }
 
 #[cfg(test)]

@@ -1303,7 +1303,7 @@ fn decided(
     // `checkbox-bad-appearance.pdf` is the corpus's one witness: its check box's `/AP` draws
     // `(4)` in ZapfDingbats at `0 0 Td`, which under this box is the tick's own corner and
     // under any other reading is the corner of the page.
-    let bbox = stated_bbox.unwrap_or([0.0, 0.0, rect[2] - rect[0], rect[3] - rect[1]]);
+    let bbox = bbox_or_the_rectangle(document, stated_bbox, rect);
     let missing_bbox = stated_bbox
         .is_none()
         .then(|| format!("{name}: appearance stream has no /BBox"));
@@ -1539,6 +1539,8 @@ fn appearance_damage(
     let detail = format!("a {name} annotation's appearance stream (§12.5.5)");
     // Asked through the same source the drawing reads (ADR 0427), so that a stream the memo
     // keeps is decoded exactly once for both questions.
+    // not a repair: a stream that cannot be opened has no damage to report (None); the drawing
+    //   reads the same source and refuses it by name, so nothing is substituted here.
     let nested =
         crate::content::reader::NestedContent::of(document, stored, detail.clone()).ok()?;
     let (damage, kept) = match content {
@@ -1762,7 +1764,7 @@ pub(crate) fn stored_frame(
         (None, Some(bbox)) => transformed(bbox, matrix),
         (None, None) => return None,
     };
-    let bbox = stated_bbox.unwrap_or([0.0, 0.0, rect[2] - rect[0], rect[3] - rect[1]]);
+    let bbox = bbox_or_the_rectangle(document, stated_bbox, rect);
     Some((bbox, placement(bbox, matrix, rect)))
 }
 
@@ -1800,7 +1802,7 @@ pub(crate) fn alignment_of(
         (None, Some(bbox)) => transformed(bbox, matrix),
         (None, None) => return None,
     };
-    let bbox = stated_bbox.unwrap_or([0.0, 0.0, rect[2] - rect[0], rect[3] - rect[1]]);
+    let bbox = bbox_or_the_rectangle(document, stated_bbox, rect);
     Some(alignment(bbox, matrix, rect))
 }
 
@@ -2039,6 +2041,24 @@ pub(crate) fn transformed(box_: [f32; 4], matrix: Transform) -> [f32; 4] {
 pub(crate) fn matrix(document: &Document, dict: &Dictionary) -> Transform {
     exactly::<6>(document, dict, "Matrix").map_or(Transform::IDENTITY, |[a, b, c, d, e, f]| {
         Transform::new(a, b, c, d, e, f)
+    })
+}
+
+/// A stored appearance's `/BBox`, or where it states none of four numbers §12.7.4.3's box for a
+/// constructed one — the annotation rectangle's dimensions at the origin — which `decided` argues
+/// is the extension to take (§8.10.2 makes the entry required), recorded as
+/// `model/form-bbox-unusable`.
+fn bbox_or_the_rectangle(
+    document: &Document,
+    stated: Option<[f32; 4]>,
+    rect: [f32; 4],
+) -> [f32; 4] {
+    stated.unwrap_or_else(|| {
+        document.record_repair(
+            &crate::repair::FORM_BBOX_UNUSABLE,
+            pdf_syntax::Site::WholeFile,
+        );
+        [0.0, 0.0, rect[2] - rect[0], rect[3] - rect[1]]
     })
 }
 

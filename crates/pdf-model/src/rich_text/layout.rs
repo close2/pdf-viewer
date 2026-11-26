@@ -490,6 +490,8 @@ impl<'a> Faces<'a> {
         }
         let name = self.fresh_name();
         let dict = variable_text::substituted_font(&Name::new(base_font.as_bytes()));
+        // not a repair: the dictionary is this program's own stand-in, not the file's; a refusal
+        //   declines the stand-in (None) and `path` ends in the `/DA`'s face, which it always holds.
         let face = Face::load(self.document, dict, &name).ok()?;
         Some(self.hold(name, face, true))
     }
@@ -843,6 +845,8 @@ impl<'a> Shaping<'a> {
                 .binary_search_by_key(&byte, |(at, _)| *at)
                 .ok()
         })
+        // not a repair: a script looked up for a character of this program's own table; a byte
+        //   outside it has no script, which is no statement of the file's.
         .and_then(|index| scripts.get(index).copied())
         .unwrap_or_default()
     }
@@ -2432,6 +2436,8 @@ fn bits(value: f32) -> u32 {
 fn colour_key(colour: Option<[f32; 3]>) -> Ink {
     colour.map_or(Ink::Default, |components| {
         Ink::Rgb(components.map(|component| {
+            // not a repair: components are bytes over 255 from `style::colour`, so already inside
+            //   0..=1; the clamp guards the cast below, not a value the file states.
             let scaled = (component.clamp(0.0, 1.0) * 255.0).round();
             #[expect(
                 clippy::cast_possible_truncation,

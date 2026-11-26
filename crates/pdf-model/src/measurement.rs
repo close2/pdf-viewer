@@ -1444,6 +1444,17 @@ pub struct PointData {
     pub points: Vec<Vec<Object>>,
 }
 
+/// Records what reading a `/WKT` string reads past (`geospatial::system::from_wkt_noting`, ADR
+/// 3621), where the dictionary is read; the system itself is read again where it is asked for.
+///
+/// The site is the whole file, as for the other text entries read without their object.
+fn record_wkt_repairs(document: &Document, text: &str) {
+    let (_, noted) = crate::geospatial::system::from_wkt_noting(text);
+    for class in noted {
+        document.record_repair(class, pdf_syntax::Site::WholeFile);
+    }
+}
+
 /// Reads Table 269's entries.
 fn geospatial(document: &Document, dict: &Dictionary) -> Geospatial {
     let system = |key: &str| {
@@ -1459,7 +1470,11 @@ fn geospatial(document: &Document, dict: &Dictionary) -> Geospatial {
                 .is_some_and(|name| name.as_bytes() == b"PROJCS"),
             epsg: document.get_key(dict, "EPSG").as_integer(),
             wkt: match document.get_key(dict, "WKT") {
-                Object::String(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
+                Object::String(bytes) => {
+                    let text = String::from_utf8_lossy(&bytes).into_owned();
+                    record_wkt_repairs(document, &text);
+                    Some(text)
+                }
                 _ => None,
             },
         })

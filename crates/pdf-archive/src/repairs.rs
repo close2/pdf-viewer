@@ -210,6 +210,15 @@ pub static MAPPING: &[Mapped] = &[
     // the file states it, and the output's own check refuses by the class's name (ADR 3621).
     base("model/resource-category-not-a-dictionary"),
     base("model/halftone-transfer-function-unreadable"),
+    // A rich text string's and a coordinate system's string, read where a field's or a free text
+    // note's appearance is built and where a measure dictionary is read: outside content, so the
+    // whole-file rewrite carries each string as the file states it, and the output's own check
+    // refuses by the class's name where it reads the entry again (ADR 3709).
+    base("model/rich-text-malformed"),
+    base("model/rich-text-attribute-unusable"),
+    base("model/wkt-name-absent"),
+    base("model/wkt-identifier-unusable"),
+    base("model/wkt-auxiliary-sphere-type-absent"),
     // The embedded program (ADR 3565, ADR 3569). Section 5.1, and section 6.2.11.4.1's row for a
     // font a content stream renders: the program the file embeds is not the one the window drew,
     // and the converter answers the row by writing the program as this reader read it

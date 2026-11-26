@@ -16,7 +16,10 @@
 //! is the one exception (page 1220): inside a span styled `xfa-spacerun:yes`, every space is kept
 //! and every no-break space is read as an ordinary one.
 
+use pdf_syntax::RepairClass;
+
 use super::style::{self, Block, Character, Declarations, Unapplied};
+use crate::repair::{RICH_TEXT_ATTRIBUTE_UNUSABLE, RICH_TEXT_MALFORMED};
 
 /// The most markup this module reads, in bytes.
 ///
@@ -134,8 +137,25 @@ pub(crate) fn parse(
     default_style: Option<&str>,
     root: Character,
 ) -> Option<RichText> {
+    parse_noting(markup, default_style, root).0
+}
+
+/// [`parse`], and the repairs the reading made (ADR 3621): `model/rich-text-malformed` where the
+/// markup is not well-formed XML, and `model/rich-text-attribute-unusable` for each attribute read
+/// as absent.
+///
+/// Returned rather than recorded because this reads a string and holds no document; the caller
+/// that took the string from a dictionary records them. Only one whose entry *is* a rich text
+/// string records the first class: a `/V` that merely looks like markup and does not parse is plain
+/// text, which is no repair.
+pub(crate) fn parse_noting(
+    markup: &str,
+    default_style: Option<&str>,
+    root: Character,
+) -> (Option<RichText>, Vec<&'static RepairClass>) {
     if markup.len() > MAX_MARKUP {
-        return None;
+        // not a repair: a bound of this reader's, which a conforming string can reach.
+        return (None, Vec::new());
     }
     let mut walk = Walk::new(default_style, root);
     let mut pending: Option<Pending> = None;
@@ -154,7 +174,9 @@ pub(crate) fn parse(
     let mut elements = 0_usize;
     let mut wrapper_seen = false;
     for token in xmlparser::Tokenizer::from(wrapped.as_str()) {
-        let token = token.ok()?;
+        let Ok(token) = token else {
+            return (None, vec![&RICH_TEXT_MALFORMED]);
+        };
         match token {
             xmlparser::Token::ElementStart { prefix, local, .. } => {
                 if let Some(open) = pending.take() {
@@ -204,9 +226,11 @@ pub(crate) fn parse(
         }
     }
     if elements == 0 {
-        return None;
+        // not a repair: a string that opens no element is plain text, drawn as the characters it
+        //   is (ADR 1197).
+        return (None, walk.repairs);
     }
-    Some(walk.finish())
+    walk.finish()
 }
 
 /// The text of a node or an attribute with XML's references resolved.
@@ -295,6 +319,8 @@ struct Walk {
     lists_respected: bool,
     /// The `li` whose first paragraph is still to take its tag.
     tag_waiting: Option<(Tag, ListIndent)>,
+    /// The repairs the walk made, for [`parse_noting`]'s caller to record.
+    repairs: Vec<&'static RepairClass>,
 }
 
 impl Walk {
@@ -328,6 +354,7 @@ impl Walk {
             unapplied,
             lists_respected: true,
             tag_waiting: None,
+            repairs: Vec::new(),
         }
     }
 
@@ -411,7 +438,12 @@ impl Walk {
                 if element.name == "body"
                     && let Some(spec) = element.attribute("xfa", "spec")
                 {
-                    self.lists_respected = version_at_least(spec, &[3, 3]);
+                    // A version that does not read is read as none stated, which keeps the
+                    // lists.
+                    match version_at_least(spec, &[3, 3]) {
+                        Some(respected) => self.lists_respected = respected,
+                        None => self.repairs.push(&RICH_TEXT_ATTRIBUTE_UNUSABLE),
+                    }
                 }
                 // The body's margins frame the whole text; its inherited properties reach every
                 // paragraph through the stack.
@@ -666,10 +698,14 @@ impl Walk {
             Some("simple") => false,
             _ => self.lists.last().is_some_and(|list| list.compound),
         };
-        let start = element
-            .attribute("", "start")
-            .and_then(|start| start.trim().parse::<i64>().ok())
-            .unwrap_or(1);
+        // not a repair: HTML 4.01 section 10.2, which XHTML takes over, makes an `ol`'s default
+        //   starting number 1.
+        let start = element.attribute("", "start").map_or(1, |start| {
+            start.trim().parse::<i64>().unwrap_or_else(|_| {
+                self.repairs.push(&RICH_TEXT_ATTRIBUTE_UNUSABLE);
+                1
+            })
+        });
         let ancestry = self.lists.last().map_or_default(|list| {
             let mut ancestry = list.ancestry.clone();
             ancestry.extend(list.current.clone());
@@ -690,9 +726,7 @@ impl Walk {
             // *List in Combination of Other XHTML* (page 1217): an item outside any list is
             // read as if an unordered list held it, with minimal list indent.
             let tag = Tag {
-                // not a repair: the first marker of this program's own disc style, not a value the
-                //   file states.
-                text: ListStyle::Disc.tag(1).unwrap_or_default(),
+                text: ListStyle::Disc.tag(1),
                 style: character.clone(),
             };
             self.tag_waiting = Some((tag, ListIndent::Minimal));
@@ -702,15 +736,15 @@ impl Walk {
         let Some(list) = self.lists.last_mut() else {
             return;
         };
-        if let Some(value) = element
-            .attribute("", "value")
-            .and_then(|value| value.trim().parse::<i64>().ok())
-        {
-            list.next = value;
+        if let Some(value) = element.attribute("", "value") {
+            match value.trim().parse::<i64>() {
+                Ok(value) => list.next = value,
+                Err(_) => self.repairs.push(&RICH_TEXT_ATTRIBUTE_UNUSABLE),
+            }
         }
         let number = list.next;
         list.next = list.next.saturating_add(1);
-        let plain = list.style.tag(number).unwrap_or_default();
+        let plain = list.style.tag(number);
         let bare = list.style.bare(number);
         list.current.clone_from(&bare);
         let text = match (list.compound && list.style.numbered(), bare) {
@@ -730,7 +764,7 @@ impl Walk {
         ));
     }
 
-    fn finish(mut self) -> RichText {
+    fn finish(mut self) -> (Option<RichText>, Vec<&'static RepairClass>) {
         self.end_paragraph();
         if let Some((tag, list)) = self.tag_waiting.take() {
             // An empty item still shows its tag.
@@ -743,23 +777,32 @@ impl Walk {
                 list,
             });
         }
-        RichText {
-            body: self.body,
-            paragraphs: self.paragraphs,
-            unapplied: self.unapplied,
-        }
+        (
+            Some(RichText {
+                body: self.body,
+                paragraphs: self.paragraphs,
+                unapplied: self.unapplied,
+            }),
+            self.repairs,
+        )
     }
 }
 
 /// Whether a version identifier is at least `floor`, compared field by field with the shorter
 /// padded with zeros — *Version Specification*'s rule for `xfa:APIVersion` (page 1223), applied
 /// to `xfa:spec`, which the same section gives a version identifier as well.
-fn version_at_least(stated: &str, floor: &[u64]) -> bool {
+///
+/// `None` where a field is not a number: the identifier states no version, and the caller logs
+/// that.
+fn version_at_least(stated: &str, floor: &[u64]) -> Option<bool> {
     let fields: Vec<u64> = stated
         .trim()
         .split('.')
-        .map(|field| field.trim().parse::<u64>().unwrap_or(0))
-        .collect();
+        .map(|field| field.trim().parse::<u64>())
+        .collect::<Result<_, _>>()
+        // not a repair: the whole identifier is declined, and the caller records
+        //   RICH_TEXT_ATTRIBUTE_UNUSABLE for it.
+        .ok()?;
     let length = fields.len().max(floor.len());
     for index in 0..length {
         // not a repair: a version with fewer fields than the floor compares as zero in the fields
@@ -767,10 +810,10 @@ fn version_at_least(stated: &str, floor: &[u64]) -> bool {
         let ours = fields.get(index).copied().unwrap_or(0);
         let theirs = floor.get(index).copied().unwrap_or(0);
         if ours != theirs {
-            return ours > theirs;
+            return Some(ours > theirs);
         }
     }
-    true
+    Some(true)
 }
 
 /// *List Support*'s alphabetic Kana and Hangul types (pages 1212 and 1213), whose letters the
@@ -1134,21 +1177,27 @@ impl ListStyle {
                     })
                     .collect(),
             ),
-            Self::Latin(upper) => alphabetic(number, if upper { 'A' } else { 'a' }, 26, &[]),
+            // Section 8.5 sends a number outside a style's range to its fallback, `decimal` for
+            // these (ADR 1660): an alphabetic style below one, a Roman one outside 1 to 3999.
+            Self::Latin(upper) => alphabetic(number, if upper { 'A' } else { 'a' }, 26, &[])
+                .or_else(|| Some(number.to_string())),
             // The Greek alphabet's twenty-four letters, which skip the final sigma's code point.
             Self::Greek(upper) => alphabetic(
                 number,
                 if upper { '\u{391}' } else { '\u{3b1}' },
                 25,
                 &[if upper { '\u{3a2}' } else { '\u{3c2}' }],
-            ),
-            Self::Roman(upper) => roman(number).map(|numeral| {
-                if upper {
-                    numeral.to_ascii_uppercase()
-                } else {
-                    numeral
-                }
-            }),
+            )
+            .or_else(|| Some(number.to_string())),
+            Self::Roman(upper) => roman(number)
+                .map(|numeral| {
+                    if upper {
+                        numeral.to_ascii_uppercase()
+                    } else {
+                        numeral
+                    }
+                })
+                .or_else(|| Some(number.to_string())),
             Self::Letters(letters) => {
                 alphabetic_in(number, letters).or_else(|| Some(number.to_string()))
             }
@@ -1179,13 +1228,18 @@ impl ListStyle {
 
     /// The tag as an item shows it: a glyph, or a number followed by its full stop, which *List
     /// Layout* says every numeric tag carries (page 1219).
-    fn tag(self, number: i64) -> Option<String> {
+    ///
+    /// Every number has one: a style's range ends in its fallback (section 8.5, ADR 1660), so
+    /// [`Self::bare`] is `None` only for the four glyph styles this matches first.
+    fn tag(self, number: i64) -> String {
         match self {
-            Self::Disc => Some("\u{2022}".to_owned()),
-            Self::Circle => Some("\u{25e6}".to_owned()),
-            Self::Square => Some("\u{25aa}".to_owned()),
-            Self::None => Some(String::new()),
-            numbered => numbered.bare(number).map(|bare| format!("{bare}.")),
+            Self::Disc => "\u{2022}".to_owned(),
+            Self::Circle => "\u{25e6}".to_owned(),
+            Self::Square => "\u{25aa}".to_owned(),
+            Self::None => String::new(),
+            numbered => numbered
+                .bare(number)
+                .map_or_else(String::new, |bare| format!("{bare}.")),
         }
     }
 }
@@ -1541,6 +1595,33 @@ mod tests {
         assert!(parse("plain characters", None, Character::root()).is_none());
     }
 
+    /// What the walk reads past is returned for the caller holding the document: markup that is
+    /// not XML, and an `ol start`, an `li value` or an `xfa:spec` that does not read.
+    #[test]
+    fn what_the_walk_reads_past_is_noted() {
+        use crate::repair::{RICH_TEXT_ATTRIBUTE_UNUSABLE, RICH_TEXT_MALFORMED};
+        let noted = |markup: &str| super::parse_noting(markup, None, Character::root());
+        let (rich, repairs) = noted("<p>a < b</p>");
+        assert!(rich.is_none());
+        assert_eq!(repairs[0].name, RICH_TEXT_MALFORMED.name);
+
+        let (rich, repairs) = noted("<p>plain</p>");
+        assert!(rich.is_some() && repairs.is_empty());
+
+        let (rich, repairs) = noted(
+            r#"<body xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:spec="3.x"><ol start="two"><li value="v">one</li></ol></body>"#,
+        );
+        let rich = rich.expect("the markup is well formed");
+        assert_eq!(repairs.len(), 3, "{repairs:?}");
+        assert!(
+            repairs
+                .iter()
+                .all(|class| class.name == RICH_TEXT_ATTRIBUTE_UNUSABLE.name)
+        );
+        let tag = rich.paragraphs[0].tag.as_ref().map(|tag| tag.text.as_str());
+        assert_eq!(tag, Some("1."), "read as absent: the list starts at one");
+    }
+
     /// Ordered and unordered lists, nested, with the default tags *List Support* gives each
     /// level (pages 1209 to 1212) — Example 27.33's shape, in words of this test's own.
     #[test]
@@ -1605,21 +1686,15 @@ mod tests {
     #[test]
     fn list_styles_count_as_their_scripts_count() {
         use super::ListStyle;
-        assert_eq!(ListStyle::Latin(false).tag(28), Some("ab.".to_owned()));
-        assert_eq!(
-            ListStyle::Roman(true).tag(1994),
-            Some("MCMXCIV.".to_owned())
-        );
+        assert_eq!(ListStyle::Latin(false).tag(28), "ab.");
+        assert_eq!(ListStyle::Roman(true).tag(1994), "MCMXCIV.");
         assert_eq!(
             ListStyle::Greek(false).tag(18),
-            Some("\u{3c3}.".to_owned()),
+            "\u{3c3}.",
             "sigma, past the final form"
         );
-        assert_eq!(ListStyle::DecimalLeadingZero.tag(7), Some("07.".to_owned()));
-        assert_eq!(
-            ListStyle::Digits('\u{660}').tag(12),
-            Some("\u{661}\u{662}.".to_owned())
-        );
+        assert_eq!(ListStyle::DecimalLeadingZero.tag(7), "07.");
+        assert_eq!(ListStyle::Digits('\u{660}').tag(12), "\u{661}\u{662}.");
     }
 
     /// The algorithmic and alphabetic types *List Support* requires (pages 1212 and 1213), each
@@ -1674,9 +1749,19 @@ mod tests {
         assert_eq!(bare("hangul-consonant", 14), "\u{314e}");
         assert_eq!(bare("hangul", 0), "0", "below one, decimal");
         assert_eq!(
-            ListStyle::named("hebrew").and_then(|style| style.tag(2)),
+            ListStyle::named("hebrew").map(|style| style.tag(2)),
             Some("\u{5d1}.".to_owned()),
             "every numeric tag takes the full stop (page 1219)"
+        );
+        assert_eq!(
+            ListStyle::Latin(false).tag(0),
+            "0.",
+            "below one, decimal (section 8.5)"
+        );
+        assert_eq!(
+            ListStyle::Roman(false).tag(4000),
+            "4000.",
+            "past 3999, decimal"
         );
     }
 }

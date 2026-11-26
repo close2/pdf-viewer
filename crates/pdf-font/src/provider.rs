@@ -174,6 +174,8 @@ pub fn offered(
             .filter_map(|(_, known)| known.as_ref())
             .find(|(bytes, _)| **bytes == *program)
             .map(|(bytes, _)| Arc::clone(bytes));
+        // not a repair: not a value the file states: `known` is this process's own earlier copy
+        //   of the same bytes, held once; the fallback keeps the bytes just received.
         (known.unwrap_or_else(|| Arc::from(program)), name)
     });
     held.push((asked, answer.clone()));
@@ -196,6 +198,8 @@ pub fn open_a_face(request: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
     let face = crate::substitute::machine_face(request, style, &wanted, skip)?;
     // The face itself crosses, never the file: a collection's face is copied out here, so the
     // worker holds one font program and has no index to be told (ADR 3066).
+    // not a repair: a decline: a face file that cannot be read answers None, which the worker
+    //   reads as this machine offering nothing, as the doc comment above says.
     let content = crate::substitute::face_program(std::fs::read(&face.path).ok()?, face.index)?;
     let file = face
         .path
@@ -282,9 +286,14 @@ pub fn encode_request(request: Request, style: Style, wanted: &[char], skip: u32
         | (u8::from(style.italic) << 3);
     out.push(flags);
     out.extend_from_slice(&style.weight.to_be_bytes());
+    // not a repair: a writer: the request this program encodes for its own broker. The width is
+    //   one decode_styled_request has checked to 1..=9, so the saturation never reaches a stated
+    //   value.
     out.push(u8::try_from(style.width).unwrap_or(u8::MAX));
     out.push(collection_byte(style.collection));
     out.extend_from_slice(&skip.to_be_bytes());
+    // not a repair: a writer: a count of this program's own, saturating at the field's width; the
+    //   decoder refuses a count its bytes do not carry.
     out.extend_from_slice(
         &u32::try_from(wanted.len())
             .unwrap_or(u32::MAX)
@@ -314,6 +323,8 @@ pub fn decode_styled_request(bytes: &[u8]) -> Option<(Request, Style, Vec<char>,
     }
     let family = family_of(bytes.get(1).copied()?)?;
     let flags = bytes.get(2).copied()?;
+    // not a repair: a conversion of a slice `get` has just cut to length 2, which cannot fail; a
+    //   request that is not one answers None and the broker offers nothing.
     let weight = u16::from_be_bytes(bytes.get(3..5)?.try_into().ok()?);
     let width = u16::from(bytes.get(5).copied()?);
     if !(1..=1000).contains(&weight) || !(1..=9).contains(&width) {
@@ -324,6 +335,9 @@ pub fn decode_styled_request(bytes: &[u8]) -> Option<(Request, Style, Vec<char>,
         return None;
     }
     let collection = collection_of(collection);
+    // not a repair: the broker protocol's own fields, between two of this program's processes: a
+    //   slice cut to its length converts, and a count that does not fit declines the whole
+    //   request with None.
     let skip = u32::from_be_bytes(bytes.get(7..11)?.try_into().ok()?);
     let count = u32::from_be_bytes(bytes.get(11..HEAD)?.try_into().ok()?);
     let count = usize::try_from(count).ok()?;

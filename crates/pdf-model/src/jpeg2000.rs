@@ -511,8 +511,9 @@ pub struct Codestream {
 /// The facts of one `MCC` marker segment series T.801 M.9.2.3 asks about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Collection {
-    /// `Qmcc`, the number of component collections.
-    pub count: u16,
+    /// `Qmcc`, the number of component collections. `None` where the series ends before the
+    /// field.
+    pub count: Option<u16>,
     /// The first collection's `Xmcc` transform type, the two low bits of T.801 Table A.35:
     /// 0 dependency, 1 decorrelation, 3 wavelet. `None` where the series ends before the field.
     pub kind: Option<u8>,
@@ -751,7 +752,12 @@ impl<'a> Headers<'a> {
         let mut at = 0usize;
         while let Some(found) = next_box(payload, at)? {
             if found.kind == CROSS_REFERENCE {
-                let list = found.payload.get(REFERENCED_TYPE..).unwrap_or_default();
+                // A box this module reads that is short of its fields is an error, as `parse`
+                // says: an `Rtyp` the box does not hold is a field the file did not state.
+                let list = found
+                    .payload
+                    .get(REFERENCED_TYPE..)
+                    .ok_or_else(|| short_box(CROSS_REFERENCE, found.payload, REFERENCED_TYPE))?;
                 self.read_fragment_lists(CROSS_REFERENCE, box_index, list)?;
             }
             at = found.end;
@@ -1125,7 +1131,7 @@ fn parse_first_layer(payload: &[u8], base: usize) -> Result<FirstLayer<'_>, Head
                     found
                         .payload
                         .get(GRID..)
-                        .unwrap_or_default()
+                        .ok_or_else(|| short_box(REGISTRATION, found.payload, GRID))?
                         .as_chunks::<EACH>()
                         .0
                         .iter()
@@ -1152,13 +1158,11 @@ fn contents_of(payload: &[u8]) -> Result<Vec<[u8; 4]>, HeaderError> {
     while let Some(found) = next_box(payload, at)? {
         match found.kind {
             CROSS_REFERENCE => {
-                if let Some(named) = found
+                let named = found
                     .payload
-                    .get(..4)
-                    .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
-                {
-                    contents.push(named);
-                }
+                    .first_chunk::<4>()
+                    .ok_or_else(|| short_box(CROSS_REFERENCE, found.payload, 4))?;
+                contents.push(*named);
             }
             COLOUR_GROUP => {
                 contents.push(found.kind);
@@ -1290,22 +1294,26 @@ fn read_component_transforms(data: &[u8], codestream: &mut Codestream) {
             let Some(start) = tile_part else {
                 break;
             };
-            let psot = data
-                .get(start.saturating_add(PSOT_AT)..start.saturating_add(PSOT_AT + 4))
-                .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
-                .map_or(0, u32::from_be_bytes);
-            if psot == 0 {
+            // A `Psot` the data does not hold ends the walk as a zero one does: the bytes end
+            // there, and nothing is read in place of the tile-parts after it.
+            let Some(psot) = data
+                .get(start.saturating_add(PSOT_AT)..)
+                .and_then(<[u8]>::first_chunk::<4>)
+                .map(|bytes| u32::from_be_bytes(*bytes))
+                .filter(|psot| *psot != 0)
+            else {
                 break;
-            }
+            };
             // not a repair: a 32-bit length widened to an offset, not a value the file states.
             at = start.saturating_add(usize::try_from(psot).unwrap_or(usize::MAX));
             tile_part = None;
             continue;
         }
+        // A marker whose length the data does not hold ends the walk where the bytes end.
         let Some(length) = data
-            .get(at.saturating_add(2)..at.saturating_add(MARKER_AND_LENGTH))
-            .and_then(|bytes| <[u8; 2]>::try_from(bytes).ok())
-            .map(u16::from_be_bytes)
+            .get(at.saturating_add(2)..)
+            .and_then(<[u8]>::first_chunk::<2>)
+            .map(|bytes| u16::from_be_bytes(*bytes))
         else {
             break;
         };
@@ -1364,8 +1372,8 @@ fn read_collection(stream: &[u8]) -> Collection {
 
     let count = stream
         .get(2..COUNTS)
-        .and_then(|bytes| <[u8; 2]>::try_from(bytes).ok())
-        .map_or(0, u16::from_be_bytes);
+        .and_then(<[u8]>::first_chunk::<2>)
+        .map(|bytes| u16::from_be_bytes(*bytes));
     let mut collection = Collection {
         count,
         kind: None,
@@ -1408,6 +1416,16 @@ fn read_collection(stream: &[u8]) -> Collection {
 /// A box type as the four characters a clause names it by, for a report.
 fn name_of(kind: [u8; 4]) -> String {
     String::from_utf8_lossy(&kind).into_owned()
+}
+
+/// [`HeaderError::ShortBox`] for a `kind` box whose `payload` is short of the `needed` bytes its
+/// fields take.
+fn short_box(kind: [u8; 4], payload: &[u8], needed: usize) -> HeaderError {
+    HeaderError::ShortBox {
+        name: name_of(kind),
+        held: payload.len(),
+        needed,
+    }
 }
 
 #[cfg(test)]
@@ -1944,12 +1962,32 @@ mod tests {
         assert_eq!(
             codestream.collections,
             vec![Collection {
-                count: 1,
+                count: Some(1),
                 kind: Some(Collection::DECORRELATION),
                 reversible: Some(false),
             }]
         );
         assert_eq!(codestream.orderings, vec![1]);
+    }
+
+    /// A Cross-Reference box short of its `Rtyp`, and a Codestream Registration box short of its
+    /// grid, are short boxes, as `Headers::parse` says of every box this module reads (T.801
+    /// M.11.4 and M.11.7.7): their fields are not read as empty.
+    #[test]
+    fn a_cross_reference_or_registration_short_of_its_fields_is_refused() {
+        let short = |kind: [u8; 4], held: usize, needed: usize| HeaderError::ShortBox {
+            name: name_of(kind),
+            held,
+            needed,
+        };
+        assert_eq!(
+            contents_of(&boxed(CROSS_REFERENCE, &[0, 0])),
+            Err(short(CROSS_REFERENCE, 2, 4))
+        );
+        assert_eq!(
+            parse_first_layer(&boxed(REGISTRATION, &[0, 1, 0]), 0).map(|_| ()),
+            Err(short(REGISTRATION, 3, 4))
+        );
     }
 
     /// I.4's `LBox` of 0 makes a box run to the end of the data, and the walk still terminates.

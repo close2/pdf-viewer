@@ -268,13 +268,17 @@ fn colour_key_entry(
     // the ranges are bounded by is the one the codestream states and the decoder delivers,
     // which [`jpx_sample_domain`] has just read out of its headers (ADR 1242).
     let bits = jpx_bits.unwrap_or_else(|| {
-        u32::try_from(
-            document
-                .get_key(dict, "BitsPerComponent")
-                .as_integer()
-                .unwrap_or(8),
-        )
-        .unwrap_or(8)
+        let stated = document
+            .get_key(dict, "BitsPerComponent")
+            .as_integer()
+            .and_then(|bits| u32::try_from(bits).ok());
+        if stated.is_none() {
+            document.record_repair(
+                &crate::repair::IMAGE_DEPTH_ABSENT,
+                pdf_syntax::Site::WholeFile,
+            );
+        }
+        stated.unwrap_or(8)
     });
     // not a repair: a shift overflow guard on a sample-range bound, not a value the file states.
     let highest = i64::from(1u32.checked_shl(bits).unwrap_or(u32::MAX).saturating_sub(1));
@@ -291,6 +295,8 @@ fn colour_key_entry(
         }
         // A reversed pair is not malformed: `min i ≤ c i ≤ max i` is then satisfied by no
         // sample, so the range masks nothing, which is a statement a file may make.
+        // not a repair: both bounds were checked against 0..=highest just above, so the
+        //   conversions cannot fail and the 0 is unreachable.
         ranges.push((
             u32::try_from(low).unwrap_or(0),
             u32::try_from(high).unwrap_or(0),
@@ -325,6 +331,8 @@ fn colour_key_entry(
 ///   600 dpi stencil is that it can.
 fn explicit_entry(document: &Document, dict: &Dictionary, stream: &Arc<Stream>) -> MaskEntry {
     let mask_dict = &stream.dict;
+    // not a repair: the 0 stands only in the grid bound below; the stencil and the image are then
+    //   decoded through `positive_integer`, which refuses a missing or non-positive dimension.
     let dimension =
         |dict: &Dictionary, key| crate::integer_entry::dimension(document, dict, key).unwrap_or(0);
     let (mask_width, mask_height) = (
@@ -583,13 +591,16 @@ pub fn short_of_its_grid(
     let (bits, components) = if is_mask {
         (1usize, 1usize)
     } else {
-        let bits = usize::try_from(
-            document
-                .get_key(dict, "BitsPerComponent")
-                .as_integer()
-                .unwrap_or(8),
-        )
-        .ok()?;
+        let stated = document.get_key(dict, "BitsPerComponent").as_integer();
+        if stated.is_none() {
+            document.record_repair(
+                &crate::repair::IMAGE_DEPTH_ABSENT,
+                pdf_syntax::Site::WholeFile,
+            );
+        }
+        // not a repair: a decline: a negative depth states no grid to compare against; an absent
+        //   one is read at 8 as the decode reads it, and recorded above (ADR 3691).
+        let bits = usize::try_from(stated.unwrap_or(8)).ok()?;
         let space = document.get_key(dict, "ColorSpace");
         // Asked for its component count alone, which no output intent can change:
         // `ColourSpace::device_family` substitutes the intent only for a family with the

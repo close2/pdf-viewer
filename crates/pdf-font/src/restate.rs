@@ -273,6 +273,9 @@ pub fn type1_with_widths(
 /// `/FontFile`, which [`Format`] does not name because no substitute is ever one.
 #[must_use]
 pub fn type1_advance(program: &[u8], glyph: u16) -> Option<f32> {
+    // not a repair: a decline: a program that does not read answers None for the whole reading,
+    //   and the archive's `proves` then refuses the restatement as not proved; nothing stands in
+    //   for the file's value.
     let program = crate::type1::Program::parse(program).ok()?;
     let units = program.units_per_em().ok()?;
     Some(program.horizontal_advance(glyph).ok()?? / units)
@@ -432,6 +435,8 @@ pub fn vertical_advance(program: &[u8], format: Format, glyph: u16) -> Option<f3
     if format != Format::Sfnt {
         return None;
     }
+    // not a repair: a decline: a program or a `vhea` that does not read answers None for the
+    //   whole reading, and the archive's `proves` then refuses the restatement as not proved.
     let units = units_per_em(program, format).ok()?;
     let vertical = VerticalMetrics::of(program).ok()?;
     if glyph >= vertical.glyphs {
@@ -582,6 +587,9 @@ fn overwritten(program: &[u8], table: [u8; 4], edits: &BTreeMap<usize, u16>) -> 
     out.get_mut(checksum..checksum.checked_add(4)?)?
         .copy_from_slice(&stated.to_be_bytes());
     let record = directory_entry(program, *b"head")?;
+    // not a repair: a decline: an offset that does not narrow answers None, and
+    //   `with_vertical_advances` then answers RestateError::Unreadable; no value is put in its
+    //   place.
     let head_at = usize::try_from(sfnt::be32(&out, record.checked_add(8)?)?).ok()?;
     let adjustment = head_at.checked_add(CHECKSUM_ADJUSTMENT)?;
     let stated_adjustment = sfnt::be32(&out, adjustment)?.wrapping_sub(delta.wrapping_mul(2));
@@ -640,6 +648,8 @@ fn be16(data: &[u8], at: usize) -> Option<u16> {
 /// two `hmtx` holds. Where they agree the answer is `hmtx`'s.
 #[must_use]
 pub fn advance(program: &[u8], format: Format, glyph: u16) -> Option<f32> {
+    // not a repair: a decline: a program that does not read answers None for the whole reading,
+    //   which every caller takes as not proved and none replaces with a width of its own.
     let units = units_per_em(program, format).ok()?;
     let stated = match format {
         Format::BareCff => charstring_advance(program, glyph)?,
@@ -649,6 +659,8 @@ pub fn advance(program: &[u8], format: Format, glyph: u16) -> Option<f32> {
     if format == Format::Sfnt
         && let Some(table) = sfnt::table(program, *CFF_TABLE)
     {
+        // not a repair: a decline: a `CFF ` table that does not read answers None for the whole
+        //   reading, the same refusal as two widths that disagree.
         let units = cff::units_per_em(table).ok().filter(|units| *units > 0.0)?;
         let charstring = charstring_advance(table, glyph)? / units;
         if (charstring - stated).abs() > CONSISTENT {
@@ -660,6 +672,8 @@ pub fn advance(program: &[u8], format: Format, glyph: u16) -> Option<f32> {
 
 /// One glyph's Type 2 charstring width, in the CFF program's own units.
 fn charstring_advance(cff: &[u8], glyph: u16) -> Option<f32> {
+    // not a repair: a decline: a charstring program that does not read states no width, so None
+    //   goes up to `advance`, which answers None in turn.
     cff::advances(cff, &[glyph])
         .ok()?
         .first()

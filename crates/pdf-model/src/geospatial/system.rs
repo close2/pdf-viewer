@@ -30,11 +30,17 @@
 //! [`super::datum`] is what they are used for, and only a display system on another datum asks for
 //! them (ADR 1958).
 
+use pdf_syntax::RepairClass;
+
 use super::Refusal;
 use super::datum::{ARC_SECOND, DatumShift, Helmert};
 use super::ellipsoid::Ellipsoid;
 use super::projection::{Method, Parameters, Projection};
 use super::wkt::{self, Attribute, Node};
+use crate::repair::{WKT_AUXILIARY_SPHERE_TYPE_ABSENT, WKT_IDENTIFIER_UNUSABLE, WKT_NAME_ABSENT};
+
+/// The repairs a reading made, for the caller that holds the document to record (ADR 3621).
+type Noted = Vec<&'static RepairClass>;
 
 /// A geographic coordinate system: an ellipsoid and the meridian longitudes count from.
 #[derive(Debug, Clone, PartialEq)]
@@ -104,20 +110,36 @@ const PROJECTED: &[&str] = &["PROJCS", "PROJCRS", "PROJECTEDCRS"];
 /// string that is not Well Known Text, a keyword that is not a geographic or projected system,
 /// a component missing, a method by its name, a parameter by its role.
 pub fn from_wkt(text: &str) -> Result<ReferenceSystem, Refusal> {
-    let node = wkt::parse(text).map_err(Refusal::Wkt)?;
-    if node.keyword == "BOUNDCRS" {
-        bound(&node)
-    } else {
-        system(&node)
-    }
+    from_wkt_noting(text).0
+}
+
+/// [`from_wkt`], and what the reading read past: a nameless system, datum or unit
+/// (`model/wkt-name-absent`), an EPSG code that is not a number (`model/wkt-identifier-unusable`),
+/// an auxiliary sphere with no type (`model/wkt-auxiliary-sphere-type-absent`).
+///
+/// Returned rather than recorded because this reads a string and holds no document; the reader of
+/// the coordinate system dictionary records them (ADR 3621). What a refused reading met is
+/// returned too: the refusal is the reader's answer, and the repair the file's.
+pub fn from_wkt_noting(
+    text: &str,
+) -> (Result<ReferenceSystem, Refusal>, Vec<&'static RepairClass>) {
+    let mut noted = Noted::new();
+    let read = wkt::parse(text).map_err(Refusal::Wkt).and_then(|node| {
+        if node.keyword == "BOUNDCRS" {
+            bound(&node, &mut noted)
+        } else {
+            system(&node, &mut noted)
+        }
+    });
+    (read, noted)
 }
 
 /// A geographic or projected system, from its outermost token.
-fn system(node: &Node) -> Result<ReferenceSystem, Refusal> {
+fn system(node: &Node, noted: &mut Noted) -> Result<ReferenceSystem, Refusal> {
     if PROJECTED.contains(&node.keyword.as_str()) {
-        projected(node).map(ReferenceSystem::Projected)
+        projected(node, noted).map(ReferenceSystem::Projected)
     } else if GEOGRAPHIC.contains(&node.keyword.as_str()) {
-        geographic(node).map(ReferenceSystem::Geographic)
+        geographic(node, noted).map(ReferenceSystem::Geographic)
     } else {
         Err(Refusal::NotASystem(node.keyword.clone()))
     }
@@ -126,7 +148,7 @@ fn system(node: &Node) -> Result<ReferenceSystem, Refusal> {
 /// ISO 19162 section 20.1's bound CRS: the source system, with the abridged transformation to the
 /// target system kept on its geographic system — on a projected source's base system, which
 /// section 20.1 says a transformation in the geodetic domain is deemed to operate on.
-fn bound(node: &Node) -> Result<ReferenceSystem, Refusal> {
+fn bound(node: &Node, noted: &mut Noted) -> Result<ReferenceSystem, Refusal> {
     let missing = |what: &'static str| Refusal::Missing {
         what,
         of: node.to_string(),
@@ -145,15 +167,15 @@ fn bound(node: &Node) -> Result<ReferenceSystem, Refusal> {
             })
             .ok_or_else(|| missing(what))
     };
-    let mut source = system(inner("SOURCECRS", "a source system")?)?;
-    let target = match system(inner("TARGETCRS", "a target system")?)? {
+    let mut source = system(inner("SOURCECRS", "a source system")?, noted)?;
+    let target = match system(inner("TARGETCRS", "a target system")?, noted)? {
         ReferenceSystem::Geographic(geographic) => geographic,
         ReferenceSystem::Projected(projected) => projected.base,
     };
     let shift = node
         .child(&["ABRIDGEDTRANSFORMATION"])
         .ok_or_else(|| missing("an abridged transformation"))
-        .and_then(|transformation| abridged(transformation, &target));
+        .and_then(|transformation| abridged(transformation, &target, noted));
     let base = match &mut source {
         ReferenceSystem::Geographic(geographic) => geographic,
         ReferenceSystem::Projected(projected) => &mut projected.base,
@@ -250,7 +272,11 @@ const SHIFT_PARAMETERS: [&str; 7] = [
 /// is written 1.0000035 — whence the scale difference is the stated number less one. A
 /// Coordinate Frame rotation is held with its rotations negated, Guidance Note 7-2 section 4.2.3's
 /// `rPV = −rCF`.
-fn abridged(transformation: &Node, target: &GeographicSystem) -> Result<DatumShift, Refusal> {
+fn abridged(
+    transformation: &Node,
+    target: &GeographicSystem,
+    noted: &mut Noted,
+) -> Result<DatumShift, Refusal> {
     let method_node = transformation
         .child(&["METHOD"])
         .ok_or_else(|| Refusal::Missing {
@@ -262,7 +288,7 @@ fn abridged(transformation: &Node, target: &GeographicSystem) -> Result<DatumShi
     // `Refusal::UnsupportedTransformation`; `from_wkt` hands it to `Geospatial::reference_system`
     // (`geospatial/mod.rs`), which returns it.
     let method_name = method_node.name().unwrap_or("").to_owned();
-    let method = shift_method(&method_name, epsg_code(method_node))
+    let method = shift_method(&method_name, epsg_code(method_node, noted))
         .ok_or_else(|| Refusal::UnsupportedTransformation(method_name.clone()))?;
     if transformation.child(&["PARAMETERFILE"]).is_some() {
         // Section 20.2.4's parameter file is a grid's, which no method of the family reads.
@@ -274,7 +300,7 @@ fn abridged(transformation: &Node, target: &GeographicSystem) -> Result<DatumShi
         // to no parameter where no EPSG code is stated, so the `ok_or_else` below returns
         // `Refusal::UnknownParameter`, which `Geospatial::reference_system` returns.
         let name = parameter.name().unwrap_or("");
-        let index = shift_parameter(name, epsg_code(parameter))
+        let index = shift_parameter(name, epsg_code(parameter, noted))
             .filter(|index| method != Shift::Translations || *index < 3)
             .ok_or_else(|| Refusal::UnknownParameter {
                 method: method_name.clone(),
@@ -340,7 +366,7 @@ fn unit_factor(node: Option<&Node>, default: f64) -> Result<f64, Refusal> {
 }
 
 /// A geographic system, from `GEOGCS` or ISO 19162 section 8's `GEOGCRS` and its kin.
-fn geographic(node: &Node) -> Result<GeographicSystem, Refusal> {
+fn geographic(node: &Node, noted: &mut Noted) -> Result<GeographicSystem, Refusal> {
     let missing = |what: &'static str| Refusal::Missing {
         what,
         of: node.to_string(),
@@ -405,8 +431,8 @@ fn geographic(node: &Node) -> Result<GeographicSystem, Refusal> {
         }
     });
     Ok(GeographicSystem {
-        name: node.name().unwrap_or("").to_owned(),
-        datum: datum.name().unwrap_or("").to_owned(),
+        name: stated_name(node, noted),
+        datum: stated_name(datum, noted),
         ellipsoid,
         prime_meridian,
         angular_unit,
@@ -536,8 +562,22 @@ fn named(name: &str, code: Option<i64>) -> Option<Named> {
     })
 }
 
+/// The name ISO 19162 gives a system, a datum or a unit as its first attribute, or the empty
+/// string with `model/wkt-name-absent` noted where the string states none.
+fn stated_name(node: &Node, noted: &mut Noted) -> String {
+    if let Some(name) = node.name() {
+        name.to_owned()
+    } else {
+        noted.push(&WKT_NAME_ABSENT);
+        String::new()
+    }
+}
+
 /// An `ID["EPSG",n]` or `AUTHORITY["EPSG","n"]` inside a token, as a number.
-fn epsg_code(node: &Node) -> Option<i64> {
+///
+/// A code that is text and not a number is read as no identifier, the component then known by its
+/// name, and `model/wkt-identifier-unusable` is noted.
+fn epsg_code(node: &Node, noted: &mut Noted) -> Option<i64> {
     let id = node.child(&["ID", "AUTHORITY"])?;
     if !id
         .name()
@@ -554,13 +594,20 @@ fn epsg_code(node: &Node) -> Option<i64> {
             let whole = *code as i64;
             (code.fract() == 0.0).then_some(whole)
         }
-        Attribute::Text(code) => code.trim().parse().ok(),
+        Attribute::Text(code) => {
+            if let Ok(code) = code.trim().parse() {
+                Some(code)
+            } else {
+                noted.push(&WKT_IDENTIFIER_UNUSABLE);
+                None
+            }
+        }
         _ => None,
     }
 }
 
 /// A projected system, from `PROJCS` or ISO 19162 section 9's `PROJCRS`.
-fn projected(node: &Node) -> Result<ProjectedSystem, Refusal> {
+fn projected(node: &Node, noted: &mut Noted) -> Result<ProjectedSystem, Refusal> {
     let missing = |what: &'static str| Refusal::Missing {
         what,
         of: node.to_string(),
@@ -568,7 +615,7 @@ fn projected(node: &Node) -> Result<ProjectedSystem, Refusal> {
     let base_node = node
         .child(GEOGRAPHIC)
         .ok_or_else(|| missing("a base geographic system"))?;
-    let base = geographic(base_node)?;
+    let base = geographic(base_node, noted)?;
     let newer = node.keyword != "PROJCS";
 
     // The method and its parameters: in the older form `PROJECTION` and `PARAMETER` sit in the
@@ -591,7 +638,7 @@ fn projected(node: &Node) -> Result<ProjectedSystem, Refusal> {
     // where no EPSG code is stated, so the `ok_or_else` below returns
     // `Refusal::UnsupportedMethod`, which `Geospatial::reference_system` returns.
     let method_name = method_node.name().unwrap_or("").to_owned();
-    let family = named(&method_name, epsg_code(method_node))
+    let family = named(&method_name, epsg_code(method_node, noted))
         .ok_or_else(|| Refusal::UnsupportedMethod(method_name.clone()))?;
 
     // The linear unit: the older form's `UNIT` at the system's level, the newer form's
@@ -601,7 +648,11 @@ fn projected(node: &Node) -> Result<ProjectedSystem, Refusal> {
             .and_then(|axis| axis.child(&["LENGTHUNIT"]))
     });
     let linear_unit = unit_factor(unit_node, 1.0)?;
-    let linear_unit_name = unit_node.and_then(Node::name).unwrap_or("metre").to_owned();
+    let linear_unit_name = match unit_node {
+        Some(unit) => stated_name(unit, noted),
+        // not a repair: ISO 19162 section 7.4.4's implied default, which `unit_factor` takes too.
+        None => "metre".to_owned(),
+    };
 
     let mut parameters = Parameters::default();
     let mut auxiliary_sphere = None;
@@ -610,7 +661,7 @@ fn projected(node: &Node) -> Result<ProjectedSystem, Refusal> {
         // where no EPSG code is stated, so the `let ... else` below returns
         // `Refusal::UnknownParameter`, which `Geospatial::reference_system` returns.
         let name = parameter.name().unwrap_or("");
-        let Some(role) = role(name, epsg_code(parameter)) else {
+        let Some(role) = role(name, epsg_code(parameter, noted)) else {
             // A parameter whose meaning this reader does not know is not silently dropped: the
             // methods here are fully defined by the roles above, so an extra one is a method
             // this reader would evaluate wrongly.
@@ -652,6 +703,11 @@ fn projected(node: &Node) -> Result<ProjectedSystem, Refusal> {
             Role::AuxiliarySphere => auxiliary_sphere = Some(value),
         }
     }
+    if family == Named::AuxiliarySphere && auxiliary_sphere.is_none() {
+        // ESRI's projection names its sphere by this parameter; one stating none is read as type
+        // 0, the one `resolve` admits.
+        noted.push(&WKT_AUXILIARY_SPHERE_TYPE_ABSENT);
+    }
     let method = resolve(family, &method_name, &mut parameters, auxiliary_sphere)?;
     let ellipsoid = if family == Named::AuxiliarySphere {
         // ESRI's type 0 projects onto the sphere of the ellipsoid's semi-major axis, which is
@@ -661,7 +717,7 @@ fn projected(node: &Node) -> Result<ProjectedSystem, Refusal> {
         base.ellipsoid
     };
     Ok(ProjectedSystem {
-        name: node.name().unwrap_or("").to_owned(),
+        name: stated_name(node, noted),
         projection: Projection::new(method, ellipsoid, parameters)?,
         base,
         linear_unit,
@@ -730,6 +786,8 @@ fn resolve(
             }
         }
         Named::AuxiliarySphere => {
+            // not a repair: `projected` records WKT_AUXILIARY_SPHERE_TYPE_ABSENT where no type is
+            //   stated, before this reads it as 0.
             if auxiliary_sphere.unwrap_or(0.0) != 0.0 {
                 return Err(conflict("an auxiliary sphere type other than 0"));
             }
@@ -1105,6 +1163,36 @@ mod tests {
             ),
             Err(Refusal::NotASystem(_))
         ));
+    }
+
+    /// ISO 19162 gives a datum its name and an identifier its code; a string stating a datum with
+    /// none, or an EPSG code that is no number, is read without it and the reading says so.
+    #[test]
+    fn a_nameless_datum_and_an_unreadable_code_are_noted() {
+        use crate::repair::{WKT_IDENTIFIER_UNUSABLE, WKT_NAME_ABSENT};
+        let (read, noted) = from_wkt_noting(UTM_32N);
+        assert!(read.is_ok());
+        assert!(noted.is_empty(), "the clause's own shape reads clean");
+
+        let nameless = UTM_32N.replace(r#"DATUM["D_ETRS_1989","#, "DATUM[");
+        let (read, noted) = from_wkt_noting(&nameless);
+        let Ok(ReferenceSystem::Projected(system)) = read else {
+            panic!("a nameless datum is still a system: {read:?}");
+        };
+        assert_eq!(system.base.datum, "");
+        assert!(noted.iter().any(|class| class.name == WKT_NAME_ABSENT.name));
+
+        let coded = UTM_32N.replace(
+            r#"PROJECTION["Transverse_Mercator"]"#,
+            r#"PROJECTION["Transverse_Mercator",AUTHORITY["EPSG","nine"]]"#,
+        );
+        let (read, noted) = from_wkt_noting(&coded);
+        assert!(read.is_ok(), "the method is still known by its name");
+        assert!(
+            noted
+                .iter()
+                .any(|class| class.name == WKT_IDENTIFIER_UNUSABLE.name)
+        );
     }
 
     #[test]

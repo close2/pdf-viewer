@@ -30,7 +30,7 @@ mod markup;
 pub mod span;
 mod style;
 
-use pdf_syntax::{Dictionary, Document, Object};
+use pdf_syntax::{Dictionary, Document, Object, RepairClass, Site};
 
 pub(crate) use layout::{Request, lay_out, one_style, root_style};
 pub(crate) use markup::RichText;
@@ -98,6 +98,47 @@ pub(crate) fn language(document: &Document, annotation: &Dictionary) -> pdf_font
 /// decoded bytes are one.
 fn entry_text(document: &Document, value: &Object) -> Option<String> {
     crate::variable_text::value_text(document, value)
+}
+
+/// An entry Table 228 or Table 177 makes a rich text string, read, its repairs recorded
+/// (`markup::parse_noting`, ADR 3621).
+///
+/// The site is the whole file because the dictionary is read without its object here, as the
+/// other text entries of an annotation are.
+fn rich_entry(
+    document: &Document,
+    markup: &str,
+    default_style: Option<&str>,
+    root: &Character,
+) -> Option<RichText> {
+    let (rich, repairs) = markup::parse_noting(markup, default_style, root.clone());
+    if !repairs.is_empty() {
+        record(document, &repairs);
+    }
+    rich
+}
+
+/// A value that may be markup, read as rich text where it is: a `/V` that does not parse is the
+/// plain text it then is, so only what the walk read past in markup it drew is recorded.
+fn markup_value(
+    document: &Document,
+    markup: &str,
+    default_style: Option<&str>,
+    root: &Character,
+) -> Option<RichText> {
+    let (rich, repairs) = markup::parse_noting(markup, default_style, root.clone());
+    if rich.is_some() && !repairs.is_empty() {
+        record(document, &repairs);
+    }
+    rich
+}
+
+/// Records a rich text string's repairs, on a branch a conforming string does not take.
+#[cold]
+fn record(document: &Document, repairs: &[&'static RepairClass]) {
+    for class in repairs {
+        document.record_repair(class, Site::WholeFile);
+    }
 }
 
 /// The nearest dictionary of a field's own chain that states an entry.
@@ -178,15 +219,15 @@ pub(crate) fn for_field(
         |widget| language(document, widget),
     );
     if stated.stored {
-        let rich_value = match stated.imported_rich {
-            Some(imported) => Some(imported.to_owned()),
-            None => {
-                nearest(document, chain, "RV").and_then(|(_, value)| entry_text(document, &value))
-            }
+        // An imported `/RV` is the FDF's, not this file's, so what reading it repairs is not
+        // recorded on the document (ADR 3621's FDF import says its own in `owed`).
+        let rich = match stated.imported_rich {
+            Some(imported) => markup::parse(imported, default_style, root.clone()),
+            None => nearest(document, chain, "RV")
+                .and_then(|(_, value)| entry_text(document, &value))
+                .and_then(|markup| rich_entry(document, &markup, default_style, root)),
         };
-        if let Some(rich) =
-            rich_value.and_then(|markup| markup::parse(&markup, default_style, root.clone()))
-        {
+        if let Some(rich) = rich {
             if same_characters(&rich.text(), plain) {
                 return Some(Chosen {
                     rich,
@@ -206,7 +247,7 @@ pub(crate) fn for_field(
         }
         if let Some(rich) = stated
             .markup
-            .and_then(|markup| markup::parse(markup, default_style, root.clone()))
+            .and_then(|markup| markup_value(document, markup, default_style, root))
         {
             return Some(Chosen {
                 rich,
@@ -252,7 +293,7 @@ pub(crate) fn for_free_text(
         });
     }
     let rich = entry_text(document, &document.get_key(shared, "RC"))
-        .and_then(|markup| markup::parse(&markup, default_style, root.clone()));
+        .and_then(|markup| rich_entry(document, &markup, default_style, root));
     // A `/RC` that is not well formed still has the characters read before the fault, which the
     // popup's reader keeps (ADR 0224); those are the note's text where it states no `/Contents`.
     let lenient = crate::popup::rich_text(document, shared);

@@ -338,6 +338,8 @@ fn schema_version(uri: &str) -> Option<(u32, u32)> {
     let (_, tail) = uri.split_once("xfa-template/")?;
     let version = tail.trim_end_matches('/');
     let (major, minor) = version.split_once('.')?;
+    // not a repair: a URI naming no version is declined (None); `before_2_4` then answers
+    //   false and nothing is read as an older version.
     Some((major.parse().ok()?, minor.parse().ok()?))
 }
 
@@ -876,6 +878,8 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
                     Some("none") => Bind::None,
                     Some("global") => Bind::Global,
                     Some("dataRef") => {
+                        // not a repair: an absent `ref` is carried as the empty expression, which
+                        //   `explicit` refuses as unbindable; no reference is invented.
                         Bind::DataRef(property.attribute("ref").unwrap_or("").to_owned())
                     }
                     _ => Bind::Once,
@@ -948,7 +952,10 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
                         .and_then(|value| value.trim().parse::<i64>().ok())
                         .unwrap_or(default)
                 };
-                let (min, max) = (bound("min", 1), bound("max", 1));
+                // *Repeating Elements using Occurrence Limits*: an absent `min` is 1 and an absent
+                // `max` duplicates the `min`.
+                let min = bound("min", 1);
+                let max = bound("max", min);
                 container.occurs_variably = max < 0 || min != max;
             }
             _ => {}
@@ -1144,6 +1151,10 @@ mod tests {
             "<template><subform name=\"r\"><occur min=\"1\" max=\"1\"/></subform></template>",
         );
         assert_eq!(fixed.dynamic(), None);
+        // An absent `max` duplicates the `min` (*Repeating Elements using Occurrence Limits*).
+        let three =
+            template("<template><subform name=\"r\"><occur min=\"3\"/></subform></template>");
+        assert_eq!(three.dynamic(), None);
         let varying =
             template("<template><subform name=\"r\"><occur max=\"-1\"/></subform></template>");
         assert!(varying.dynamic().is_some());

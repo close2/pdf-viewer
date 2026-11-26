@@ -108,6 +108,8 @@ pub fn with_outlines_scaled(data: &[u8], scale: f64) -> Result<Vec<u8>, CffError
         .iter()
         .find(|(_, op)| *op == OP_CHARSTRINGS)
         .and_then(|(operands, _)| dict_int(operands))
+        // not a repair: a decline: an offset that does not narrow ends the chain in None, which
+        //   ok_or_else answers as CffError::Malformed; the restatement is refused.
         .and_then(|at| usize::try_from(at).ok())
         .ok_or_else(|| CffError::Malformed {
             detail: "the Top DICT states no CharStrings offset".to_owned(),
@@ -373,6 +375,8 @@ impl<'s, 'a> Restatement<'s, 'a> {
         };
         let subroutine = whole(named)
             .and_then(|named| named.checked_add(bias(table.len())))
+            // not a repair: a decline: an index that does not narrow names no subroutine, and
+            //   Refusal::Call goes up as CffError::AdvanceNotRestatable for the glyph.
             .and_then(|index| usize::try_from(index).ok())
             .and_then(|index| table.get(index))
             .ok_or(Refusal::Call)?;
@@ -620,6 +624,9 @@ impl<'s, 'a> Restatement<'s, 'a> {
         let count = curves.len() / 4;
         let mut horizontal = starts_horizontal;
         for (index, four) in curves.as_chunks::<4>().0.iter().enumerate() {
+            // not a repair: the grammar's own case: with four operands to a curve and no fifth,
+            //   the format states no final delta (Adobe Technical Note #5177 section 4.1), so
+            //   none is added.
             let tail = if index.saturating_add(1) == count {
                 last.unwrap_or(0.0)
             } else {
@@ -744,6 +751,8 @@ fn whole(value: f64) -> Option<i64> {
 /// A number in the shortest form section 3.2 gives it: an integer in one, two or three bytes, any
 /// other value as 16.16 fixed.
 fn put_number(out: &mut Vec<u8>, value: f64) -> Result<(), Refusal> {
+    // not a repair: a writer: the shortest form this program emits; a number that is not a whole
+    //   16-bit one is written as 16.16 fixed on the next branch.
     if let Some(integer) = whole(value).and_then(|integer| i16::try_from(integer).ok()) {
         match integer {
             -107..=107 => {
