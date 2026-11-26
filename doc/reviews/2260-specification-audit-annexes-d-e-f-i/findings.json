@@ -1,0 +1,99 @@
+[
+ {
+  "id": "2260-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "D.1",
+   "9.6.5.1",
+   "9.6.2.1"
+  ],
+  "summary": "pdf-font has a predefined encoding named StandardEncoding. glyph_names::PERMITTED_ENCODING_NAMES lists it and BaseEncoding::by_name maps it to the CFF standard encoding, so a nonsymbolic font whose /Encoding (or /BaseEncoding) is /StandardEncoding is read through Table D.2's STD column instead of through its program's built-in encoding. Table D.1 says a processor shall not have such an encoding and that the encoding is described only because a built-in encoding may be the base. An embedded Type 1 program whose built-in encoding puts A at code 66 draws A there with no /Encoding and with an unlisted name, and draws nothing (StandardEncoding's B is not in the program) once the font names /StandardEncoding. The symbolic standard-14 fonts are not affected (encoding_names gives them their own table before the name is asked).",
+  "source": "ISO 32000-2 Annex D, Table D.1, StandardEncoding: \"PDF processors shall not have a predefined encoding named StandardEncoding. However, it is necessary to describe this encoding, since a font's built -in encoding can be used as the base encoding from which differences may be specified in an encoding dictionary.\" Table 109's /Encoding lists MacRomanEncoding, MacExpertEncoding and WinAnsiEncoding.",
+  "code": "crates/pdf-font/src/glyph_names.rs:76-89 (PERMITTED_ENCODING_NAMES), :112 (base_encoding); crates/pdf-font/src/encoding.rs:54 (BaseEncoding::by_name)",
+  "change": "Treat /StandardEncoding as Table 109 treats any other unlisted name (no /Encoding, the built-in encoding standing, noted as the existing ENCODING_NAME_UNKNOWN repair or a class of its own); keep BaseEncoding::Standard for the fallbacks §9.6.5.1 and §9.6.5.4 name. A question to the owner first if a corpus census finds producers relying on the name over a non-standard built-in encoding.",
+  "execution": "crates/pdf-font/tests/annex_d_encodings_spec_audit.rs::standard_encoding_is_no_predefined_encoding_spec_audit fails on main (left None, right Some(1)); both controls pass.",
+  "status": "open"
+ },
+ {
+  "id": "2260-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "F.3.3",
+   "F.1",
+   "7.7.3.2"
+  ],
+  "summary": "Two readers take Table F.1's /N from any object that states /Linearized, without asking whether /L is the file's length (or whether the object is the first in the file): the archive converter's recovered-structure rebuild (recovered::refuse_a_count_the_reader_fell_short_of) and pdf-archive's NoPageHeld::given. pdf_syntax::linearize::state already implements the mismatch rule and neither calls it. A linearized file updated incrementally (pages deleted, F.1's own example) states a stale /N; the converter then refuses the rebuild ('its linearization parameter dictionary's /N states 3 pages where this reader reaches 1'), or with page-not-held authorised writes an appended page stating a count the file no longer makes. The existing test a_source_stating_more_pages_than_the_reader_reaches_is_refused_by_name (crates/pdf-transform/tests/archive/recovered.rs:786) asserts the refusal over a fixture whose /L is 100, i.e. a mismatch; the fix round changes its /L to the file's length.",
+  "source": "ISO 32000-2 Table F.1, L: \"It shall be exactly equal to the actual length of the PDF file. A mismatch indicates that the file is not linearized and shall be treated as ordinary PDF file, ignoring linearization information.\" F.1: \"Incremental update shall still be permitted, but the resulting PDF is no longer linearized and subsequently shall be treated as ordinary PDF.\"",
+  "code": "crates/pdf-transform/src/archive/recovered.rs:524-540; crates/pdf-archive/src/pages_held.rs:72-80; crates/pdf-syntax/src/linearize.rs:300 (state, the reading neither uses)",
+  "change": "Read /N through pdf_syntax::linearize::state, taking it only from State::Linearized, in both places; fix the existing test's fixture.",
+  "execution": "crates/pdf-transform/tests/annexes_d_f_i_spec_audit.rs::a_linearization_dictionary_whose_length_mismatches_states_no_page_count_spec_audit fails on main (the conversion refuses for the /N of 3); its control (/L equal to the file's length) is refused by name and passes. pdf-archive's route is by reading.",
+  "status": "open"
+ },
+ {
+  "id": "2260-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "D.3",
+   "7.9.2.2",
+   "12.4.2"
+  ],
+  "summary": "merge::text_string, which writes every page label prefix of merge and split, writes an ASCII string as its own bytes with no prefix. An unprefixed text string is PDFDocEncoding, where Table D.3 gives codes 0x18-0x1F eight accents and leaves 0x00-0x08, 0x0B, 0x0C, 0x0E-0x17 and 0x7F undefined; so a label holding U+001F (stateable in a UTF-16BE source) is read back as U+02DC, and U+0000-U+0008 or U+007F as undefined bytes. pdf_syntax::encode_text_string exists and makes exactly this choice correctly (PDFDocEncoding only where the round trip holds).",
+  "source": "ISO 32000-2 §7.9.2.2 (text strings are PDFDocEncoding unless prefixed) and Annex D, Table D.3 (code 0x1F, U+02DC SMALL TILDE; the U rows).",
+  "code": "crates/pdf-transform/src/merge.rs:2103-2116 (text_string), :2897 (its caller, page_labels, shared with split.rs:1121)",
+  "change": "Use pdf_syntax::encode_text_string.",
+  "execution": "crates/pdf-transform/tests/annexes_d_f_i_spec_audit.rs::a_label_holding_a_control_character_survives_a_merge_spec_audit fails on main (left \"A\\u02dc\"); its control (a non-ASCII label) passes.",
+  "status": "open"
+ },
+ {
+  "id": "2260-D01",
+  "kind": "documentation-gap",
+  "clauses": [
+   "D.1"
+  ],
+  "summary": "The D.1 ledger row says the annex's \"two shalls are met\" (WinAnsiEncoding, MacExpertEncoding) and that a font naming MacExpertEncoding \"is refused out loud\". The annex states four: MacRomanEncoding shall be predefined too, StandardEncoding shall not be (B01), and every D.2 character shall be supported for the Times, Helvetica and Courier families (held: a probe found all 229 names reaching a glyph in all twelve faces). MacExpertEncoding has been transcribed (D.4's row), so the refusal sentence is stale.",
+  "source": "Annex D, D.1 and Table D.1.",
+  "code": "doc/conformance/ledger.toml (D.1 note)",
+  "change": "Rewrite with B01's fix.",
+  "execution": "Read; the D.2 coverage probe ran and passed (scratchpad, not committed).",
+  "status": "open"
+ },
+ {
+  "id": "2260-D02",
+  "kind": "documentation-gap",
+  "clauses": [
+   "D.1"
+  ],
+  "summary": "PERMITTED_ENCODING_NAMES' doc says StandardEncoding \"is accepted anyway: Annex D defines it\". Table D.1 says the opposite of the name: processors shall not have it. Left for B01's fix round.",
+  "source": "Annex D, Table D.1 (quoted under 2260-B01).",
+  "code": "crates/pdf-font/src/glyph_names.rs:76-84",
+  "change": "Rewrite with B01's fix.",
+  "execution": "Read, not executed.",
+  "status": "open"
+ },
+ {
+  "id": "2260-D03",
+  "kind": "documentation-gap",
+  "clauses": [
+   "E.2"
+  ],
+  "summary": "The E.2 ledger row says every key and value the writers construct is a name ISO 32000-2 defines \"beside a resource name — the archive conversion's PreservedText font key\". A census of the writers' name literals found no developer-extension key or value (the row's conclusion holds) but more writer-chosen names than the one: resource names PreservedMarks[N], DerivedPage, Drawn, Photograph (archive), Mul (appearance ExtGState), Helv (default appearance), and the font name VariableTextMachineFace written as /BaseFont and /FontName (variable_text.rs).",
+  "source": "Annex E.2, second class: \"All references in the document object hierarchy which refer to developer-specific extensions shall use second-class names.\"",
+  "code": "doc/conformance/ledger.toml (E.2 note); crates/pdf-transform/src/archive/preserve.rs:1934, derived.rs:254, drawn.rs:285, fonts/photographed.rs:107; crates/pdf-model/src/appearance.rs:2929, :6674; crates/pdf-model/src/variable_text.rs:1293",
+  "change": "Name the class (resource names and font names this program chooses) rather than one member.",
+  "execution": "Census by literal (scratchpad/r2260/names/), not executed.",
+  "status": "open"
+ },
+ {
+  "id": "2260-D04",
+  "kind": "documentation-gap",
+  "clauses": [
+   "I.2"
+  ],
+  "summary": "archive::version_for documents raising, lowering a 2.x source (refused) and a version past 2.n, but not the lowering it does inside a major: minor: stated.minor.min(top) writes a %PDF-1.8 or %PDF-1.9 source as 1.7 at PDF/A-2, and header::history records the source's header only for an unread or a 3.x version. Annex I's should is answered neither by a refusal nor by the record ADR 2692 gives a 3.x source.",
+  "source": "Annex I.2: \"If the PDF file has a newer version than the version which the PDF writer supports, the PDF writer should not alter the version -that is, a PDF file's version should never be changed to an older version.\"",
+  "code": "crates/pdf-transform/src/archive/mod.rs:2542-2566; crates/pdf-transform/src/archive/header.rs:64-80",
+  "change": "State the case and record the source header in xmpMM:History as for 3.x, or refuse it.",
+  "execution": "Read, not executed.",
+  "status": "open"
+ }
+]

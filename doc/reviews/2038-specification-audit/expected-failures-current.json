@@ -32,6 +32,24 @@
    "test": "rendering_10_5_10_8_spec_audit::a_grey_on_the_simulated_press_takes_the_gray_transfer_function_alone_spec_audit",
    "finding": "2248-B04",
    "log": "round-2248 nextest of pdf-model"
+  },
+  {
+   "binary": "pdf-font::annex_d_encodings_spec_audit",
+   "test": "standard_encoding_is_no_predefined_encoding_spec_audit",
+   "finding": "2260-B01",
+   "log": "round-2260 nextest of pdf-font"
+  },
+  {
+   "binary": "pdf-transform::annexes_d_f_i_spec_audit",
+   "test": "a_linearization_dictionary_whose_length_mismatches_states_no_page_count_spec_audit",
+   "finding": "2260-B02",
+   "log": "round-2260 nextest of pdf-transform"
+  },
+  {
+   "binary": "pdf-transform::annexes_d_f_i_spec_audit",
+   "test": "a_label_holding_a_control_character_survives_a_merge_spec_audit",
+   "finding": "2260-B03",
+   "log": "round-2260 nextest of pdf-transform"
   }
  ],
  "no_longer_failing": [
