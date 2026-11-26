@@ -38,6 +38,8 @@ impl Interpreter<'_> {
         stream: &pdf_syntax::Stream,
         what: &str,
     ) -> Option<NestedContent> {
+        // not a repair: a decline — `None` where nothing decoded, which each caller words in its
+        //   own sentence (above); nothing stands in for the stream.
         let content = NestedContent::of(self.document, stream, what.to_owned()).ok()?;
         if let Some((damage, kept)) = content.stated_damage() {
             self.note(Unsupported::DamagedContentStream {

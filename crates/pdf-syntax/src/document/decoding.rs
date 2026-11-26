@@ -20,6 +20,8 @@ impl Document {
     /// which of [`StreamRefusal`]'s answers it was.
     #[must_use]
     pub fn decoded_stream_data(&self, stream: &Stream) -> Option<Arc<[u8]>> {
+        // not a repair: a decline — the stream is refused, nothing stands in for its data, and
+        //   `decoded_stream_data_reported` names the refusal for a caller that reports it.
         self.decoded_stream_data_reported(stream)
             .ok()
             .map(|decoded| decoded.data)

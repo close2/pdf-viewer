@@ -526,6 +526,8 @@ fn avi(bytes: &[u8]) -> Result<Timeline, String> {
     let Some((period, frames)) = main else {
         return Err("its AVI file states no avih main header".into());
     };
+    // not a repair: OpenDML's `dmlh` is an extension header a file may omit, and where it states
+    //   no grand total the main header's count is the file's own.
     let frames = u64::from(grand.unwrap_or(frames));
     Ok(Timeline {
         seconds: seconds(frames.saturating_mul(u64::from(period)), 1_000_000),

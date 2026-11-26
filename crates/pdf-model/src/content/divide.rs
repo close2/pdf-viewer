@@ -1222,6 +1222,7 @@ impl Interpreter<'_> {
                 });
             }
             drop(send);
+            // not a repair: a range of this reader's own cuts, not a value the file states.
             let mut reader = ContentReader::piece(
                 bytes.get(first.clone()).unwrap_or_default(),
                 first.start,

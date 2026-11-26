@@ -208,7 +208,8 @@ classes! {
     /// An action's entry of a type or value its table does not give it.
     ACTION_ENTRY_UNUSABLE = "model/action-entry-unusable", "ISO 32000-2 §12.6.4",
         "an action entry of a type or value its table does not give it was read as absent: a \
-         boolean or flag word as its default, a negative index as naming no target";
+         boolean, flag word or number as its default, a number past its range as the nearer end, \
+         a negative index as naming no target";
     /// A page's `/Annots` that is not an array.
     PAGE_ANNOTS_NOT_AN_ARRAY = "model/page-annots-not-an-array", "ISO 32000-2 §7.7.3.3",
         "a page whose /Annots is neither absent nor an array, which Table 31 requires, was read \
@@ -308,12 +309,24 @@ classes! {
     PAGE_LABEL_ENTRY_UNUSABLE = "model/page-label-entry-unusable", "ISO 32000-2 §12.4.2",
         "a page label range's /St that is no integer of at least 1 was read as 1, its default";
 
+    // ---- document requirements, §12.11, and media criteria, §13.2.3 ----------------------------
+
+    /// A requirement dictionary's `/Penalty` of a type or value Table 273 does not give it.
+    REQUIREMENT_ENTRY_UNUSABLE = "model/requirement-entry-unusable", "ISO 32000-2 §12.11.1",
+        "a requirement's /Penalty outside 0 to 100 was read as the nearer end, and one that is no \
+         integer as its default 100";
+    /// A media criteria dictionary's `/L` that is not an array of language identifiers.
+    MEDIA_CRITERION_UNUSABLE = "model/media-criterion-unusable", "ISO 32000-2 §13.2.3",
+        "a media criteria dictionary's /L that is no array, or an element of it that is no text \
+         string, was read as absent, so it decided nothing about the object's viability";
+
     // ---- logical structure and page boundaries, §14.8.5 and §14.11.2.2 -------------------------
 
     /// A structure element's span or writing mode of a type or value its table does not give it.
     STRUCTURE_ATTRIBUTE_UNUSABLE = "model/structure-attribute-unusable", "ISO 32000-2 §14.8.5",
-        "a table cell's /RowSpan or /ColSpan that is no integer of at least 1 was read as 1, and a \
-         /WritingMode that is none of Table 378's names as LrTb";
+        "a table cell's /RowSpan or /ColSpan that is no integer of at least 1 was read as 1, a \
+         /WritingMode that is none of Table 378's names as LrTb, and a /TextDecorationType, \
+         /TextPosition or PrintField /Checked that is none of its table's names as its default";
     /// A page's `/BoxColorInfo`, or one of its box style dictionaries' entries, of a type or value
     /// Table 396 or Table 397 does not give it.
     BOX_COLOUR_INFO_UNUSABLE = "model/box-colour-info-unusable", "ISO 32000-2 §14.11.2.2",

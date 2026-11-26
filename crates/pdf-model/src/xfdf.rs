@@ -512,6 +512,8 @@ impl Reader {
             return;
         };
         let value = if rich.has_elements {
+            // not a repair: a slice at offsets this reader's own parse found, not a value the
+            //   file states.
             let markup = source
                 .get(rich.markup.0..rich.markup.1)
                 .unwrap_or_default()
@@ -599,6 +601,8 @@ fn hex(text: &str) -> Option<Vec<u8>> {
         .map(|pair| {
             let high = (pair[0] as char).to_digit(16)?;
             let low = (pair[1] as char).to_digit(16)?;
+            // not a repair: two hexadecimal digits make at most 255, so the conversion cannot
+            //   fail.
             u8::try_from(high.saturating_mul(16).saturating_add(low)).ok()
         })
         .collect()

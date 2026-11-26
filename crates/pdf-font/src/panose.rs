@@ -45,6 +45,8 @@ impl Panose {
     /// `None` for anything that is not exactly twelve bytes long.
     #[must_use]
     pub fn read(bytes: &[u8]) -> Option<Self> {
+        // not a repair: a pure reader of the twelve bytes; a descriptor's `/Panose` of another
+        //   length is logged where it is read (`substitute::panose`, DESCRIPTOR_STYLE_UNUSABLE).
         let bytes: &[u8; 12] = bytes.try_into().ok()?;
         let mut digits = [0u8; 10];
         digits.copy_from_slice(bytes.get(2..12)?);

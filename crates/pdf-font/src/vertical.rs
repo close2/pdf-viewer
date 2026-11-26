@@ -122,6 +122,8 @@ impl Downward {
         if !predefined::has_vertical_forms(&registry, &ordering) {
             return None;
         }
+        // not a repair: the face is the stand-in this machine supplies for a substituted font
+        //   (only `CodeMapping::Substituted` asks), not a program the file states.
         let font = FontRef::new(data).ok()?;
         let forms = VerticalForms::read(&font);
         Some(Box::new(Self {

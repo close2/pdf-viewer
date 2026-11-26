@@ -96,6 +96,8 @@ impl Reference {
         let dict = entry.as_dict()?;
         let file = FileSpec::parse(document, &document.get_key(dict, "F"))?;
         let page = match document.get_key(dict, "Page") {
+            // not a repair: a decline (this function's doc) — a negative index names no page,
+            //   the form is still a reference XObject, and §8.10.4.1's proxy is drawn.
             Object::Integer(index) => Designation::Index(usize::try_from(index).ok()?),
             Object::String(bytes) => Designation::Label(pdf_syntax::text_string(&bytes)),
             _ => return None,

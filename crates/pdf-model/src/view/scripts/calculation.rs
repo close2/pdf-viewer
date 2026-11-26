@@ -103,6 +103,9 @@ impl ViewState {
                         if widgets.iter().any(|widget| self.is_editing(*widget)) {
                             continue;
                         }
+                        // not a repair: a field stating no value reads to a script as the empty
+                        //   text, the value it holds before anything is entered (Table 226's
+                        //   `/V` is optional).
                         let value = widgets
                             .first()
                             .and_then(|widget| self.text_of(document, *widget))
@@ -255,6 +258,9 @@ impl ViewState {
                     .map(|(_, widgets)| widgets),
             )
             .filter_map(|widgets| widgets.first())
+            // not a repair: a field stating no value reads to a script as the empty
+            //   text, the value it holds before anything is entered (Table 226's
+            //   `/V` is optional).
             .map(|widget| self.text_of(document, *widget).unwrap_or_default())
             .collect()
     }

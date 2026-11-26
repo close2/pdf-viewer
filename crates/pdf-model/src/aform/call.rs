@@ -367,6 +367,9 @@ impl<'a> Reader<'a> {
                     }
                     self.rest = saved;
                 }
+                // not a repair: an unpaired surrogate escape is a string value ECMA-262 admits and
+                //   this evaluator's text, of scalar values only, cannot hold; U+FFFD is that
+                //   representation's limit, not a reading of the file's script.
                 out.push(char::from_u32(value).unwrap_or(char::REPLACEMENT_CHARACTER));
             }
             // A line continuation contributes nothing (section 12.9.4's `LineContinuation`).

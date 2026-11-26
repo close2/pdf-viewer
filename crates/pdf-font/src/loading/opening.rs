@@ -429,8 +429,8 @@ impl LoadedFont {
 /// one: §9.9.1 sends such a font through §9.6.5.2's route rather than §9.6.5.4's.
 ///
 /// A CID-keyed `CFF ` table, or none, answers `None` and leaves the font to the route its `glyf`
-/// or `cmap` decides; `MMType1` is §9.6.2.3's multiple master form of a Type 1 font and is asked
-/// the same.
+/// or `cmap` decides, and so does one that does not read, logged as `OPENTYPE_CFF_UNREADABLE`;
+/// `MMType1` is §9.6.2.3's multiple master form of a Type 1 font and is asked the same.
 fn type1_cff_in_opentype(
     document: &Document,
     dict: &Dictionary,
@@ -443,9 +443,19 @@ fn type1_cff_in_opentype(
     ) {
         return None;
     }
-    match CodeToGlyph::read(crate::sfnt::table(data, *b"CFF ")?).ok()? {
-        CodeToGlyph::Named(keyed) => Some(keyed),
-        CodeToGlyph::Keyed { .. } => None,
+    match CodeToGlyph::read(crate::sfnt::table(data, *b"CFF ")?) {
+        Ok(CodeToGlyph::Named(keyed)) => Some(keyed),
+        Ok(CodeToGlyph::Keyed { .. }) => None,
+        // A `CFF ` table this crate cannot read has no charset to look the `/Encoding`'s names up
+        // in, and the font is mapped by its `cmap` as the TrueType route maps one.
+        Err(_) => {
+            crate::repair::noted(
+                document,
+                &crate::repair::OPENTYPE_CFF_UNREADABLE,
+                crate::repair::site(dict, "FontDescriptor"),
+            );
+            None
+        }
     }
 }
 

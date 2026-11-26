@@ -507,6 +507,8 @@ impl Producer<'_, '_> {
         let mut estimated = self.estimate(segment.len(), more);
         let (planned, floor) = match self.asked {
             Some(pieces) => (pieces.max(1), 1),
+            // not a repair: a count of pieces this reader plans, its division guarded; not a
+            //   value the file states.
             None => (
                 rayon::current_num_threads()
                     .saturating_mul(PIECES_PER_THREAD)
@@ -534,6 +536,8 @@ impl Producer<'_, '_> {
                     .saturating_sub(segment.len()),
             );
             if more && segment.len() < target {
+                // not a repair: a failed fill ends the division and the stream is read whole, as
+                //   the first fill's does.
                 more = self.fill(&mut segment, target, from).ok()?;
             }
             let mut scanned = target.min(segment.len());

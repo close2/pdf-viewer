@@ -88,6 +88,8 @@ impl LoadedFont {
         // The kept parse rather than a second one per code: `type1::Program` says why a Type 1
         // program is parsed once, and `metrics` has only the bytes.
         let advance = match &self.type1 {
+            // not a repair: a decline — this method's `None`, documented above; the drawing
+            //   route meets the same program and says what it could not read.
             Some(program) => program.horizontal_advance(glyph).ok().flatten()?,
             None => metrics::program_advance(self.program, &self.data, glyph)?,
         };

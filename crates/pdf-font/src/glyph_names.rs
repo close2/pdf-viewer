@@ -197,6 +197,8 @@ fn apply_differences(document: &Document, dict: &Dictionary, names: &mut GlyphNa
     for item in items {
         match document.resolve(item) {
             Object::Integer(value) => {
+                // A negative code names no slot of Table 112's array; it is logged by
+                // `malformed` (`DIFFERENCES_MALFORMED`) and its names are passed over.
                 code = usize::try_from(value).ok();
                 if code.is_none() {
                     malformed();

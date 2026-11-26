@@ -47,6 +47,8 @@ pub use label::{Glyph, Label};
 /// is a text every character of which is left to right.
 #[must_use]
 pub fn displayed(character: char, at: usize, paragraphs: Option<&Paragraphs>) -> char {
+    // not a repair: rule L4's own answer — the character itself where it resolved to an even
+    //   level or `BidiMirroring.txt` names no mirror; not a value the file states.
     paragraphs
         .filter(|paragraphs| paragraphs.level(at) % 2 == 1)
         .and_then(|_| mirrored(character))

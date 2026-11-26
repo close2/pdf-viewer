@@ -283,10 +283,18 @@ impl Tree {
         // old case "did not conform to the same conventions used elsewhere in this standard".
         // Both are read, the current spelling first, because deprecation tells a *writer* what
         // to stop doing — the same reading §12.2's `/ViewArea` gets.
-        let checked = self
+        let stated_checked = self
             .print_field_attribute(document, element, "Checked")
-            .or_else(|| self.print_field_attribute(document, element, "checked"))
+            .or_else(|| self.print_field_attribute(document, element, "checked"));
+        let checked = stated_checked
+            .as_ref()
             .and_then(|value| value.as_name().map(|name| name.as_bytes().to_vec()));
+        let read_checked = checked.as_deref().and_then(Checked::read);
+        if stated_checked.is_some() && read_checked.is_none() {
+            // Table 383's value "shall be" one of its three names; another is read as the
+            // default below (`STRUCTURE_ATTRIBUTE_UNUSABLE`).
+            super::tables::structure_attribute_unusable(document);
+        }
         let description = match self.print_field_attribute(document, element, "Desc") {
             Some(Object::String(bytes)) => Some(pdf_syntax::text_string(&bytes)),
             _ => None,
@@ -298,10 +306,8 @@ impl Tree {
             role: role.as_deref().and_then(FieldRole::read),
             // "Default value: off ." — applied here rather than left to a caller, because the
             // clause states it and an unticked box is what a form full of them looks like.
-            checked: checked
-                .as_deref()
-                .and_then(Checked::read)
-                .unwrap_or(Checked::Off),
+            // One stated and unusable is logged above (`STRUCTURE_ATTRIBUTE_UNUSABLE`).
+            checked: read_checked.unwrap_or(Checked::Off),
             description,
         })
     }

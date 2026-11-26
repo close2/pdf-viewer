@@ -32,6 +32,10 @@ impl Interpreter<'_> {
         resources: &Dictionary,
         machine: &mut Machine,
     ) {
+        // not a repair here: an `sh` with no name is logged by the loop
+        //   (OPERATOR_SHORT_OF_OPERANDS) or the content survey (OPERAND_OF_THE_WRONG_TYPE); the
+        //   empty name names no resource, and `paint_shading` reports it missing and paints
+        //   nothing.
         let name = name_at(operands, 0).unwrap_or_else(|| Name::new(Vec::new()));
         self.paint_shading(&name, resources, &machine.state);
     }

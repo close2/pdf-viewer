@@ -295,9 +295,11 @@ fn rounded(value: f64, places: u32) -> (bool, String, String) {
             .map(|d| char::from(b'0'.saturating_add(*d)))
             .collect()
     };
+    // not a repair: slices of the digits this program built, cut at `split`.
     let integer = to_text(all.get(..split).unwrap_or_default());
     let integer = integer.trim_start_matches('0');
     let integer = if integer.is_empty() { "0" } else { integer }.to_owned();
+    // not a repair: the same digits' other half.
     let fraction = to_text(all.get(split..).unwrap_or_default());
     let zero = integer == "0" && fraction.bytes().all(|b| b == b'0');
     (negative && !zero, integer, fraction)

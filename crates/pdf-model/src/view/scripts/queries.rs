@@ -232,6 +232,9 @@ impl ViewState {
         if field.flags & RICH_TEXT == 0 {
             return None;
         }
+        // not a repair: a field stating no value reads to a script as the empty
+        //   text, the value it holds before anything is entered (Table 226's
+        //   `/V` is optional).
         let value = self.text_of(document, widget).unwrap_or_default();
         let stated = field.chain().into_iter().find_map(|level| {
             crate::variable_text::value_text(document, &document.get_key(level, "RV"))

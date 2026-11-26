@@ -248,6 +248,11 @@ pub static MAPPING: &[Mapped] = &[
     base("model/outline-entry-unusable"),
     base("model/page-label-entry-unusable"),
     base("model/soft-mask-backdrop-unusable"),
+    // A requirement's `/Penalty` and a media criterion's `/L`: dictionaries outside content, so
+    // the whole-file rewrite carries the entry as the file states it, and the output's own check
+    // refuses by the class's name (ADR 3777).
+    base("model/requirement-entry-unusable"),
+    base("model/media-criterion-unusable"),
     base("model/wkt-name-absent"),
     base("model/wkt-identifier-unusable"),
     base("model/wkt-auxiliary-sphere-type-absent"),
@@ -270,6 +275,10 @@ pub static MAPPING: &[Mapped] = &[
     // `fonts/font-programs-filed-by-their-format` reads a `/FontFile3`'s `/Subtype` against the
     // program's bytes on its own, so the log adds only section 5.1.
     base("font/font-file-subtype-disagrees"),
+    // An OpenType Type 1 program's `CFF ` table that did not read, so its codes were mapped through
+    // its `cmap`: the program crosses as the file embeds it, and the converter has no charset to
+    // restate, so the log adds only section 5.1 (ADR 3777).
+    base("font/opentype-cff-unreadable"),
     // The maps. Section 6.2.11.7.2's rows judge a `/ToUnicode` as read and exempt whole classes
     // of font from it, which a repair's place cannot tell, so a map this reader read past is
     // section 5.1's. Those the converter restates as read (ADR 3570) are also the row of section

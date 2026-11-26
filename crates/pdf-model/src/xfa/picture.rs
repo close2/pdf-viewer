@@ -247,6 +247,8 @@ fn clauses(
             let close = rest[used..]
                 .find('}')
                 .ok_or("its picture clause opens a brace it does not close")?;
+            // not a repair: a category that names no locale of its own is read in the clause's
+            //   ambient one, which is how XFA 3.3's picture grammar scopes a locale.
             let clause_locale = named.unwrap_or(locale);
             if !literal.is_empty() {
                 pieces.push(Piece::Literal(std::mem::take(&mut literal)));

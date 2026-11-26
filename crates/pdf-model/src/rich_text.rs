@@ -319,6 +319,9 @@ pub(crate) fn for_free_text(
         }),
         (None, contents) => default_style.map(|default_style| Chosen {
             rich: plain_text(
+                // not a repair: an annotation stating neither `/Contents` nor readable `/RC`
+                //   characters shows no text; an `/RC` that did not parse is logged where
+                //   `rich_entry` reads it (RICH_TEXT_MALFORMED).
                 contents.or(lenient.as_deref()).unwrap_or_default(),
                 Some(default_style),
                 root,

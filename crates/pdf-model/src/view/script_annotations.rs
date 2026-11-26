@@ -330,6 +330,8 @@ fn read_annotations(document: &Document, pages: &BTreeMap<ObjectId, usize>) -> (
         let Some(page_dict) = page_dict.as_dict() else {
             continue;
         };
+        // not a repair here: `page_annots` reads one that is no array as absent and logs it
+        //   (PAGE_ANNOTS_NOT_AN_ARRAY).
         let annotations = crate::annotation::page_annots(document, page_dict);
         for entry in annotations.as_array().unwrap_or_default() {
             let Some(id) = entry.as_reference() else {
@@ -448,6 +450,9 @@ fn reach(document: &Document, dict: &Dictionary) -> AnnotationReach {
 
 /// Table 166's `/Rect`, normalised so that the first corner is the lower left, as §7.9.5 reads any
 /// rectangle; zeros where the entry is not four numbers.
+///
+/// The entry is "(Required)", so a `/Rect` absent or not four numbers is read as zeros and logged
+/// (`ANNOTATION_ENTRY_UNUSABLE`).
 fn rectangle(document: &Document, dict: &Dictionary) -> [f64; 4] {
     let rect = document.get_key(dict, "Rect");
     let corners: Vec<f64> = rect
@@ -457,8 +462,12 @@ fn rectangle(document: &Document, dict: &Dictionary) -> [f64; 4] {
         .filter_map(|value| document.resolve(value).as_number())
         .collect();
     let [x0, y0, x1, y1] = corners.as_slice() else {
+        crate::annotation::annotation_entry_unusable(document);
         return [0.0; 4];
     };
+    if rect.as_array().map(<[Object]>::len) != Some(4) {
+        crate::annotation::annotation_entry_unusable(document);
+    }
     [x0.min(*x1), y0.min(*y1), x0.max(*x1), y0.max(*y1)]
 }
 

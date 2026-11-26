@@ -2085,7 +2085,7 @@ fn index_or_logged(document: &Document, index: i64) -> Option<usize> {
 /// Logs an action entry this reader read past. An action dictionary is often direct and the
 /// reader is handed no object to name, so the repair is placed at the file.
 #[cold]
-fn action_entry_unusable(document: &Document) {
+pub(crate) fn action_entry_unusable(document: &Document) {
     document.record_repair(
         &crate::repair::ACTION_ENTRY_UNUSABLE,
         pdf_syntax::Site::WholeFile,

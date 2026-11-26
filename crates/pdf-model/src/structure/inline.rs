@@ -113,17 +113,26 @@ impl Tree {
     pub fn inline_statements(&self, document: &Document, element: &Dictionary) -> InlineStatements {
         let attached = self.attributes(document, element);
         let stated = |name: &str| ranked(document, &attached, name, layout_owner);
+        // Table 380 gives each of these one of its names, and a value that is none is read as the
+        // entry's default and logged (`STRUCTURE_ATTRIBUTE_UNUSABLE`).
         let decoration = stated("TextDecorationType").map(|object| {
-            object
+            let read = object
                 .as_name()
-                .and_then(|name| TextDecoration::read(name.as_bytes()))
-                .unwrap_or_default()
+                .and_then(|name| TextDecoration::read(name.as_bytes()));
+            if read.is_none() {
+                super::tables::structure_attribute_unusable(document);
+            }
+            read.unwrap_or_default()
         });
+        // The same for `/TextPosition` (`STRUCTURE_ATTRIBUTE_UNUSABLE`).
         let position = stated("TextPosition").map(|object| {
-            object
+            let read = object
                 .as_name()
-                .and_then(|name| TextPosition::read(name.as_bytes()))
-                .unwrap_or_default()
+                .and_then(|name| TextPosition::read(name.as_bytes()));
+            if read.is_none() {
+                super::tables::structure_attribute_unusable(document);
+            }
+            read.unwrap_or_default()
         });
         let baseline_shift = stated("BaselineShift").map(|object| {
             object

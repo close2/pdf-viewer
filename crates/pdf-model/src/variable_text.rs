@@ -968,6 +968,8 @@ fn named_glyphs_reach_more(
     paragraphs: Option<&pdf_font::shaping::Paragraphs>,
 ) -> Option<(Dictionary, std::sync::Arc<pdf_font::LoadedFont>, Encoded)> {
     let named = with_differences(dict, &runs.missing)?;
+    // not a repair: a decline — a font this program invented that does not load leaves the
+    //   first attempt's refusal as it was (this function's `None`, above).
     let reloaded = std::sync::Arc::new(pdf_font::LoadedFont::load(document, &named, label).ok()?);
     let again = encode(
         &|character| {

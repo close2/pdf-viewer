@@ -763,3 +763,168 @@ fn a_soft_mask_backdrop_of_the_wrong_length_is_logged() {
     );
     assert_eq!(drawn("/BC [0.5 0.5 0.5]"), []);
 }
+
+/// Table 273's `/Penalty` is "An integer value that shall be between 0 and 100 (inclusive)" with
+/// "Default value is 100": one past the range is read as its nearer end, one of another type as
+/// the default, each logged at the requirement.
+#[test]
+fn a_requirement_penalty_out_of_its_range_is_logged() {
+    let penalty = |stated: &str| {
+        let document = file(&[
+            "<< /Type /Catalog /Pages 2 0 R /Requirements [3 0 R] >>".to_owned(),
+            "<< /Type /Pages /Kids [] /Count 0 >>".to_owned(),
+            format!("<< /Type /Requirement /S /EnableJavaScripts {stated} >>"),
+        ]);
+        let read = pdf_model::requirements::read(&document);
+        (
+            read.first().map(|requirement| requirement.penalty),
+            logged_alone(&document),
+        )
+    };
+    let unusable = vec![(
+        repair::REQUIREMENT_ENTRY_UNUSABLE.name,
+        Site::Object(ObjectId::new(3, 0)),
+    )];
+    assert_eq!(penalty("/Penalty 250"), (Some(100), unusable.clone()));
+    assert_eq!(penalty("/Penalty -3"), (Some(0), unusable.clone()));
+    assert_eq!(penalty("/Penalty /High"), (Some(100), unusable));
+    assert_eq!(penalty("/Penalty 40"), (Some(40), vec![]));
+    assert_eq!(penalty(""), (Some(100), vec![]));
+}
+
+/// Table 212's `/Volume` is "in the range -1.0 to 1.0": one past it is held to the range, and,
+/// like a `/Volume` or `/Repeat` of another type, logged as the action's entry.
+#[test]
+fn a_sound_action_entry_out_of_its_table_is_logged() {
+    let played = |action: &str| {
+        let document = catalog("");
+        let parsed = pdf_syntax::Parser::new(action.as_bytes())
+            .parse_object()
+            .expect("the action parses");
+        let _ = pdf_model::media::Playing::of_sound_action(
+            &document,
+            parsed.as_dict().expect("a dictionary"),
+        );
+        logged_alone(&document)
+    };
+    let unusable = [(repair::ACTION_ENTRY_UNUSABLE.name, Site::WholeFile)];
+    assert_eq!(played("<< /S /Sound /Volume 3 >>"), unusable);
+    assert_eq!(played("<< /S /Sound /Volume /Loud >>"), unusable);
+    assert_eq!(played("<< /S /Sound /Repeat 1 >>"), unusable);
+    assert_eq!(played("<< /S /Sound /Volume 0.5 /Repeat true >>"), []);
+}
+
+/// §9.10.3 maps codes "to Unicode character sequences expressed in UTF-16BE encoding": a
+/// destination holding an unpaired surrogate is an entry that does not read, and the loader logs
+/// the map damaged.
+#[test]
+fn a_to_unicode_destination_that_is_no_utf16_is_logged() {
+    let map = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n\
+               1 begincodespacerange <00> <FF> endcodespacerange\n\
+               1 beginbfchar <61> <D800> endbfchar\nendcmap end end";
+    let document = file(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [] /Count 0 >>".to_owned(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 4 0 R >>".to_owned(),
+        format!("<< /Length {} >>\nstream\n{map}\nendstream", map.len()),
+    ]);
+    let object = document.get(ObjectId::new(3, 0));
+    let font = object.as_dict().expect("a font dictionary");
+    let _ = pdf_font::to_unicode(&document, font);
+    assert!(
+        logged_alone(&document).contains(&(
+            pdf_font::repair::TO_UNICODE_DAMAGED.name,
+            Site::Object(ObjectId::new(4, 0))
+        )),
+        "{:?}",
+        logged_alone(&document)
+    );
+}
+
+/// Table 122's `/Style` is a dictionary whose `/Panose` is a 12-byte string: one of another
+/// length is read as absent where a substitute is chosen, and logged.
+#[test]
+fn a_panose_that_is_not_twelve_bytes_is_logged() {
+    let derived = |style: &str| {
+        let document = file(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [] /Count 0 >>".to_owned(),
+            "<< /Type /Font /Subtype /TrueType /BaseFont /Unheard /FontDescriptor 4 0 R >>"
+                .to_owned(),
+            format!(
+                "<< /Type /FontDescriptor /FontName /Unheard /Flags 32 /ItalicAngle 0 {style} >>"
+            ),
+        ]);
+        let object = document.get(ObjectId::new(3, 0));
+        let font = object.as_dict().expect("a font dictionary");
+        let descriptor = document.get(ObjectId::new(4, 0));
+        let _ = pdf_font::substitute::Request::derive(&document, font, descriptor.as_dict());
+        logged_alone(&document)
+    };
+    let unusable = [(
+        pdf_font::repair::DESCRIPTOR_STYLE_UNUSABLE.name,
+        Site::WholeFile,
+    )];
+    assert_eq!(derived("/Style << /Panose <0102> >>"), unusable);
+    assert_eq!(derived("/Style 7"), unusable);
+    assert_eq!(
+        derived("/Style << /Panose <000002020300000000000000> >>"),
+        []
+    );
+    assert_eq!(derived("/Style << >>"), []);
+    assert_eq!(derived(""), []);
+}
+
+/// Table 234's `/Opt` elements are "either a text string … or an array consisting of two text
+/// strings": a pair that is not two text strings, or an element of neither shape, is read as the
+/// strings it holds and logged.
+#[test]
+fn a_choice_option_of_neither_shape_is_logged() {
+    let options = |opt: &str| {
+        let document = file(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> \
+             /Annots [4 0 R] >>"
+                .to_owned(),
+            format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [0 0 50 20] /P 3 0 R /FT /Ch /T (c) \
+                 /Opt {opt} >>"
+            ),
+        ]);
+        let page = Pages::new(&document).get(0).expect("the page is read");
+        let view = pdf_model::view::ViewState::of(&document);
+        let _ = pdf_model::form::fields(&document, &page, &view);
+        logged_alone(&document)
+    };
+    let unusable = [(repair::FIELD_ENTRY_UNUSABLE.name, Site::WholeFile)];
+    assert!(options("[[(x)]]").contains(&unusable[0]));
+    assert!(options("[7]").contains(&unusable[0]));
+    assert_eq!(options("[[(x) (Ex)] (y)]"), []);
+}
+
+/// An appearance stream's `/Resources` that Table 93 does not allow, a dictionary, is read as
+/// absent and logged, as a form's is; one absent inherits the page's without a log.
+#[test]
+fn an_appearance_with_resources_of_the_wrong_type_is_logged() {
+    let drawn = |resources: &str| {
+        let document = file(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << >> \
+             /Annots [4 0 R] >>"
+                .to_owned(),
+            "<< /Type /Annot /Subtype /Square /Rect [0 0 5 5] /AP << /N 5 0 R >> >>".to_owned(),
+            format!(
+                "<< /Type /XObject /Subtype /Form /BBox [0 0 5 5] {resources} /Length 3 >>\n\
+                 stream\n0 g\nendstream"
+            ),
+        ]);
+        logged(&document)
+            .into_iter()
+            .map(|(class, _)| class)
+            .collect::<Vec<_>>()
+    };
+    assert!(drawn("/Resources 5").contains(&repair::FORM_RESOURCES_NOT_A_DICTIONARY.name));
+    assert!(!drawn("").contains(&repair::FORM_RESOURCES_NOT_A_DICTIONARY.name));
+}

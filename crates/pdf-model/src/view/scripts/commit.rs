@@ -76,6 +76,9 @@ impl ViewState {
             return Committed::Nothing;
         };
         let table = crate::view::widgets_by_field_name(document);
+        // not a repair: a field stating no value reads to a script as the empty
+        //   text, the value it holds before anything is entered (Table 226's
+        //   `/V` is optional).
         let mut text = self.text_of(document, first).unwrap_or_default();
 
         match site::of_widget(document, &widget, Trigger::Keystroke) {

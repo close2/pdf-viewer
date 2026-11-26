@@ -549,6 +549,8 @@ impl ViewState {
         let text = match self.retyped.get(&id) {
             Some(retyped) => retyped.clone(),
             None => {
+                // not a repair: Table 166 makes `/Contents` optional, and an annotation stating
+                //   none has no text for the edit to start from.
                 crate::variable_text::string(document, &[&dict], "Contents").unwrap_or_default()
             }
         };

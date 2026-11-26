@@ -393,6 +393,7 @@ impl<'a> Form<'a> {
             }
             Occurrence::Same if matches.len() <= 1 => matches.to_vec(),
             Occurrence::Same if inferred => {
+                // not a repair: the same count of this reader's own nodes, widened.
                 at(i64::try_from(self.template.own_index(here)).unwrap_or(i64::MAX))
             }
             Occurrence::Same => at(0),

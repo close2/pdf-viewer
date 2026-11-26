@@ -619,6 +619,8 @@ impl Typed {
             }
             Some(crate::appearance::FieldKind::Choice { .. }) => Self {
                 change: text.to_owned(),
+                // not a repair: Table 234 gives an option shown as a single string no export
+                //   value apart from its text, and a typed text no option shows is its own value.
                 change_ex: export_value(document, &field.chain(), text)
                     .unwrap_or_else(|| text.to_owned()),
                 full: false,
@@ -659,7 +661,15 @@ fn within_max_len(
         .chain()
         .into_iter()
         .find_map(|dictionary| document.get_key(dictionary, "MaxLen").as_integer())
-        .and_then(|limit| usize::try_from(limit).ok());
+        .and_then(|limit| {
+            // A negative `/MaxLen` is no length: read as absent, logged as
+            // `FIELD_ENTRY_UNUSABLE`.
+            let limit = usize::try_from(limit).ok();
+            if limit.is_none() {
+                crate::form::field_entry_unusable(document);
+            }
+            limit
+        });
     if let Some(limit) = limit
         && fits.chars().count() > limit
     {

@@ -828,11 +828,32 @@ pub fn language(document: &Document, descriptor: &Dictionary) -> Option<Language
 /// §9.8.3.2 makes the value a *string*, so a file writing a name or an array has not stated a
 /// classification — and [`crate::panose::Panose::read`] then requires the twelve bytes the
 /// clause states.
+///
+/// A `/Style` that is no dictionary, or a `/Panose` that is no string of twelve bytes, is read
+/// as absent and logged (`DESCRIPTOR_STYLE_UNUSABLE`).
 fn panose(document: &Document, descriptor: &Dictionary) -> Option<crate::panose::Panose> {
     let style = document.get_key(descriptor, "Style");
-    let style = style.as_dict()?;
-    let value = document.get_key(style, "Panose");
-    crate::panose::Panose::read(value.as_string()?)
+    if style.is_null() {
+        return None;
+    }
+    let read = style.as_dict().and_then(|style| {
+        let value = document.get_key(style, "Panose");
+        if value.is_null() {
+            return Some(None);
+        }
+        value
+            .as_string()
+            .and_then(crate::panose::Panose::read)
+            .map(Some)
+    });
+    match read {
+        Some(Some(panose)) => Some(panose),
+        Some(None) => None,
+        None => {
+            document.record_repair(&crate::repair::DESCRIPTOR_STYLE_UNUSABLE, Site::WholeFile);
+            None
+        }
+    }
 }
 
 /// Whether the document states that this font's codes are Latin glyph names.

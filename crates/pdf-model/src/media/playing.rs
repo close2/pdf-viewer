@@ -194,8 +194,11 @@ impl Playing {
             Object::Null => {}
             stated => match stated.as_number() {
                 Some(volume) if volume.is_finite() => {
+                    // Past the range is the file's departure, held to the nearer end, said in a
+                    // note and logged (`ACTION_ENTRY_UNUSABLE`).
                     let held = volume.clamp(-1.0, 1.0);
                     if !(-1.0..=1.0).contains(&volume) {
+                        crate::action::action_entry_unusable(document);
                         notes.push(format!(
                             "Table 212's /Volume {volume} is outside the range -1.0 to 1.0, so it \
                              is played at {held}"
@@ -209,15 +212,19 @@ impl Playing {
                     }
                     playing.level = held.max(0.0);
                 }
-                _ => notes.push(
-                    "Table 212's /Volume is not a number, so its default 1.0 stands".to_owned(),
-                ),
+                _ => {
+                    crate::action::action_entry_unusable(document);
+                    notes.push(
+                        "Table 212's /Volume is not a number, so its default 1.0 stands".to_owned(),
+                    );
+                }
             },
         }
         let flag = |key: &str, notes: &mut Vec<String>| match document.get_key(action, key) {
             Object::Null => None,
             Object::Boolean(value) => Some(value),
             _ => {
+                crate::action::action_entry_unusable(document);
                 notes.push(format!(
                     "Table 212's /{key} is not a boolean, so its default false stands"
                 ));

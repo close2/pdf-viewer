@@ -34,6 +34,9 @@ impl ViewState {
                         || format!("the field of object {}", first.number),
                         |(name, _)| name.clone(),
                     );
+                // not a repair: a field stating no value reads to a script as the empty
+                //   text, the value it holds before anything is entered (Table 226's
+                //   `/V` is optional).
                 let current = self.text_of(document, first).unwrap_or_default();
                 let typed = Typed::of(document, taking, &widget, text);
                 let event = ScriptEvent {
@@ -63,6 +66,9 @@ impl ViewState {
                 }
             }
             Site::Library(call) => {
+                // not a repair: a field stating no value reads to a script as the empty
+                //   text, the value it holds before anything is entered (Table 226's
+                //   `/V` is optional).
                 let current = self.text_of(document, first).unwrap_or_default();
                 let event = Keystroke {
                     value: &current,

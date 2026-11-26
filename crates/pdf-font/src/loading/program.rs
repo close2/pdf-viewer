@@ -109,6 +109,8 @@ impl LoadedFont {
             return None;
         }
         match self.program {
+            // not a repair: `None` is documented as "the program cannot be read at all"; this is
+            //   a listing.
             Program::BareCff => match CodeToGlyph::read(&self.data).ok()? {
                 CodeToGlyph::Keyed { by_cid } => Some(by_cid.into_keys().collect()),
                 CodeToGlyph::Named(_) => None,

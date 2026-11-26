@@ -228,6 +228,9 @@ fn description_text(bytes: &[u8]) -> String {
         .iter()
         .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
         .take_while(|unit| *unit != 0);
+    // not a repair: a description shown to the person as text, not a value the PDF states and
+    //   not what plays; a unit of no pair shows as U+FFFD, the replacement Unicode's own
+    //   conformance chapter (3.9) gives an ill-formed code unit sequence.
     char::decode_utf16(units)
         .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
         .collect()

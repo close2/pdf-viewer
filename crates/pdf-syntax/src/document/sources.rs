@@ -230,6 +230,7 @@ impl Document {
         // The chain read exactly as `decoded_stream_data_reported` reads it, so that the two
         // routes cannot disagree about what the stream says; a chain Table 5 does not admit
         // pumps nothing, and the whole route refuses it by name.
+        // not a repair: a decline, refused by name on the whole route as the line above says.
         let stated = self.stated_chain(&stream.dict).ok()?;
         let mut stages = Vec::with_capacity(stated.len());
         let mut chain = Vec::with_capacity(stated.len());

@@ -232,6 +232,7 @@ impl StatedMetrics {
                 // An `/Encoding` this crate cannot read names no glyph, so the metrics answer
                 // no code and every code takes `/MissingWidth`; the count in the report says so,
                 // and the refusal that brought the font here is already the page's.
+                // not a repair: a decline whose refusal is the page's, as the line above says.
                 let names = substitute_encoding_names(document, dict, request, name).ok();
                 let (resembling, supplied) = metrics::unprogrammed_widths(request, names.as_ref());
                 widths = resembling;
@@ -250,6 +251,8 @@ impl StatedMetrics {
 
         // The `CMap` is the whole of what a composite font's outer dictionary states about
         // placement (§9.7.5), and without it a string cannot be split into codes.
+        // not a repair: a decline (`metrics_only`'s `None`); the load that brought the font here
+        //   met the same `CMap` and refused it by name.
         let cmap = composite_cmap(document, dict, name).ok()?;
         let vertical = cmap.wmode() == 1;
         // §9.7.6.1's Table 119: the one-element array naming the CIDFont whose `/W`, `/DW` and

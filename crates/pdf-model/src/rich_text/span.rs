@@ -284,6 +284,8 @@ fn style_of(span: &Span) -> String {
                 clippy::cast_sign_loss,
                 reason = "clamped to 0..=255 first, and `as` saturates"
             )]
+            // not a repair: markup this program writes from a script's `Span`
+            //   (`util.spansToXML`), not a value read from the file.
             let byte = (component.clamp(0.0, 1.0) * 255.0).round() as u8;
             byte
         };

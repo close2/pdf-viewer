@@ -5562,6 +5562,8 @@ fn with_stand_in_font(mut resources: Dictionary, invented: Vec<(Name, Dictionary
     if invented.is_empty() {
         return resources;
     }
+    // not a repair: the resources of a stream this program is building, not a value the file
+    //   states.
     let mut fonts = resources
         .get("Font")
         .and_then(Object::as_dict)

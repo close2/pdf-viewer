@@ -384,6 +384,9 @@ impl Tree {
                     .as_dict()
                     .map(|root| tree::name_entries(root, &|object| document.resolve(object)))
             })
+            // not a repair: the entries this edit keeps; a `/Names` or `/EmbeddedFiles` that is
+            //   no dictionary holds none to keep, the edit writes a tree of its own, and
+            //   §7.5.6's incremental update leaves the producer's bytes as they were.
             .unwrap_or_default();
         Self {
             names_entry,
@@ -546,6 +549,8 @@ pub fn point_holder_at_tree(
             replacements.insert(names_id, Object::Dictionary(names));
         }
         _ => {
+            // not a repair: the dictionary this program is writing into, not a value the file
+            //   states.
             let mut names = names_dict.unwrap_or_default();
             names.insert(Name::new(&b"EmbeddedFiles"[..]), Object::Reference(tree_id));
             catalog.insert(Name::new(&b"Names"[..]), Object::Dictionary(names));

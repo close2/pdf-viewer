@@ -405,6 +405,26 @@ impl Interpreter<'_> {
         }
     }
 
+    /// A stored appearance stream's `/Resources`, or the page's where it states none.
+    ///
+    /// The inheritance is on the entry's absence, as a form's is (`content/xobject.rs`, ADR 0255);
+    /// a `/Resources` Table 93 does not allow, a dictionary, is read as a stream's dictionary or
+    /// else as absent, and logged (`FORM_RESOURCES_NOT_A_DICTIONARY`).
+    fn stored_resources(
+        &mut self,
+        stream: &pdf_syntax::Stream,
+        page_resources: &Dictionary,
+    ) -> Dictionary {
+        let stated = self.document.get_key(&stream.dict, "Resources");
+        if !matches!(stated, Object::Null | Object::Dictionary(_)) {
+            self.record_repair(&crate::repair::FORM_RESOURCES_NOT_A_DICTIONARY);
+        }
+        stated
+            .as_dict()
+            .cloned()
+            .unwrap_or_else(|| page_resources.clone())
+    }
+
     /// Table 166's `/BM`, which takes §11.6.3's names: one outside Tables 134 and 135 is drawn
     /// as `Normal` and said, as a graphics state's is (ADR 3392).
     fn appearance_blend(&mut self, name: &str) -> BlendMode {
@@ -524,12 +544,9 @@ impl Interpreter<'_> {
         // appearance stream where the struck bullet named only forms and Type 3 fonts, which is
         // exactly the case this line is. ADR 0255.
         let resources = match &appearance.content {
-            crate::annotation::Content::Stored(stream) => self
-                .document
-                .get_key(&stream.dict, "Resources")
-                .as_dict()
-                .cloned()
-                .unwrap_or_else(|| page_resources.clone()),
+            crate::annotation::Content::Stored(stream) => {
+                self.stored_resources(stream, page_resources)
+            }
             // A constructed stream names at most the fonts §12.7.4.3's `/DA` string reaches,
             // which `crate::appearance` took from Table 224's `/DR`. Everything else it draws
             // is a path in a device colour and names nothing.

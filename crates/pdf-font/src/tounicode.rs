@@ -388,6 +388,8 @@ impl ToUnicode {
                                 }
                                 if let Some(text) = text_of(target) {
                                     self.insert_single((code, length), text);
+                                } else {
+                                    self.damaged = true;
                                 }
                                 code = code.saturating_add(1);
                                 at = at.saturating_add(1);
@@ -434,6 +436,8 @@ impl ToUnicode {
             }
             if let Some(text) = text_of(&destination) {
                 self.insert_single((code, length), text);
+            } else {
+                self.damaged = true;
             }
             if code >= high {
                 break;
@@ -610,6 +614,11 @@ enum Own<'a> {
 }
 
 /// Decodes a destination, which is UTF-16BE text rather than a code.
+///
+/// `None` for one that is not: empty, of an odd length, or holding a unit UTF-16 does not pair.
+/// §9.10.3 has the map define "the mapping from character codes to Unicode character sequences
+/// expressed in UTF-16BE encoding", so each caller marks the map damaged (`TO_UNICODE_DAMAGED`)
+/// and maps the code no further: the mappings that read are the ones kept.
 fn text_of(bytes: &[u8]) -> Option<String> {
     if bytes.is_empty() || !bytes.len().is_multiple_of(2) {
         return None;
@@ -620,9 +629,8 @@ fn text_of(bytes: &[u8]) -> Option<String> {
         .iter()
         .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
         .collect();
-    let text: String = char::decode_utf16(units)
-        .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
-        .collect();
+    // An unpaired unit leaves the destination unread (`TO_UNICODE_DAMAGED`, above).
+    let text: String = char::decode_utf16(units).collect::<Result<_, _>>().ok()?;
     (!text.is_empty()).then_some(text)
 }
 
@@ -778,6 +786,23 @@ mod tests {
     fn surrogate_pairs_decode_to_one_character() {
         let map = ToUnicode::parse(b"1 beginbfchar\n<0001> <D83DDE00>\nendbfchar\n");
         assert_eq!(map.char_for(1), Some('\u{1F600}'));
+    }
+
+    /// §9.10.3's destinations are "expressed in UTF-16BE encoding": one holding an unpaired
+    /// surrogate maps nothing and marks the map damaged, in each of the three statements.
+    #[test]
+    fn an_unpaired_surrogate_maps_nothing_and_damages_the_map() {
+        for statement in [
+            &b"1 beginbfchar\n<0001> <D83D>\nendbfchar\n"[..],
+            b"1 beginbfrange\n<0001> <0001> [<DC00>]\nendbfrange\n",
+            b"1 beginbfrange\n<0001> <0002> <0041D800>\nendbfrange\n",
+        ] {
+            let map = ToUnicode::parse(statement);
+            let mut out = String::new();
+            assert!(!map.append(1, &mut out), "{statement:?}");
+            assert!(map.damaged(), "{statement:?}");
+        }
+        assert!(!ToUnicode::parse(b"1 beginbfchar\n<0001> <D83DDE00>\nendbfchar\n").damaged());
     }
 
     /// A code may stand for several characters, which extraction must keep and

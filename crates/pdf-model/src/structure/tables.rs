@@ -454,7 +454,7 @@ impl Tree {
 /// Logs a structure attribute this reader read past. An element's attributes are read without
 /// the object that states them, so the repair is placed at the file.
 #[cold]
-fn structure_attribute_unusable(document: &Document) {
+pub(super) fn structure_attribute_unusable(document: &Document) {
     document.record_repair(
         &crate::repair::STRUCTURE_ATTRIBUTE_UNUSABLE,
         pdf_syntax::Site::WholeFile,

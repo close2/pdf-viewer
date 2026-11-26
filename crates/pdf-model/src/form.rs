@@ -700,15 +700,31 @@ pub(crate) fn options(document: &Document, field: &Field) -> Vec<Choice> {
                             .map(|entry| document.resolve(entry))
                             .and_then(|entry| entry.as_string().map(pdf_syntax::text_string))
                     };
+                    let (export, label) = (text(0), text(1));
+                    // Table 234: an element of `/Opt` is "either a text string representing one
+                    // of the available options or an array consisting of two text strings". A
+                    // pair that is not two is read as the strings it holds, the export standing
+                    // for a missing name (`FIELD_ENTRY_UNUSABLE`).
+                    if pair.len() != 2 || export.is_none() || label.is_none() {
+                        field_entry_unusable(document);
+                    }
                     Choice {
-                        export: text(0),
-                        label: text(1).or_else(|| text(0)).unwrap_or_default(),
+                        label: label.or_else(|| export.clone()).unwrap_or_default(),
+                        export,
                     }
                 }
-                other => Choice {
-                    export: None,
-                    label: other.as_string().map_or_default(pdf_syntax::text_string),
-                },
+                other => {
+                    // An element of neither shape is read as an option with no name
+                    // (`FIELD_ENTRY_UNUSABLE`).
+                    let label = other.as_string().map(pdf_syntax::text_string);
+                    if label.is_none() {
+                        field_entry_unusable(document);
+                    }
+                    Choice {
+                        export: None,
+                        label: label.unwrap_or_default(),
+                    }
+                }
             }
         })
         .collect()

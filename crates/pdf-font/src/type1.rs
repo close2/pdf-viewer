@@ -368,6 +368,9 @@ fn assigned_codes(data: &[u8]) -> Box<[bool; 256]> {
         if !name.starts_with(b"/") || !tail.starts_with(b"put") {
             continue;
         }
+        // not a repair: bytes that are no UTF-8 are no decimal code either, and the empty text
+        //   fails the parse below as they would; the entry is passed over like any `dup` that is
+        //   not an assignment.
         let Ok(code) = std::str::from_utf8(code)
             .unwrap_or_default()
             .parse::<usize>()

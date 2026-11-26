@@ -1423,16 +1423,22 @@ impl Walk<'_> {
     /// Table 279's `/L`: "the language in which the interactive PDF processor is running shall
     /// exactly match a language identifier, or consist only of a primary code that matches the
     /// primary code of an identifier".
+    ///
+    /// An `/L` that is no array, or an element that is no text string, is read as absent and
+    /// logged (`MEDIA_CRITERION_UNUSABLE`); an empty array is the clause's own "present and
+    /// non-empty" condition unmet, and decides nothing.
     fn language_criterion(&self, value: &Object) -> Option<String> {
-        let tags: Vec<String> = value
-            .as_array()
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|item| match self.document.resolve(item) {
-                Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
-                _ => None,
-            })
-            .collect();
+        let Some(items) = value.as_array() else {
+            self.media_criterion_unusable();
+            return None;
+        };
+        let mut tags = Vec::with_capacity(items.len());
+        for item in items {
+            match self.document.resolve(item) {
+                Object::String(bytes) => tags.push(pdf_syntax::text_string(&bytes)),
+                _ => self.media_criterion_unusable(),
+            }
+        }
         if tags.is_empty() {
             return None;
         }
@@ -1457,6 +1463,16 @@ impl Walk<'_> {
                 tags.join(" or ")
             )
         })
+    }
+
+    /// Logs a media criterion read past. A criteria dictionary is often direct and the walk is
+    /// handed no object to name, so the repair is placed at the file.
+    #[cold]
+    fn media_criterion_unusable(&self) {
+        self.document.record_repair(
+            &crate::repair::MEDIA_CRITERION_UNUSABLE,
+            pdf_syntax::Site::WholeFile,
+        );
     }
 
     /// The `/Alt` of the clip a media rendition names, through any sections to its data.

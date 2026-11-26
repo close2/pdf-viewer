@@ -217,6 +217,7 @@ fn emit(
                 said = *offset;
                 speaking = Some(escaped.as_str());
             }
+            // not a repair: the same slice's remainder.
             push(phrase.get(said..).unwrap_or_default(), speaking, runs);
             push_break(runs);
         } else if depth < MAX_NESTING {
@@ -232,6 +233,7 @@ fn emit(
                 runs,
             );
         } else {
+            // not a repair: a slice of this reader's own text at offsets it computed.
             push(text.get(start..end).unwrap_or_default(), inner, runs);
         }
         cursor = end;

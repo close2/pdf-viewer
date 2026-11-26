@@ -62,6 +62,8 @@ impl Content {
     /// Reads `xdpContent`: its tags, separated by white space; `*` for every packet; and, where it
     /// is omitted or blank, `datasets pdf xfdf` (the module's choice).
     pub(crate) fn read(stated: Option<&str>) -> Self {
+        // not a repair: an omitted property states nothing, and a blank one reads as the
+        //   omitted one; both take the module's default below (this function's doc).
         let tags: Vec<String> = stated
             .unwrap_or_default()
             .split_whitespace()

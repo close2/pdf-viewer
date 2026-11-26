@@ -497,7 +497,12 @@ pub fn read(document: &Document) -> Vec<Requirement> {
         out.push(Requirement {
             kind,
             version: version(document, dict),
-            penalty: penalty(document, dict),
+            penalty: penalty(
+                document,
+                dict,
+                item.as_reference()
+                    .map_or(pdf_syntax::Site::WholeFile, pdf_syntax::Site::Object),
+            ),
         });
     }
     out
@@ -660,14 +665,21 @@ fn version(document: &Document, dict: &Dictionary) -> Option<String> {
     }
 }
 
-/// Table 273's `/Penalty`, defaulting to 100 and clamped to the clause's range.
-fn penalty(document: &Document, dict: &Dictionary) -> u8 {
-    document
-        .get_key(dict, "Penalty")
-        .as_integer()
-        .map_or(100, |value| {
-            u8::try_from(value.clamp(0, 100)).unwrap_or(100)
-        })
+/// Table 273's `/Penalty`: "An integer value that shall be between 0 and 100 (inclusive)" whose
+/// "Default value is 100". One past the range is read as its nearer end, and one of another type
+/// as the default, each logged at the requirement (`REQUIREMENT_ENTRY_UNUSABLE`).
+fn penalty(document: &Document, dict: &Dictionary, at: pdf_syntax::Site) -> u8 {
+    let stated = document.get_key(dict, "Penalty");
+    let (read, usable) = match stated {
+        Object::Null => return 100,
+        Object::Integer(value) => (value.clamp(0, 100), (0..=100).contains(&value)),
+        _ => (100, false),
+    };
+    if !usable {
+        document.record_repair(&crate::repair::REQUIREMENT_ENTRY_UNUSABLE, at);
+    }
+    // not a repair: `read` is within 0 to 100 on every arm above, so the conversion cannot fail.
+    u8::try_from(read).unwrap_or(100)
 }
 
 /// §7.12's extensions dictionary: the developer extensions a document was written against.

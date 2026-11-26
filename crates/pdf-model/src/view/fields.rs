@@ -920,8 +920,15 @@ pub(super) fn toggles(document: &Document, widget: &Dictionary) -> bool {
     let kind = inherited
         .name(document, "FT")
         .map(|name| name.as_bytes() == b"Btn");
-    let flags = inherited.integer(document, "Ff");
-    kind == Some(true) && flags.unwrap_or(0) & (1 << 16) == 0
+    // Table 226: `/Ff` is "Default value: 0"; one of another type is read as that default and
+    // logged (`FIELD_ENTRY_UNUSABLE`).
+    let flags = inherited.integer(document, "Ff").unwrap_or_else(|| {
+        if !inherited.get(document, "Ff").is_null() {
+            crate::form::field_entry_unusable(document);
+        }
+        0
+    });
+    kind == Some(true) && flags & (1 << 16) == 0
 }
 
 /// A toggling button's value as §12.7.5.2.3's name: the state name the edit carries as text.
@@ -968,12 +975,21 @@ pub(super) fn held_to_max_len(
     let is_text = inherited
         .name(document, "FT")
         .is_some_and(|kind| kind.as_bytes() == b"Tx");
-    let Some(limit) = live
-        .map(i64::from)
-        .or_else(|| inherited.integer(document, "MaxLen"))
-        .filter(|_| is_text)
-        .and_then(|limit| usize::try_from(limit).ok())
-    else {
+    if !is_text {
+        return value;
+    }
+    // not a repair: a script's `charLimit` is a `u32`, and `usize` holds it.
+    let live = live.and_then(|limit| usize::try_from(limit).ok());
+    let Some(limit) = live.or_else(|| {
+        // A negative `/MaxLen` is no length: read as absent, logged as
+        // `FIELD_ENTRY_UNUSABLE`.
+        let stated = inherited.integer(document, "MaxLen")?;
+        let limit = usize::try_from(stated).ok();
+        if limit.is_none() {
+            crate::form::field_entry_unusable(document);
+        }
+        limit
+    }) else {
         return value;
     };
     let text = pdf_syntax::text_string::text_string(bytes);

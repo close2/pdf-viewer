@@ -314,6 +314,9 @@ impl Tree {
     /// `None` for an untagged document, which is 885 of the corpus's 974.
     #[must_use]
     pub fn of(document: &Document) -> Option<Self> {
+        // not a repair: an unreadable catalog declines (None), the answer for a document with no
+        //   `/StructTreeRoot`; the catalog's own failure is recorded where the page tree reads it
+        //   (CATALOG_UNREADABLE).
         let catalog = document.catalog().ok()?;
         let root = document.get_key(&catalog, "StructTreeRoot");
         Some(Self {
@@ -3799,6 +3802,9 @@ fn text_entry(document: &Document, element: &Dictionary, key: &str) -> Option<St
 /// and inventing "unknown" would also cancel §14.9.2.3's inheritance for that element.
 #[must_use]
 pub fn document_language(document: &Document) -> Option<String> {
+    // not a repair: an unreadable catalog declines (None), the answer for a document with no
+    //   `/Lang`; the catalog's own failure is recorded where the page tree reads it
+    //   (CATALOG_UNREADABLE).
     let catalog = document.catalog().ok()?;
     text_entry(document, &catalog, "Lang").filter(|tag| well_formed_language_tag(tag))
 }

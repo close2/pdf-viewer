@@ -155,6 +155,9 @@ impl Hierarchy {
 /// set is what makes a cycle finite, and `MAX_PARTS` is the budget on the whole.
 #[must_use]
 pub fn hierarchy(document: &Document) -> Option<Hierarchy> {
+    // not a repair: an unreadable catalog declines (None), the answer for a document with no
+    //   `/DPartRoot`; the catalog's own failure is recorded where the page tree reads it
+    //   (CATALOG_UNREADABLE).
     let catalog = document.catalog().ok()?;
     let root = document.get_key(&catalog, "DPartRoot");
     let root = root.as_dict()?;

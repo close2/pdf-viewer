@@ -618,6 +618,9 @@ fn extent_corroboration(stated: Option<usize>, delivered: usize) -> String {
 /// extent before asking whether a filter failed, because a decode that reached a stated extent
 /// is whole however it ended.
 fn stated_extent(document: &Document, dict: &Dictionary, key: &str) -> Option<usize> {
+    // not a repair: a length absent, of another type or negative states no extent, and the `0`
+    //   is the `None` arm below — the caller's refusal of a short decode stands, and no length
+    //   is put in the file's place.
     let length = |name: &str| {
         usize::try_from(document.get_key(dict, name).as_integer().unwrap_or(0)).unwrap_or(0)
     };

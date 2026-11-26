@@ -319,6 +319,9 @@ pub(crate) fn cid_to_glyph(
     // which is precisely the distinction §9.7.4.2 draws between its two CFF cases.
     let cff = match program {
         Program::BareCff => Some(Cow::Borrowed(data)),
+        // not a repair: `parsed_program` opened these bytes as an sfnt before this is reached and
+        //   refuses one that does not open (`FontError::Malformed`), so the `ok()` sees only one
+        //   that does, and asks it only whether it holds a `CFF ` table.
         Program::Sfnt => FontRef::new(data).ok().and_then(|font| {
             font.table_data(skrifa::Tag::new(b"CFF "))
                 .map(|table| Cow::Owned(table.as_bytes().to_vec()))

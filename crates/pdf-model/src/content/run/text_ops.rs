@@ -135,6 +135,9 @@ impl Interpreter<'_> {
                 }
                 // Unset is a size of nought: Table 103's "[z]ero sized text shall not mark or
                 // clip any pixels", which is what a show with no size stated can do.
+                // not a repair here: a size missing is logged by the loop
+                //   (OPERATOR_SHORT_OF_OPERANDS) and one of another type by the content survey
+                //   (OPERAND_OF_THE_WRONG_TYPE); the nought is the sentence above.
                 state.text.size = number_at(operands, 1).unwrap_or(0.0);
                 // Judged only when both operands are there: short of one, the loop has said so,
                 // and which of the two the one present was meant to be is not in the file.

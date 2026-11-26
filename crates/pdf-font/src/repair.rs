@@ -75,6 +75,11 @@ classes! {
     CFF_FONT_DICTS_REWRITTEN = "font/cff-font-dicts-rewritten", "ISO 32000-2 §9.9",
         "a CID-keyed CFF program whose FDArray or Font DICTs could not be read was read with \
          rewritten Font DICTs, each unreadable one given an empty Private DICT";
+    /// A `Type1` font's OpenType program whose `CFF ` table does not read.
+    OPENTYPE_CFF_UNREADABLE = "font/opentype-cff-unreadable", "ISO 32000-2 §9.9.1",
+        "a Type 1 font's OpenType program whose CFF table could not be read for its glyph names \
+         was mapped through the program's cmap table, as a TrueType font's is, in place of the \
+         route of 9.6.5.2 that 9.9.1 gives it";
     /// An embedded program that does not read at all, drawn with a substitute face.
     PROGRAM_UNREADABLE = "font/program-unreadable", "ISO 32000-2 §9.9",
         "an embedded font program that could not be read was set aside and the font drawn with a \
@@ -117,10 +122,12 @@ classes! {
     ENCODING_NAME_STANDARD = "font/encoding-name-standard", "ISO 32000-2 §D.1",
         "an /Encoding or /BaseEncoding naming StandardEncoding was read as no base encoding, \
          the program's own standing in its place";
-    /// A font descriptor's `/FontWeight` or `/FontStretch` stated as no value Table 120 admits.
+    /// A font descriptor's `/FontWeight`, `/FontStretch` or `/Style` stated as no value Table 120
+    /// and Table 122 admit.
     DESCRIPTOR_STYLE_UNUSABLE = "font/descriptor-style-unusable", "ISO 32000-2 §9.8.1",
-        "a /FontWeight outside 1 to 1000 or a /FontStretch Table 120 does not name was read as \
-         absent where a substitute face was chosen";
+        "a /FontWeight outside 1 to 1000, a /FontStretch Table 120 does not name, or a /Style \
+         that is no dictionary or whose /Panose is no string of twelve bytes, was read as absent \
+         where a substitute face was chosen";
     /// An embedded `CMap`'s `/WMode` of another type, or neither 0 nor 1: the stream
     /// dictionary's entry, or the `/WMode` the `CMap` file itself defines.
     WMODE_UNUSABLE = "font/wmode-unusable", "ISO 32000-2 §9.7.5.3",

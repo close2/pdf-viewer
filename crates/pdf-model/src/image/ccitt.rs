@@ -198,6 +198,8 @@ pub(super) fn ccitt_bilevel(
     // image has, as `u32::MAX` does.
     let damaged_rows = match integer("DamagedRowsBeforeError", 0)? {
         rows if rows < 0 => return Err(refused("DamagedRowsBeforeError", "is negative")),
+        // not a repair: the stated tolerance is kept — past `u32::MAX` rows it tolerates every row
+        //   an image can have, as the number written does.
         rows => u32::try_from(rows).unwrap_or(u32::MAX),
     };
     // Table 11: the filter "shall distinguish among negative, zero, and positive values of K
