@@ -1,0 +1,89 @@
+[
+ {
+  "id": "2253-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "14.3.4",
+   "7.9.4",
+   "14.3.2"
+  ],
+  "summary": "A §7.9.4 date that states no zone is restated into the XMP packet as a time of day with no zone designator. xmp::spelled_date is pdf_syntax::Date's Display, which writes the offset only where the file stated one, so SetInformation's /ModDate D:20250102030405 is written beside xmp:ModifyDate 2025-01-02T03:04:05. Errata Collection 3's Issue #251 (approved) makes a missing offset +0'00, so the dictionary states 03:04:05 UTC and the packet states a local time of unknown zone: the two are not fully equivalent. The same function serves merge's /CreationDate and /ModDate (update::restated_packet) and the archive converter's moved and restated dates (prepare/metadata.rs). The value is also none of the XMP Specification's six profiles of ISO 8601, which ADR 1013 section 5 says this writer emits.",
+  "source": "ISO 32000-2 §14.3.4: \"When writing the time and date of creation for the first time, typically when a new document is created, a PDF processor shall ensure that the data in the document information dictionary and the document level metadata stream -if both are written -are fully equivalent.\" and \"When writing the time and date of the most recent modification, typically when an existing document has been modified, a PDF processor shall ensure that the data in the document information dictionary and the document level metadata stream -if both are written -are fully equivalent.\" §7.9.4 as amended by Errata Collection 3 Issue #251 (approved): \"If no UT information is specified, the missing timezone offset shall be assumed to be the same as Greenwich Mean Time's timezone offset (+0'00).\"",
+  "code": "crates/pdf-model/src/xmp.rs:1956-1970 (spelled_date and its doc); crates/pdf-syntax/src/date.rs:246-268 (Display writes no zone for offset None); crates/pdf-transform/src/update.rs:1512-1515 (restated_packet, used by update and merge); crates/pdf-transform/src/archive/prepare/metadata.rs:2629,2664",
+  "change": "Spell an unstated zone as Z (or +00:00) when a date is written into a packet; keep the viewer's display separate if it is to keep showing the absence. Correct spelled_date's doc, the 14.3.4 ledger note's sentence on the zone, and the unit test a_date_is_spelled_the_way_iso_16684_1_spells_one's D:2001 case.",
+  "execution": "Executed: crates/pdf-transform/tests/metadata_writers_14_3_14_5_spec_audit.rs::a_zoneless_modification_date_is_restated_at_utc_spec_audit fails (packet states \"2025-01-02T03:04:05\"); control a_zoned_modification_date_is_restated_as_the_same_instant passes. Merge and the converter by reading.",
+  "status": "open"
+ },
+ {
+  "id": "2253-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "14.3.3",
+   "14.5",
+   "7.5.5"
+  ],
+  "summary": "Four rewriting writers read the trailer's /Info only as an indirect reference (.and_then(Object::as_reference)), so a direct document information dictionary — valid since Issue #106 struck \"; shall be an indirect reference\" from Table 15 — is dropped from the output. optimize and redact carry the whole catalog, /PieceInfo included, so a source stating a catalog /PieceInfo and a direct /Info with /ModDate becomes a file with /PieceInfo and no /ModDate, which Table 349 makes required. The archive converter's the_information_dictionary returns early on a direct /Info, so the /ModDate ISO 19005-4 section 6.1.3 keeps beside a /PieceInfo (prepared.kept_modification_date, which prepare reads with get_key and so computes) is never written (by reading). split drops it too, without the /PieceInfo (a loss, not this finding).",
+  "source": "ISO 32000-2 §14.3.3, Table 349 /ModDate: \"( Required if PieceInfo is present in the document catalog dictionary; otherwise optional; PDF 1.1 )\". §7.5.5 Table 15 /Info as amended by Errata Collection 3 Issue #106 (approved): \"(Optional) ...\".",
+  "code": "crates/pdf-transform/src/optimize.rs:262-272; crates/pdf-transform/src/redact.rs:2841-2849; crates/pdf-transform/src/archive/rewrite.rs:2336-2344 (the_information_dictionary); crates/pdf-transform/src/archive/recovered.rs:362-366; crates/pdf-transform/src/split.rs:870-880",
+  "change": "Read /Info through Document::get_key in every writer and carry a direct dictionary (as a new indirect object, or direct); one helper for the five sites.",
+  "execution": "Executed: crates/pdf-transform/tests/metadata_writers_14_3_14_5_spec_audit.rs::a_direct_information_dictionary_crosses_beside_piece_info_spec_audit fails (no /ModDate in the optimised file, /PieceInfo carried); control an_indirect_information_dictionary_crosses_beside_piece_info passes. redact, split and the converter by reading.",
+  "status": "open"
+ },
+ {
+  "id": "2253-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "14.5",
+   "7.7.3.3"
+  ],
+  "summary": "Redaction rewrites a page's contents and carries every other page entry unchanged, /PieceInfo and /LastModified included (redact.rs build_page copies all keys but /Contents, /Annots and /Resources). The written page states a /LastModified before its last modification, and a data dictionary whose LastModified equals it is, under §14.5's equality comparison, declared to correspond to the current content — here private data that holds the redacted text. The catalog's /PieceInfo and the information dictionary's /ModDate cross the same way (by reading), and so would a form XObject's (Table 93). The program has no clock to write a new date with, so the remedy is to stop asserting the old one.",
+  "source": "ISO 32000-2 §14.5, Table 351 LastModified: \"( Required ) The date and time when the contents of the document, page, or form were most recently modified by this PDF processor.\" and \"their modification dates can be compared with those in the corresponding entry of the page object or form dictionary ... to ascertain whether the data dictionary corresponds to the current content of the document, page or form\". Table 31 /LastModified: \"( Required if PieceInfo is present; optional otherwise; PDF 1.3 ) The date and time when the page's contents were most recently modified.\"",
+  "code": "crates/pdf-transform/src/redact.rs:3036-3050 (build_page); crates/pdf-transform/src/redact.rs:2841-2849 (/Info carried with the catalog's /PieceInfo)",
+  "change": "On a page (form, document) whose content the redaction changed, drop /PieceInfo and then /LastModified, reported as a loss; or decline by name. Decide with §12.5.6.23's removal rule (A834) — the private data is a copy of what was removed.",
+  "execution": "Executed: crates/pdf-transform/tests/metadata_writers_14_3_14_5_spec_audit.rs::a_redacted_page_does_not_call_its_private_data_current_spec_audit fails (data dictionary Editor still current); control the_redaction_removes_the_text_it_covers passes.",
+  "status": "open"
+ },
+ {
+  "id": "2253-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "14.3.2",
+   "7.6.4.2",
+   "14.3.1"
+  ],
+  "summary": "SetInformation on an encrypted PDF 2.0 file under /EncryptMetadata false creates the document-level packet §14.3.1 sends the title to and names it from a rewritten catalog, but the incremental writer encrypts it as an ordinary stream: Document::stream_filter's exemption asks is_document_metadata(id) of the source's catalog, which names no packet. The file states its metadata is in the clear and holds ciphertext there; this tree's own reader finds no title.",
+  "source": "ISO 32000-2 §7.6.4.2 Table 21 /EncryptMetadata: \"( Optional; meaningful only when the value of V is 4 (PDF 1.5) or 5 (PDF 2.0) ) Indicates whether the document-level metadata stream (see 14.3.2, \"Metadata streams\") shall be encrypted. Default value: true .\"",
+  "code": "crates/pdf-syntax/src/document/encryption.rs:507-513, 567-576 (is_document_metadata reads the document's catalog); crates/pdf-transform/src/update.rs:1330-1385 (restate_metadata creates the packet and rewrites the catalog)",
+  "change": "Let the incremental writer decide the exemption against the catalog being written (or let the caller mark the object), so a packet created or moved by an update is written in the clear under /EncryptMetadata false.",
+  "execution": "Executed: crates/pdf-transform/tests/metadata_writers_14_3_14_5_spec_audit.rs::a_created_packet_honours_encrypt_metadata_false_spec_audit fails (no title read back); control a_created_packet_reads_back_when_metadata_is_encrypted passes.",
+  "status": "open"
+ },
+ {
+  "id": "2253-D01",
+  "kind": "documentation-gap",
+  "clauses": [
+   "7.5.5",
+   "14.3.3"
+  ],
+  "summary": "SetInformation's comment and the warning it gives a person quote Table 15's /Info as \"( Optional; shall be an indirect reference )\" and say the document \"has broken that shall\"; Issue #106 (approved) struck the words, so the warning tells the operator a valid file is invalid. Writing the dictionary as an indirect object stays a fine choice; the reason and the warning change.",
+  "source": "Errata Collection 3 Issue #106 on §7.5.5 Table 15 (doc/errata/site/docs/32000-2-2020/clause07.md, the /Info row).",
+  "code": "crates/pdf-transform/src/update.rs:1176-1199",
+  "change": "Drop the warning or restate it as a note on the choice, without quoting the struck words.",
+  "execution": "Read, not executed.",
+  "status": "open"
+ },
+ {
+  "id": "2253-D02",
+  "kind": "documentation-gap",
+  "clauses": [
+   "14.3.4",
+   "7.9.4"
+  ],
+  "summary": "The 14.3.4 ledger note says a date with no O HH'mm \"becomes a date stating no zone rather than one claiming UT\", spelled_date's doc says an absent zone \"is a producer saying nothing rather than saying UT\", and ADR 1013 section 5 says the packet writer emits the XMP Specification's profiles; Issue #251 contradicts the first two and the writer contradicts the third. Left for B01's fix round.",
+  "source": "§7.9.4 as amended by Issue #251 (quoted under 2253-B01).",
+  "code": "doc/conformance/ledger.toml (14.3.4 note); crates/pdf-model/src/xmp.rs:1956-1966; crates/pdf-syntax/src/date.rs:247-252",
+  "change": "Rewrite with B01's fix.",
+  "execution": "Read, not executed.",
+  "status": "open"
+ }
+]
