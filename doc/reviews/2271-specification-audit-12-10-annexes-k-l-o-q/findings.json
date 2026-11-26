@@ -1,0 +1,87 @@
+[
+ {
+  "id": "2271-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "Q.5",
+   "8.4.5",
+   "9.3.1"
+  ],
+  "summary": "pdf-archive's survey never gives Q.5 a Type 3 font that a graphics state's /Font selected. Walk::show returns right after select_stated where state.font_set_by_gs is set, before the call to type3 that the Tf route makes, so the glyph procedures of a Type 3 font selected by `gs` are not processed. A glyph procedure painting under ca 0.5 leaves the page reported opaque, and the two PDF/A blending-space rows (ISO 19005-2 6.2.10, ISO 19005-4 6.2.9) pass a page that contains transparency.",
+  "source": "ISO 32000-2 Annex Q.5 (Errata Collection 3, Issue #295): \"For any graphical element that represents text drawing, its text state shall be checked to determine the type of font being used for rendering. If the Subtype of the font dictionary is Type3, then each object in its CharProc array shall be processed as if it was a form XObject according to Q.3, \\\"Form XObjects\\\".\" §8.4.5 Table 57's /Font makes the array's font the one used, as Tf's operands would (ADR 3411).",
+  "code": "crates/pdf-archive/src/survey/fonts.rs:20-33 (show's font_set_by_gs branch returns before type3), :260 (type3)",
+  "change": "In the font_set_by_gs branch, call self.type3(font, state, context) as the Tf branch does (and note_type3_glyphs where the font is indirect).",
+  "execution": "crates/pdf-archive/tests/annex_q_routes_spec_audit.rs::a_type3_font_a_graphics_state_selects_has_its_glyphs_processed_spec_audit fails on main at the gs assertion; the Tf control passes.",
+  "status": "open"
+ },
+ {
+  "id": "2271-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "Q.3",
+   "Q.2",
+   "11.6.5.1"
+  ],
+  "summary": "A form XObject that a soft mask's group draws is never walked for the page when the page draws it too. graphics_state.rs's soft_mask walks the mask's /G with form(), which marks every (page, object) it opens in Walk::visited, then removes the page from `transparent` (ADR 2994: the group is not rendered on the page). The visited marks stay, so the page's own later Do of the same form returns at nested's visited check and the form's content is never processed under Q.2. A page whose only transparency is the ca 0.5 fill inside that form is reported opaque.",
+  "source": "ISO 32000-2 Annex Q.3: \"In addition, the content stream of the form XObject shall be processed according to Q.2, \\\"Page content\\\".\" Q.2: \"For each graphical element to be rendered on the page, the graphic state shall be checked for any of the following conditions being present. If they are, then the element is considered involved in transparency and therefore the page contains transparency.\"",
+  "code": "crates/pdf-archive/src/survey/graphics_state.rs:69-89 (soft_mask: walk, then take back `transparent` only); crates/pdf-archive/src/survey/xobjects.rs:139-151 (nested's (page, id) visited check)",
+  "change": "Take back the visited entries the mask walk added along with the transparency it found (snapshot and restore), or key visited by the route as well, so a stream reached as page content is opened for the page whatever a mask's walk opened first.",
+  "execution": "crates/pdf-archive/tests/annex_q_routes_spec_audit.rs::a_form_a_soft_mask_group_also_draws_is_still_processed_for_the_page_spec_audit fails on main at its last assertion; both controls pass (the page alone, and a mask group drawing a copy of the form, which isolates the visited set as the cause).",
+  "status": "open"
+ },
+ {
+  "id": "2271-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "Q.2",
+   "8.7.3.1"
+  ],
+  "summary": "A tiling pattern's cell is judged under the graphics state in force where scn selected the pattern, not the state §8.7.3.1 installs for it. patterns.rs clones the scn's state into the cell walk, so a ca 0.5 set before scn and restored to 1 before the fill is inherited by the cell's elements, and a page whose fill (ca 1) and cell (the parent stream's initial state) are both opaque is reported transparent. The validator's blending-space rows then fail a page that needs none, and the converter writes a page group to answer them.",
+  "source": "ISO 32000-2 §8.7.3.1, the steps to obtain the pattern cell: \"b) Installs the graphics state that was in effect at the beginning of the pattern's parent content stream, with the current transformation matrix altered by the pattern matrix as described in 8.7.2\". Annex Q.2: \"If an element's graphic state sets a colourspace that is a Type 1 Pattern, then the Pattern resource shall be treated as a form XObject and processed according to Q.3\", and Q.2's test is of each element's own graphic state.",
+  "code": "crates/pdf-archive/src/survey/patterns.rs:9-50 (pattern: cell = state.clone() at scn)",
+  "change": "Walk the cell from the transparency state at the start of its parent content stream (the page's initial state, or the invoking form's state at its Do), keeping the colour-space fields the cell already resets; the element painted with the pattern is still judged at its own operator.",
+  "execution": "crates/pdf-archive/tests/annex_q_routes_spec_audit.rs::a_pattern_cell_is_judged_in_its_own_graphics_state_spec_audit fails on main at its last assertion; the opaque control and the ca 0.5 fill control pass.",
+  "status": "open"
+ },
+ {
+  "id": "2271-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "K.2",
+   "12.5.6.23"
+  ],
+  "summary": "A redaction leaves the redacted field's value in the document's XFA packet. redact removes the widget in the region and its field's /V, /RV and /DV (redact/traces.rs, ADR 3725) and carries the interactive form dictionary's /XFA unchanged, so the datasets packet still holds the value: the output's XFA states a value no /V agrees with, and the redacted text is in a stream any reader decodes.",
+  "source": "ISO 32000-2 Annex K: \"The other entries in the interactive form dictionary shall be consistent with the information in the XFA resource. When creating or modifying a PDF file with an XFA resource, a PDF writer shall follow these rules: PDF interactive form field objects shall be present for each field specified in the XFA resource. The XFA field values shall be consistent with the corresponding V entries of the PDF field objects.\" §12.5.6.23: the processor applying a redaction \"shall remove all traces of the specified content\" (A834: physically).",
+  "code": "crates/pdf-transform/src/redact/traces.rs:15 and :185 (a removed widget's field loses its value entries); no reference to /XFA anywhere under crates/pdf-transform/src/redact*",
+  "change": "Where a redaction removes a field's value, remove that field's data node from the datasets packet through pdf_model::xfa's datasets writer (K.2 kept), or remove /XFA whole and name it in a warning as the archive converter's XfaRemoved does; a question to the owner if the fix round is not to choose. Add an /XFA place to redaction_leaves_no_trace's fixture.",
+  "execution": "crates/pdf-transform/tests/annex_k_xfa_spec_audit.rs::a_redacted_fields_xfa_value_does_not_survive_spec_audit fails on main: the value is found only in the decoded /XFA stream (object 5 of the output), /Fields still holding the field; the control finds it in the source's XFA stream.",
+  "status": "open"
+ },
+ {
+  "id": "2271-D01",
+  "kind": "documentation",
+  "clauses": [
+   "12.10.3",
+   "12.10.4"
+  ],
+  "summary": "The 12.10.3 ledger row is implemented while a coordinate system named by /EPSG alone, one of the two forms the clause permits, is refused by its code because no registry is carried. The refusal rests on a corpus census (ADR 1586: no document names a system by code alone), which the owner's A865 says is not what counts. The status vocabulary makes a refused-and-reported requirement partial, or departed where a decision is recorded with its cost.",
+  "source": "ISO 32000-2 §12.10.3 (Errata Collection 3, Issue #321): the geographic coordinate system \"shall be described in any of two well-established standards: as a numeric EPSG reference code, or as a Well Known Text (WKT) string\"; Table 270's /EPSG \"An EPSG reference code specifying the geographic coordinate system\".",
+  "code": "doc/conformance/ledger.toml rows 12.10.3 and 12.10.4; crates/pdf-model/src/geospatial/system.rs (the refusal); doc/adr/1586",
+  "change": "Re-argue the status: either carry the EPSG parameters of the methods geospatial/projection.rs already evaluates (a question to the owner, a registry being data at startup), or record the refusal as a departure with its cost and set the row departed/partial.",
+  "execution": "read only",
+  "status": "open"
+ },
+ {
+  "id": "2271-D02",
+  "kind": "documentation",
+  "clauses": [
+   "12.10.2"
+  ],
+  "summary": "The 12.10.2 row lists /PDU among 'Table 269 entire'. The preferred display units are read (measurement.rs display_units), carried as Geographic::units and across the confined protocol, and applied to no display: viewer-host's geospatial_sentence writes positions in degrees or the system's own grid unit whatever /PDU states. Table 269 states no shall on them, so this is a choice to write down, not a gap.",
+  "source": "ISO 32000-2 §12.10.2: \"It may also contain a choice of default units (the PDU entry) for user displays of positions, distances and areas.\" Table 269 /PDU: \"(Optional; PDF 2.0) Preferred Display Units. An array of three names that identify in order a linear display unit, an area display unit, and an angular display unit.\"",
+  "code": "crates/pdf-model/src/measurement.rs:634 and :1514; crates/viewer-confined/src/protocol/measurement.rs:26; crates/viewer-host/src/measuring.rs:200 (geospatial_sentence uses no units)",
+  "change": "Say in the row that /PDU is read and carried and not applied, as a choice; or apply its angular unit to the degrees the sentence writes.",
+  "execution": "read only",
+  "status": "open"
+ }
+]

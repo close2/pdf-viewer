@@ -1,0 +1,30 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2271 on main cdbea7234",
+ "failures": [
+  {
+   "binary": "pdf-archive::annex_q_routes_spec_audit",
+   "test": "a_type3_font_a_graphics_state_selects_has_its_glyphs_processed_spec_audit",
+   "finding": "2271-B01",
+   "log": "round-2271 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::annex_q_routes_spec_audit",
+   "test": "a_form_a_soft_mask_group_also_draws_is_still_processed_for_the_page_spec_audit",
+   "finding": "2271-B02",
+   "log": "round-2271 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::annex_q_routes_spec_audit",
+   "test": "a_pattern_cell_is_judged_in_its_own_graphics_state_spec_audit",
+   "finding": "2271-B03",
+   "log": "round-2271 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-transform::annex_k_xfa_spec_audit",
+   "test": "a_redacted_fields_xfa_value_does_not_survive_spec_audit",
+   "finding": "2271-B04",
+   "log": "round-2271 nextest of pdf-transform"
+  }
+ ]
+}
