@@ -183,7 +183,7 @@ impl ViewState {
         };
         let on_the_page = || {
             let stated = document.get(page);
-            let annots = document.get_key(stated.as_dict()?, "Annots");
+            let annots = crate::annotation::page_annots(document, stated.as_dict()?);
             annots.as_array()?.iter().find_map(|entry| {
                 let id = entry.as_reference()?;
                 document
@@ -575,7 +575,7 @@ impl ViewState {
         }
         // The file's own, and the **last** covering the point for §12.5.2's reason again: within
         // one `/Annots` array the entry drawn last is the entry on top.
-        let annotations = document.get_key(&page.dict, "Annots");
+        let annotations = crate::annotation::page_annots(document, &page.dict);
         let annotations = annotations.as_array()?;
         let mut found = None;
         for entry in annotations {

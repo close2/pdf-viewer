@@ -1444,6 +1444,20 @@ pub struct PointData {
     pub points: Vec<Vec<Object>>,
 }
 
+/// Table 272's `/Names` or `/XPTS`, each "(Required; PDF 2.0)" an array: one absent or of
+/// another type is read as the empty array, and logged.
+fn required_array(document: &Document, dict: &Dictionary, key: &str) -> Vec<Object> {
+    if let Object::Array(items) = document.get_key(dict, key) {
+        return items;
+    }
+    // The site is the whole file: a measure dictionary is read without its object.
+    document.record_repair(
+        &crate::repair::MEASUREMENT_ENTRY_UNUSABLE,
+        pdf_syntax::Site::WholeFile,
+    );
+    Vec::new()
+}
+
 /// Records what reading a `/WKT` string reads past (`geospatial::system::from_wkt_noting`, ADR
 /// 3621), where the dictionary is read; the system itself is read again where it is asked for.
 ///
@@ -1572,10 +1586,7 @@ pub fn point_data(document: &Document, viewport: &Dictionary) -> Vec<PointData> 
     dictionaries
         .iter()
         .map(|dict| PointData {
-            names: document
-                .get_key(dict, "Names")
-                .as_array()
-                .unwrap_or_default()
+            names: required_array(document, dict, "Names")
                 .iter()
                 .filter_map(|entry| {
                     document
@@ -1584,10 +1595,7 @@ pub fn point_data(document: &Document, viewport: &Dictionary) -> Vec<PointData> 
                         .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
                 })
                 .collect(),
-            points: document
-                .get_key(dict, "XPTS")
-                .as_array()
-                .unwrap_or_default()
+            points: required_array(document, dict, "XPTS")
                 .iter()
                 .take(MAX_POINTS)
                 .filter_map(|entry| {
@@ -1821,15 +1829,25 @@ fn number_format(document: &Document, dict: &Dictionary) -> Option<NumberFormat>
         unit,
         conversion,
         fraction,
-        denominator: document
-            .get_key(dict, "D")
-            .as_integer()
-            .and_then(|value| u32::try_from(value).ok())
-            .filter(|value| *value > 0)
-            .unwrap_or(match fraction {
+        denominator: {
+            // Table 268 types `/D` a positive integer and gives an absent one its defaults, 100
+            // and 16; a stated value that is no positive integer is read as absent, and logged.
+            let stated = document.get_key(dict, "D");
+            let read = stated
+                .as_integer()
+                .and_then(|value| u32::try_from(value).ok())
+                .filter(|value| *value > 0);
+            if read.is_none() && !matches!(stated, Object::Null) {
+                document.record_repair(
+                    &crate::repair::MEASUREMENT_ENTRY_UNUSABLE,
+                    pdf_syntax::Site::WholeFile,
+                );
+            }
+            read.unwrap_or(match fraction {
                 Fraction::Fractional => 16,
                 _ => 100,
-            }),
+            })
+        },
         keep_denominator: matches!(document.get_key(dict, "FD"), Object::Boolean(true)),
         thousands: text("RT", ","),
         decimal_point,

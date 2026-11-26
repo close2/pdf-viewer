@@ -1147,7 +1147,7 @@ pub(super) fn widgets_at(
     x: f32,
     y: f32,
 ) -> Vec<ObjectId> {
-    let annotations = document.get_key(&page.dict, "Annots");
+    let annotations = crate::annotation::page_annots(document, &page.dict);
     let Some(annotations) = annotations.as_array() else {
         return Vec::new();
     };

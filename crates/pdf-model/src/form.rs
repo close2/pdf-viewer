@@ -450,7 +450,7 @@ pub fn delegated_widgets(
 /// changed while a person moved the mouse. The flags a host needs are the field's, and Table 227's
 /// `ReadOnly` is the one that says a control may not be typed into.
 fn widgets_on(document: &Document, page: &Page) -> Vec<ObjectId> {
-    let annotations = document.get_key(&page.dict, "Annots");
+    let annotations = crate::annotation::page_annots(document, &page.dict);
     let Some(annotations) = annotations.as_array() else {
         return Vec::new();
     };

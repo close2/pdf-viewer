@@ -194,11 +194,19 @@ pub static MAPPING: &[Mapped] = &[
     base("model/catalog-display-entry-unusable"),
     base("model/viewer-preference-unusable"),
     base("model/action-entry-unusable"),
+    // A page's `/Annots` that is no array: a page entry, left as ADR 3543 leaves the others to the
+    // rewrites that restate a page and to the output's own check (ADR 3750).
+    base("model/page-annots-not-an-array"),
     base("model/annotation-entry-unusable"),
     base("model/field-entry-unusable"),
     // A group's required `/Name` absent, outside content: the whole-file rewrite carries the group
     // as the file states it, and the output's own check refuses by the class's name (ADR 3669).
     base("model/optional-content-group-name-unusable"),
+    // A configuration or usage dictionary of the wrong type, outside content: answered as the
+    // group's `/Name` is, the rewrite carrying the entry as stated and the output's own check
+    // refusing by the class's name (ADR 3749).
+    base("model/optional-content-entry-unusable"),
+    base("model/file-specification-entry-unusable"),
     base("model/alpha-constant-out-of-range"),
     base("model/halftone-unreadable"),
     // A `/BM` name outside Tables 134 and 135, logged at the content site as the alpha constants
@@ -217,9 +225,15 @@ pub static MAPPING: &[Mapped] = &[
     base("model/rich-text-malformed"),
     base("model/rich-text-attribute-unusable"),
     base("model/xfa-template-attribute-unusable"),
+    // A packet's undefined reference: the conversion keeps a producer's packet but for the
+    // schemas it rewrites, so a reference elsewhere crosses as written and the output's own check
+    // refuses by the class's name (ADR 3752).
+    base("model/xmp-reference-undefined"),
+    base("model/measurement-entry-unusable"),
     base("model/wkt-name-absent"),
     base("model/wkt-identifier-unusable"),
     base("model/wkt-auxiliary-sphere-type-absent"),
+    base("model/wkt-false-origin-absent"),
     // The embedded program (ADR 3565, ADR 3569). Section 5.1, and section 6.2.11.4.1's row for a
     // font a content stream renders: the program the file embeds is not the one the window drew,
     // and the converter answers the row by writing the program as this reader read it

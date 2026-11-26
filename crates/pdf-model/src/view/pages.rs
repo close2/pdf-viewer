@@ -578,7 +578,7 @@ fn layered_page(
         let key = format!("T{index}");
         forms.insert(name(key.as_bytes()), stream(form, content));
         painting.extend_from_slice(format!("q /{key} Do Q\n").as_bytes());
-        if let Some(listed) = document.get_key(dict, "Annots").as_array() {
+        if let Some(listed) = crate::annotation::page_annots(document, dict).as_array() {
             annotations.extend(listed.iter().cloned());
         }
         if first.is_none() {
@@ -694,7 +694,7 @@ fn carried_page(
 fn annotation_count(document: &Document, page: ObjectId) -> Option<usize> {
     let object = document.get(page);
     let dict = object.as_dict()?;
-    let annots = document.get_key(dict, "Annots");
+    let annots = crate::annotation::page_annots(document, dict);
     let count = annots.as_array()?.len();
     (count > 0).then_some(count)
 }

@@ -237,7 +237,7 @@ struct Reply {
 /// replies as it has review comments — and the order the page listed them in is what makes two
 /// states set at the same depth deterministic.
 fn replies(document: &Document, page: &Page) -> Vec<Reply> {
-    let annotations = document.get_key(&page.dict, "Annots");
+    let annotations = crate::annotation::page_annots(document, &page.dict);
     let Some(annotations) = annotations.as_array() else {
         return Vec::new();
     };

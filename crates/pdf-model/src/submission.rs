@@ -1646,7 +1646,7 @@ fn annotations(document: &Document, view: &ViewState, owed: &mut Vec<String>) ->
         if let Some(id) = page.id {
             ordinals.insert(id, ordinal);
         }
-        let listed = document.get_key(&page.dict, "Annots");
+        let listed = crate::annotation::page_annots(document, &page.dict);
         let Some(items) = listed.as_array() else {
             continue;
         };

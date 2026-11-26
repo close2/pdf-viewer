@@ -720,10 +720,13 @@ impl Call {
         let example = match self.function {
             Function::NumberKeystroke | Function::PercentKeystroke => "1234.5".to_owned(),
             Function::DateKeystroke | Function::DateKeystrokeEx => {
+                // not a repair: a picture this library cannot serve gives no example; nothing is
+                //   substituted for it.
                 let picture = picture(&arguments, &date::DATE_PICTURES, self.function).ok()?;
                 print_date(&picture, &EXAMPLE_MOMENT).ok()?
             }
             Function::TimeKeystroke | Function::TimeKeystrokeEx => {
+                // not a repair: as for a date picture, a picture not served gives no example.
                 let picture = picture(&arguments, &date::TIME_PICTURES, self.function).ok()?;
                 print_date(&picture, &EXAMPLE_MOMENT).ok()?
             }
@@ -800,6 +803,8 @@ impl Call {
         let mut numbers = Vec::new();
         for field in arguments.names(1) {
             for text in values(&field) {
+                // not a repair: a field's value is a person's text, not an entry of the file, and
+                //   ADR 1578 section 5 reads one stating no number as zero, the documented choice.
                 numbers.push(make_number(&text).unwrap_or(0.0));
             }
         }

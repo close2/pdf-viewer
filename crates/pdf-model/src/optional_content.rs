@@ -275,6 +275,9 @@ impl OptionalContent {
     /// nothing here has to guess.
     #[must_use]
     pub fn read(document: &Document) -> Option<Self> {
+        // not a repair: an unreadable catalog declines (None), the answer for a document with no
+        // `/OCProperties`; nothing is read in its place, and the catalog's own failure is
+        // recorded where the page tree reads it (CATALOG_UNREADABLE).
         let catalog = document.catalog().ok()?;
         let properties = document.get_key(&catalog, "OCProperties");
         let properties = properties.as_dict()?;
@@ -284,8 +287,17 @@ impl OptionalContent {
             .as_array()
             .map_or_default(|array| array.iter().filter_map(reference).collect());
 
+        // Table 98 makes `/D` required: "The default viewing optional content configuration
+        // dictionary". Without one every Table 99 entry takes its default — every group on — and
+        // that reading is logged.
         let configuration = document.get_key(properties, "D");
-        let configuration = configuration.as_dict().cloned().unwrap_or_default();
+        let configuration = configuration.as_dict().cloned().unwrap_or_else(|| {
+            document.record_repair(
+                &crate::repair::OPTIONAL_CONTENT_ENTRY_UNUSABLE,
+                pdf_syntax::Site::WholeFile,
+            );
+            Dictionary::new()
+        });
 
         // §8.11.4.5 a) and b): the base state reaches every group, and then the array
         // opposite to it adjusts the groups it names. Table 99 states the more general rule
@@ -876,7 +888,7 @@ pub fn groups_referenced_by(document: &Document, page: &crate::page::Page) -> BT
     for resources in walk {
         gather_from_resources(document, &resources, &mut found);
     }
-    let annotations = document.get_key(&page.dict, "Annots");
+    let annotations = crate::annotation::page_annots(document, &page.dict);
     if let Some(annotations) = annotations.as_array() {
         for annotation in annotations {
             let resolved = document.resolve(annotation);
@@ -1414,7 +1426,7 @@ fn usage_applications(
             .filter_map(|group| {
                 let dictionary = document.get(group);
                 let dictionary = dictionary.as_dict()?;
-                Some((group, usage_of(document, dictionary)))
+                Some((group, usage_of(document, group, dictionary)))
             })
             .collect();
         read.push(UsageApplication {
@@ -1427,12 +1439,26 @@ fn usage_applications(
 }
 
 /// Resolves one group's Table 100 `/Usage` dictionary.
-fn usage_of(document: &Document, group: &Dictionary) -> Usage {
-    let usage = document.get_key(group, "Usage");
-    let usage = usage.as_dict().cloned().unwrap_or_default();
+///
+/// Table 96 types `/Usage` a dictionary and Table 100 types each of its entries one; an entry of
+/// another type is read as absent — Table 100's every entry is optional, so absent is a reading
+/// the table defines — and logged at the group, since the file stated something else.
+fn usage_of(document: &Document, id: ObjectId, group: &Dictionary) -> Usage {
+    let dictionary = |value: Object| {
+        if let Some(dict) = value.as_dict() {
+            return dict.clone();
+        }
+        if !matches!(value, Object::Null) {
+            document.record_repair(
+                &crate::repair::OPTIONAL_CONTENT_ENTRY_UNUSABLE,
+                pdf_syntax::Site::Object(id),
+            );
+        }
+        Dictionary::new()
+    };
+    let usage = dictionary(document.get_key(group, "Usage"));
     let state = |key: &str, entry: &str| {
-        let dict = document.get_key(&usage, key);
-        let dict = dict.as_dict().cloned().unwrap_or_default();
+        let dict = dictionary(document.get_key(&usage, key));
         document
             .get_key(&dict, entry)
             .as_name()

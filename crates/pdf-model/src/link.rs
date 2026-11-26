@@ -77,7 +77,7 @@ impl Link {
 /// document's own order stands, and [`at`] takes the last match, which is the one drawn on top.
 #[must_use]
 pub fn links(document: &Document, page: &Page) -> Vec<Link> {
-    let annotations = document.get_key(&page.dict, "Annots");
+    let annotations = crate::annotation::page_annots(document, &page.dict);
     let Some(annotations) = annotations.as_array() else {
         return Vec::new();
     };

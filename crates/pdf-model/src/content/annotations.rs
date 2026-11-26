@@ -26,7 +26,7 @@ impl Interpreter<'_> {
     /// runs any other form. The only reason it is a separate pass rather than a `Do` is
     /// that nothing in the content stream refers to it.
     pub(super) fn draw_annotations(&mut self, page: &Page, base: Transform) {
-        let annotations = self.document.get_key(&page.dict, "Annots");
+        let annotations = crate::annotation::page_annots(self.document, &page.dict);
         if let Some(entries) = annotations.as_array().map(<[Object]>::to_vec) {
             for entry in &entries {
                 let resolved = self.document.resolve(entry);
@@ -69,7 +69,7 @@ impl Interpreter<'_> {
     /// The annotations a *person* added are asked too, for `draw_annotations`' reason: an
     /// annotation this program constructed is not a second kind of annotation.
     pub(super) fn any_no_zoom(&self, page: &Page) -> bool {
-        let annotations = self.document.get_key(&page.dict, "Annots");
+        let annotations = crate::annotation::page_annots(self.document, &page.dict);
         let stated = annotations.as_array().is_some_and(|entries| {
             entries.iter().any(|entry| {
                 let resolved = self.document.resolve(entry);

@@ -315,7 +315,7 @@ pub fn annotation_at(
     x: f32,
     y: f32,
 ) -> Option<ObjectId> {
-    let annotations = document.get_key(&page.dict, "Annots");
+    let annotations = crate::annotation::page_annots(document, &page.dict);
     let annotations = annotations.as_array()?;
     let mut found = None;
     for annotation in annotations {
@@ -356,7 +356,7 @@ pub fn link_at(
     x: f32,
     y: f32,
 ) -> Option<crate::link::Link> {
-    let annotations = document.get_key(&page.dict, "Annots");
+    let annotations = crate::annotation::page_annots(document, &page.dict);
     let annotations = annotations.as_array()?;
     annotations.iter().rev().find_map(|annotation| {
         let id = annotation.as_reference();

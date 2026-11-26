@@ -232,7 +232,7 @@ fn markup_annotations(document: &Document) -> usize {
     (0..pages.len())
         .filter_map(|ordinal| pages.get(ordinal))
         .map(|page| {
-            let listed = document.get_key(&page.dict, "Annots");
+            let listed = crate::annotation::page_annots(document, &page.dict);
             listed.as_array().map_or(0, |items| {
                 items
                     .iter()

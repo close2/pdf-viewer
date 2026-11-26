@@ -2805,7 +2805,7 @@ pub fn annotation_rectangles(
     page: &Dictionary,
 ) -> BTreeMap<ObjectId, [f32; 4]> {
     let mut out = BTreeMap::new();
-    let entry = document.get_key(page, "Annots");
+    let entry = crate::annotation::page_annots(document, page);
     let Some(array) = entry.as_array() else {
         return out;
     };
@@ -2859,7 +2859,7 @@ pub fn annotation_rectangles(
 #[must_use]
 pub fn annotation_languages(document: &Document, page: &Dictionary) -> BTreeMap<ObjectId, String> {
     let mut out = BTreeMap::new();
-    let entry = document.get_key(page, "Annots");
+    let entry = crate::annotation::page_annots(document, page);
     let Some(array) = entry.as_array() else {
         return out;
     };

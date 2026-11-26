@@ -67,6 +67,7 @@ impl Label {
     /// paragraph.
     #[must_use]
     pub fn line_of(paragraph: &str, line: Range<usize>) -> Self {
+        // not a repair: a range the caller's layout gives, not a value a file states.
         let text = paragraph.get(line.clone()).unwrap_or_default();
         let offset = line.start;
         let characters: Vec<(usize, char)> = text.char_indices().collect();
@@ -85,6 +86,8 @@ impl Label {
         let levels: Vec<u8> = shaped
             .iter()
             .map(|item| {
+                // not a repair: `Paragraphs::new` is `None` exactly where every character resolves
+                // to level 0, so 0 is the level UAX #9 gives, not one in its place.
                 by_byte
                     .as_ref()
                     .and_then(|levels| levels.get(byte_of(item.source)).copied())
@@ -106,6 +109,8 @@ impl Label {
                 *slot = shown_at;
             }
             let start = byte_of(item.source);
+            // not a repair: a character joined to none ends where it does; an index of this
+            // reader's shaping, not a file's value.
             let end = end_of(item.joined_with.unwrap_or(item.source)).max(end_of(item.source));
             glyphs.push(Glyph {
                 character: displayed(
@@ -149,6 +154,7 @@ impl Label {
     #[must_use]
     pub fn boundary(&self, at: usize) -> usize {
         let count = self.glyphs.len();
+        // not a repair: an index of this reader's own order; one past it stands after the last.
         let shown = |logical: usize| self.position.get(logical).copied().unwrap_or(count);
         let reads_left = |shown_at: usize| {
             self.glyphs

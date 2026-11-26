@@ -37,7 +37,10 @@ use super::datum::{ARC_SECOND, DatumShift, Helmert};
 use super::ellipsoid::Ellipsoid;
 use super::projection::{Method, Parameters, Projection};
 use super::wkt::{self, Attribute, Node};
-use crate::repair::{WKT_AUXILIARY_SPHERE_TYPE_ABSENT, WKT_IDENTIFIER_UNUSABLE, WKT_NAME_ABSENT};
+use crate::repair::{
+    WKT_AUXILIARY_SPHERE_TYPE_ABSENT, WKT_FALSE_ORIGIN_ABSENT, WKT_IDENTIFIER_UNUSABLE,
+    WKT_NAME_ABSENT,
+};
 
 /// The repairs a reading made, for the caller that holds the document to record (ADR 3621).
 type Noted = Vec<&'static RepairClass>;
@@ -708,6 +711,13 @@ fn projected(node: &Node, noted: &mut Noted) -> Result<ProjectedSystem, Refusal>
         // 0, the one `resolve` admits.
         noted.push(&WKT_AUXILIARY_SPHERE_TYPE_ABSENT);
     }
+    // ISO 19162 section 9.3.4 leaves the required parameters to the method, and Guidance Note 7-2
+    // lists a false easting and a false northing (or the easting and northing at the false
+    // origin) among the parameters that define every method `resolve` admits. One stated without
+    // either is evaluated with a zero offset, `Projection::forward` and `inverse`'s reading.
+    if parameters.false_easting.is_none() || parameters.false_northing.is_none() {
+        noted.push(&WKT_FALSE_ORIGIN_ABSENT);
+    }
     let method = resolve(family, &method_name, &mut parameters, auxiliary_sphere)?;
     let ellipsoid = if family == Named::AuxiliarySphere {
         // ESRI's type 0 projects onto the sphere of the ellipsoid's semi-major axis, which is
@@ -1192,6 +1202,22 @@ mod tests {
             noted
                 .iter()
                 .any(|class| class.name == WKT_IDENTIFIER_UNUSABLE.name)
+        );
+    }
+
+    /// Guidance Note 7-2 lists a false easting and northing among every method's defining
+    /// parameters: a projection stating no false northing is evaluated with zero, and noted.
+    #[test]
+    fn a_projection_with_no_false_northing_is_noted() {
+        use crate::repair::WKT_FALSE_ORIGIN_ABSENT;
+        let short = UTM_32N.replace(r#",PARAMETER["false_northing",0]"#, "");
+        assert_ne!(short, UTM_32N, "the fixture names the parameter it drops");
+        let (read, noted) = from_wkt_noting(&short);
+        assert!(read.is_ok(), "the system is still read");
+        assert!(
+            noted
+                .iter()
+                .any(|class| class.name == WKT_FALSE_ORIGIN_ABSENT.name)
         );
     }
 

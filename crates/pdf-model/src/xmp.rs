@@ -318,11 +318,23 @@ impl Xmp {
     ///
     /// [`XmpError`] where the stream is present and could not be read, which is the case worth
     /// reporting: a document that carries metadata this program cannot parse should say so.
+    ///
+    /// A reference the packet's XML does not define is kept as written and logged, at the stream
+    /// (ADR 3752).
     pub fn read(document: &Document, dictionary: &Dictionary) -> Option<Result<Self, XmpError>> {
         let object = document.get_key(dictionary, "Metadata");
         let stream = object.as_stream()?;
         Some(match document.decoded_stream_data(stream) {
-            Some(bytes) => Self::parse(&bytes),
+            Some(bytes) => Self::parse_noting(&bytes).map(|(xmp, kept)| {
+                if kept {
+                    let at = dictionary
+                        .get("Metadata")
+                        .and_then(pdf_syntax::Object::as_reference)
+                        .map_or(pdf_syntax::Site::WholeFile, pdf_syntax::Site::Object);
+                    document.record_repair(&crate::repair::XMP_REFERENCE_UNDEFINED, at);
+                }
+                xmp
+            }),
             None => Err(XmpError::Undecodable),
         })
     }
@@ -346,11 +358,22 @@ impl Xmp {
     ///
     /// [`XmpError`] for a packet that is too large, is not text, is not well-formed XML, or
     /// exceeds one of this module's four budgets.
+    ///
+    /// A caller holding the document reads through [`Xmp::read`], which logs what this reads past.
     pub fn parse(bytes: &[u8]) -> Result<Self, XmpError> {
+        Self::parse_noting(bytes).map(|(xmp, _)| xmp)
+    }
+
+    /// [`Xmp::parse`], answering as well whether a reference was kept as written ([`unescape`]).
+    fn parse_noting(bytes: &[u8]) -> Result<(Self, bool), XmpError> {
         let text = text_of(bytes)?;
-        Ok(Self {
-            properties: Reader::new(false).run(&text)?.properties,
-        })
+        let read = Reader::new(false).run(&text)?;
+        Ok((
+            Self {
+                properties: read.properties,
+            },
+            read.references_kept.get(),
+        ))
     }
 
     /// Parses a packet's bytes, keeping the structure fields [`Value`] drops.
@@ -2759,6 +2782,9 @@ struct Reader {
     /// The prefixes used where no binding in scope declares them, for
     /// [`Xmp::undeclared_prefixes`], built by every walk for the reason [`Reader::strays`] is.
     undeclared: Vec<String>,
+    /// Whether a reference was kept as written, [`unescape_noting`]'s answer over the packet; a
+    /// cell, because [`Reader::classify`] reads an attribute through `&self`.
+    references_kept: std::cell::Cell<bool>,
 }
 
 impl Reader {
@@ -2773,6 +2799,7 @@ impl Reader {
             rdf_elements: 0,
             strays: Vec::new(),
             undeclared: Vec::new(),
+            references_kept: std::cell::Cell::new(false),
         }
     }
 
@@ -2850,7 +2877,9 @@ impl Reader {
                                 what: "value length",
                             });
                         }
-                        unescape(text.as_str(), &mut frame.text);
+                        if unescape_noting(text.as_str(), &mut frame.text) {
+                            self.references_kept.set(true);
+                        }
                     }
                 }
                 // A declaration, a processing instruction (`<?xpacket>` is one), a comment and
@@ -2959,7 +2988,7 @@ impl Reader {
                     local: local.clone(),
                 };
                 // An attribute value is no more unescaped than character content is.
-                let text = unescaped(value);
+                let text = self.unescaped(value);
                 if kind == Kind::Description {
                     let detail = self.detailed.then(|| Detail::Text(text.clone()));
                     self.record(stated, prefix.clone(), Value::Text(text), detail)?;
@@ -2993,6 +3022,15 @@ impl Reader {
             children: 0,
         });
         Ok(())
+    }
+
+    /// An attribute's value with its references expanded, noting one kept as written.
+    fn unescaped(&self, value: &str) -> String {
+        let mut text = String::with_capacity(value.len());
+        if unescape_noting(value, &mut text) {
+            self.references_kept.set(true);
+        }
+        text
     }
 
     /// What an element is, from its resolved name and what contains it.
@@ -3056,7 +3094,7 @@ impl Reader {
                     let language = attributes
                         .iter()
                         .find(|(prefix, local, _)| self.namespace(prefix) == XML && local == "lang")
-                        .map(|(_, _, value)| unescaped(value));
+                        .map(|(_, _, value)| self.unescaped(value));
                     Kind::Item {
                         language,
                         structured: self.resource(attributes) || self.attribute_form(attributes),
@@ -3358,21 +3396,32 @@ fn trimmed(text: &str) -> String {
     text.trim().to_owned()
 }
 
-/// Expands the entity references XML defines, appending to `out`.
+/// [`unescape_noting`] for a reader of another XML grammar — rich text, XFDF, XFA — which does
+/// not yet log what it reads past.
+pub(crate) fn unescape(text: &str, out: &mut String) {
+    let _kept = unescape_noting(text, out);
+}
+
+/// Expands the entity references XML defines, appending to `out`, and answers whether one was
+/// kept as written.
 ///
 /// Five predefined general entities and numeric character references, which is everything a
 /// packet may use: the tokenizer resolves nothing, and a *declared* entity is dropped with its
 /// declaration (see the module comment). An undefined reference is kept verbatim, because
 /// dropping it would silently delete text a producer wrote and erroring would refuse a whole
-/// packet over one ampersand.
-pub(crate) fn unescape(text: &str, out: &mut String) {
+/// packet over one ampersand. It is not XML: XML 1.0's well-formedness constraints Entity
+/// Declared and Legal Character each refuse it. So keeping it is a repair, and `true` is
+/// the answer that lets a reader holding the document log it
+/// (`model/xmp-reference-undefined`).
+pub(crate) fn unescape_noting(text: &str, out: &mut String) -> bool {
+    let mut kept = false;
     let mut rest = text;
     while let Some(at) = rest.find('&') {
         out.push_str(&rest[..at]);
         rest = &rest[at..];
         let Some(end) = rest.find(';') else {
             out.push_str(rest);
-            return;
+            return true;
         };
         let reference = &rest[1..end];
         match reference {
@@ -3381,25 +3430,25 @@ pub(crate) fn unescape(text: &str, out: &mut String) {
             "gt" => out.push('>'),
             "quot" => out.push('"'),
             "apos" => out.push('\''),
-            _ => match numeric(reference) {
-                Some(character) => out.push(character),
-                None => out.push_str(&rest[..=end]),
-            },
+            _ => {
+                if let Some(character) = numeric(reference) {
+                    out.push(character);
+                } else {
+                    kept = true;
+                    out.push_str(&rest[..=end]);
+                }
+            }
         }
         rest = &rest[end.saturating_add(1)..];
     }
     out.push_str(rest);
-}
-
-/// [`unescape`] into a fresh string, for the places a value arrives whole.
-fn unescaped(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    unescape(text, &mut out);
-    out
+    kept
 }
 
 /// `#x41` or `#65`, where it names a character.
 fn numeric(reference: &str) -> Option<char> {
+    // not a repair: a reference that names no character is `None`, which
+    // `unescape_noting` keeps as written and answers for (XMP_REFERENCE_UNDEFINED).
     let digits = reference.strip_prefix('#')?;
     let value = match digits.strip_prefix(['x', 'X']) {
         Some(hex) => u32::from_str_radix(hex, 16).ok()?,

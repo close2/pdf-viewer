@@ -311,6 +311,8 @@ impl Projection {
             Method::AlbersEqualArea => self.albers_forward(latitude, delta),
             Method::ObliqueStereographic => self.oblique_stereographic_forward(latitude, delta)?,
         };
+        // not a repair: this evaluates a reading logged where the string is read; an offset it
+        // does not state is `super::system`'s WKT_FALSE_ORIGIN_ABSENT.
         let easting = x + p.false_easting.unwrap_or(0.0);
         let northing = y + p.false_northing.unwrap_or(0.0);
         if easting.is_finite() && northing.is_finite() {
@@ -322,8 +324,8 @@ impl Projection {
 
     /// The latitude and longitude of an easting and a northing, in metres.
     ///
-    /// The false easting and northing default to zero where the system states neither: every
-    /// method's formulas subtract them, and an absent offset is no offset. Every other
+    /// The false easting and northing default to zero where the system states neither, a reading
+    /// `super::system` logs: every method's formulas subtract them. Every other
     /// parameter a method uses was required by [`Self::new`].
     ///
     /// # Errors
@@ -334,6 +336,7 @@ impl Projection {
     /// Pseudo-Mercator latitude poleward of 88°, section 3.2.1.2's limit in this direction too.
     pub fn inverse(&self, easting: f64, northing: f64) -> Result<LatLon, Refusal> {
         let p = &self.parameters;
+        // not a repair: this evaluates a reading logged where the string is read, as in `forward`.
         let x = easting - p.false_easting.unwrap_or(0.0);
         let y = northing - p.false_northing.unwrap_or(0.0);
         let answer = match self.method {

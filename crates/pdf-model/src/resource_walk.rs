@@ -117,7 +117,7 @@ impl<'a> ResourceWalk<'a> {
         let mut walk = Self::new(document, &page.resources);
         if annotations == Annotations::Appearances {
             let mut appearances = Vec::new();
-            if let Some(list) = document.get_key(&page.dict, "Annots").as_array() {
+            if let Some(list) = crate::annotation::page_annots(document, &page.dict).as_array() {
                 for annotation in list {
                     let annotation = document.resolve(annotation);
                     if let Some(annotation) = annotation.as_dict()

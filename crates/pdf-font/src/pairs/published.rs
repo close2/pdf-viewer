@@ -65,6 +65,8 @@ pub(crate) fn glyph(name: &str) -> Option<u16> {
         let start = usize::from(start);
         tables::NAME_TEXT.get(start..start.saturating_add(usize::from(length)))
     };
+    // not a repair: a lookup in tables this program compiles in, not a file's value; a name no
+    // pair names is `None`, and the table's indices fit the `u16` it was generated in.
     let at = tables::NAMES
         .binary_search_by(|entry| text(entry).unwrap_or_default().cmp(name.as_bytes()))
         .ok()?;
@@ -74,6 +76,7 @@ pub(crate) fn glyph(name: &str) -> Option<u16> {
 impl Published {
     /// The `KPX` amount between a left-hand and a right-hand glyph, in ems.
     pub(crate) fn amount(self, left: u16, right: u16) -> Option<f32> {
+        // not a repair: a search of compiled-in pairs; a pair the face does not publish is `None`.
         let at = self
             .pairs
             .binary_search_by(|&(first, second, _)| (first, second).cmp(&(left, right)))

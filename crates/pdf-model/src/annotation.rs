@@ -1609,6 +1609,33 @@ pub(crate) fn flags_as_stated(document: &Document, annotation: &Dictionary) -> i
     flags.unwrap_or_default()
 }
 
+/// A page's `/Annots`, resolved, as every reader of a page's annotations reads it (ADR 3750).
+///
+/// Table 31 types the entry an optional array of annotation dictionaries. A value of another
+/// type lists no annotation the reader can find: it is read as absent — [`Object::Null`] — and
+/// logged, once here rather than by each of the readers that would otherwise read past it in
+/// silence.
+#[must_use]
+pub(crate) fn page_annots(document: &Document, page: &Dictionary) -> Object {
+    let listed = document.get_key(page, "Annots");
+    if matches!(listed, Object::Array(_) | Object::Null) {
+        listed
+    } else {
+        page_annots_not_an_array(document);
+        Object::Null
+    }
+}
+
+/// Logs a page `/Annots` that is no array. The reader is handed the page's dictionary and not its
+/// object, so the repair is placed at the file.
+#[cold]
+fn page_annots_not_an_array(document: &Document) {
+    document.record_repair(
+        &crate::repair::PAGE_ANNOTS_NOT_AN_ARRAY,
+        pdf_syntax::Site::WholeFile,
+    );
+}
+
 /// Logs an annotation entry this reader read past. The reader is handed the annotation's
 /// dictionary and not its object, so the repair is placed at the file.
 #[cold]

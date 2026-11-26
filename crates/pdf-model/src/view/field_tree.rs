@@ -176,7 +176,7 @@ fn recover_omitted(
     out: &mut BTreeMap<String, Vec<ObjectId>>,
     seen: &mut BTreeSet<ObjectId>,
 ) {
-    let annotations = document.get_key(page, "Annots");
+    let annotations = crate::annotation::page_annots(document, page);
     for entry in annotations.as_array().into_iter().flatten() {
         let Some(widget) = entry.as_reference() else {
             continue;

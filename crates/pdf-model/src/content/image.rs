@@ -895,6 +895,8 @@ impl WalkAhead<'_, '_> {
                     }
                 }
                 Step::Save => saved.push(tone),
+                // not a repair: a look-ahead's copy of the state, which decides only which decodes
+                // start early; the interpreter reads the same `Q` and logs what it repairs.
                 Step::Restore => tone = saved.pop().unwrap_or(tone),
                 Step::Intent => {
                     if let Some(name) = &last {
@@ -959,6 +961,8 @@ impl WalkAhead<'_, '_> {
                     .get_key(&stream.dict, "Resources")
                     .as_dict()
                     .cloned()
+                    // not a repair: the look-ahead follows `Interpreter::draw_xobject`'s reading,
+                    // which draws and logs; nothing here is drawn.
                     .unwrap_or_else(|| self.page_resources.clone());
                 self.nested(stream, &inner, depth, tone);
             }
@@ -986,6 +990,7 @@ impl WalkAhead<'_, '_> {
         }
         // §8.7.3.3 gives a tiling pattern no fallback resource dictionary, and
         // `Interpreter::tile` reads it the same way.
+        // not a repair: the look-ahead reads the cell as `Interpreter::tile` does, and draws nothing.
         let inner = self
             .document
             .get_key(&stream.dict, "Resources")
@@ -1072,9 +1077,9 @@ fn offerable(document: &Document, stream: &pdf_syntax::Stream) -> Option<usize> 
     {
         return None;
     }
-    // not a repair: a size estimate of this reader's that decides a look-ahead, not a value it
-    // draws with.
     let dimension = |key| {
+        // not a repair: a size estimate of this reader's that decides a look-ahead, not a value
+        // it draws with.
         document
             .get_key(dict, key)
             .as_integer()

@@ -329,7 +329,7 @@ fn contains(quad: &[f32], transform: Transform, point: Point) -> bool {
 /// a file may repeat an entry.
 #[must_use]
 pub fn annotations(document: &Document, page: &Page) -> Vec<Dictionary> {
-    let list = document.get_key(&page.dict, "Annots");
+    let list = crate::annotation::page_annots(document, &page.dict);
     let Some(items) = list.as_array() else {
         return Vec::new();
     };

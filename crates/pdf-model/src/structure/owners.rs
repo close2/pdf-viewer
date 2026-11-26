@@ -126,7 +126,7 @@ impl Tree {
         // "For an object identified as a content item by means of an object reference …, the
         // value shall be an indirect reference to the parent structure element."
         let mut visited = BTreeSet::new();
-        if let Object::Array(annotations) = document.get_key(page, "Annots") {
+        if let Object::Array(annotations) = crate::annotation::page_annots(document, page) {
             for annotation in annotations.iter().take(MAX_CHILDREN) {
                 let resolved = document.resolve(annotation);
                 let Some(dict) = resolved.as_dict() else {
@@ -225,7 +225,7 @@ impl Tree {
     /// which that table makes "\[r]equired for all objects that are structural content items".
     fn unkeyed_widgets(document: &Document, page: &Dictionary) -> BTreeSet<ObjectId> {
         let mut out = BTreeSet::new();
-        let Object::Array(annotations) = document.get_key(page, "Annots") else {
+        let Object::Array(annotations) = crate::annotation::page_annots(document, page) else {
             return out;
         };
         for annotation in annotations.iter().take(MAX_CHILDREN) {

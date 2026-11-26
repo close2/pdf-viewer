@@ -483,3 +483,159 @@ fn a_type3_differences_array_with_a_name_before_a_code_is_logged() {
         Site::WholeFile,
     );
 }
+
+/// A dictionary written in PDF syntax, for a reader handed one directly.
+fn dictionary(text: &str) -> pdf_syntax::Dictionary {
+    pdf_syntax::Parser::new(text.as_bytes())
+        .parse_object()
+        .expect("the dictionary parses")
+        .as_dict()
+        .expect("a dictionary")
+        .clone()
+}
+
+/// Table 31 types a page's `/Annots` an array: one of another type lists no annotation, and is
+/// logged once by the one function every reader of the entry goes through (ADR 3750).
+#[test]
+fn a_page_annots_that_is_no_array_is_logged() {
+    has(
+        &page("", "/Annots 5"),
+        &repair::PAGE_ANNOTS_NOT_AN_ARRAY,
+        Site::WholeFile,
+    );
+    assert_eq!(logged(&page("", "/Annots []")), []);
+}
+
+/// ISO 32000-2 §8.9.7: `/L` "shall be present on all inline images". A stated length that is no
+/// non-negative integer is read past, even where §8.9.3's arithmetic then finds `EI` (ADR 3749).
+#[test]
+fn an_inline_image_length_that_is_no_length_is_logged_at_the_content() {
+    has(
+        &page("BI /W 1 /H 1 /BPC 8 /CS /G /L -1 ID x EI", ""),
+        &repair::INLINE_IMAGE_DATA_EXTENT,
+        Site::Content(Some(PAGE)),
+    );
+    assert_eq!(
+        logged(&page("BI /W 1 /H 1 /BPC 8 /CS /G /L 1 ID x EI", "")),
+        []
+    );
+}
+
+/// Table 98 makes `/D` required: an `/OCProperties` without a configuration dictionary is read
+/// with every group on, and logged (ADR 3749).
+#[test]
+fn an_optional_content_configuration_that_is_no_dictionary_is_logged() {
+    let document = catalog("/OCProperties << /OCGs [] /D 5 >>");
+    let _ = pdf_model::optional_content::OptionalContent::read(&document);
+    assert_eq!(
+        logged_alone(&document),
+        [(
+            repair::OPTIONAL_CONTENT_ENTRY_UNUSABLE.name,
+            Site::WholeFile
+        )]
+    );
+    let document = catalog("/OCProperties << /OCGs [] /D << >> >>");
+    let _ = pdf_model::optional_content::OptionalContent::read(&document);
+    assert_eq!(logged_alone(&document), []);
+}
+
+/// Table 272's `/Names` is "(Required; PDF 2.0)": a point data dictionary without it is read as
+/// naming no column, and logged (ADR 3749).
+#[test]
+fn a_point_data_dictionary_without_its_names_is_logged() {
+    let document = catalog("");
+    let _ = pdf_model::measurement::point_data(
+        &document,
+        &dictionary("<< /PtData << /Type /PtData /Subtype /Cloud /XPTS [[1 2]] >> >>"),
+    );
+    assert_eq!(
+        logged_alone(&document),
+        [(repair::MEASUREMENT_ENTRY_UNUSABLE.name, Site::WholeFile)]
+    );
+    let document = catalog("");
+    let _ = pdf_model::measurement::point_data(
+        &document,
+        &dictionary(
+            "<< /PtData << /Type /PtData /Subtype /Cloud /Names [/LAT /LON] /XPTS [[1 2]] >> >>",
+        ),
+    );
+    assert_eq!(logged_alone(&document), []);
+}
+
+/// A document holding one embedded file stream, object 3, whose dictionary carries `extra`.
+fn embedded(extra: &str) -> Document {
+    file(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [] /Count 0 >>".to_owned(),
+        format!("<< /Type /EmbeddedFile /Length 1 {extra} >>\nstream\nx\nendstream"),
+    ])
+}
+
+/// Table 43 makes `/F` "Required if the DOS, Mac, and Unix entries are all absent", and Table 44
+/// types `/Params` a dictionary: a specification naming no file is shown with the empty name,
+/// a `/Params` of another type is read as absent, and each is logged (ADR 3751).
+#[test]
+fn a_file_specification_naming_no_file_is_logged() {
+    let specification = |entries: &str| {
+        pdf_syntax::Object::Dictionary(dictionary(&format!(
+            "<< /Type /Filespec /EF << /F 3 0 R >> {entries} >>"
+        )))
+    };
+    let document = embedded("");
+    let read = pdf_model::attachment::associated_in_array(&document, &[specification("")]);
+    assert_eq!(read.len(), 1, "the file is still read");
+    assert_eq!(
+        logged_alone(&document),
+        [(
+            repair::FILE_SPECIFICATION_ENTRY_UNUSABLE.name,
+            Site::WholeFile
+        )]
+    );
+    let document = embedded("/Params 5");
+    let _ = pdf_model::attachment::associated_in_array(&document, &[specification("/UF (a)")]);
+    assert_eq!(
+        logged_alone(&document),
+        [(
+            repair::FILE_SPECIFICATION_ENTRY_UNUSABLE.name,
+            Site::WholeFile
+        )]
+    );
+    let document = embedded("/Params << /Size 1 >>");
+    let _ = pdf_model::attachment::associated_in_array(&document, &[specification("/F (a)")]);
+    assert_eq!(logged_alone(&document), []);
+}
+
+/// XML 1.0 defines five entities and character references to characters: a packet's reference
+/// to neither is kept as written, and logged at its metadata stream (ADR 3752).
+#[test]
+fn an_xmp_reference_xml_does_not_define_is_logged_at_the_stream() {
+    let metadata = |producer: &str| {
+        let packet = format!(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+             xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
+             rdf:about=\"\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\"><pdf:Producer>{producer}\
+             </pdf:Producer></rdf:Description></rdf:RDF></x:xmpmeta>"
+        );
+        file(&[
+            "<< /Type /Catalog /Pages 2 0 R /Metadata 3 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [] /Count 0 >>".to_owned(),
+            format!(
+                "<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{packet}\nendstream",
+                packet.len()
+            ),
+        ])
+    };
+    let document = metadata("a&#xZZ;b");
+    let read = pdf_model::xmp::Xmp::document(&document).expect("the catalog states a packet");
+    assert!(read.is_ok(), "the packet is still read: {read:?}");
+    assert_eq!(
+        logged_alone(&document),
+        [(
+            repair::XMP_REFERENCE_UNDEFINED.name,
+            Site::Object(ObjectId::new(3, 0))
+        )]
+    );
+    let document = metadata("a&amp;b&#x41;");
+    let _ = pdf_model::xmp::Xmp::document(&document);
+    assert_eq!(logged_alone(&document), []);
+}

@@ -230,8 +230,21 @@ pub fn scan(
         }
     }
 
+    // §8.9.7: `/L` "shall be present on all inline images". A value that is no non-negative
+    // integer states no length, so the extent is found without it — by §8.9.3's arithmetic, the
+    // first filter's own marker, or the search — and that reading past the file's word is the
+    // repair, whichever of the three then finds `EI`. An absent `/L` is the same requirement
+    // unmet, and stays unlogged here: it predates the requirement in every file that omits it.
+    let length = document.get_key(&dict, "Length");
+    let stated = length
+        .as_integer()
+        .and_then(|value| usize::try_from(value).ok());
+    if stated.is_none() && !matches!(length, Object::Null) {
+        note(&mut repairs, &crate::repair::INLINE_IMAGE_DATA_EXTENT);
+    }
+
     let mut unread_data = None;
-    let (end, resume) = match data_extent(document, &dict, content, start, complete) {
+    let (end, resume) = match data_extent(document, &dict, stated, content, start, complete) {
         Extent::At { end, resume } => (end, resume),
         Extent::Searched {
             end,
@@ -579,6 +592,7 @@ enum Extent {
 fn data_extent(
     document: &Document,
     dict: &Dictionary,
+    stated: Option<usize>,
     content: &[u8],
     start: usize,
     complete: bool,
@@ -594,15 +608,11 @@ fn data_extent(
     // Where the image's own decoding ends the data, where that end missed `EI`.
     let mut decoded_to = None;
 
-    // §8.9.7: `/L` "shall be present on all inline images" and is "the length of the data
-    // between the ID and EI operators excluding the white-space delimiting those operators".
-    // It is still checked against the `EI` it predicts rather than believed: a wrong length
-    // would swallow the rest of the page's content stream as image data, and a file old
-    // enough to have no `/L` at all is handled below anyway.
-    let stated = document
-        .get_key(dict, "Length")
-        .as_integer()
-        .and_then(|value| usize::try_from(value).ok());
+    // §8.9.7: `/L` (`stated`, read by the caller) is "the length of the data between the ID and
+    // EI operators excluding the white-space delimiting those operators". It is still checked
+    // against the `EI` it predicts rather than believed: a wrong length would swallow the rest
+    // of the page's content stream as image data, and a file old enough to have no `/L` at all
+    // is handled below anyway.
     if let Some(length) = stated {
         let end = start.saturating_add(length);
         match terminator_at(content, end) {
@@ -689,6 +699,8 @@ fn data_extent(
 /// readers of one entry inside one crate, which is the failure ADR 0904 named and the shape it
 /// left one module away.
 fn unfiltered_length(document: &Document, dict: &Dictionary) -> Option<usize> {
+    // not a repair: `dimension` has read each entry as a `u32`, and widening one to `usize`
+    // fails on no target this crate builds for.
     let width = usize::try_from(crate::integer_entry::dimension(document, dict, "Width")?).ok()?;
     let height =
         usize::try_from(crate::integer_entry::dimension(document, dict, "Height")?).ok()?;
@@ -699,10 +711,15 @@ fn unfiltered_length(document: &Document, dict: &Dictionary) -> Option<usize> {
     let (bits, components) = if is_mask {
         (1usize, 1usize)
     } else {
+        // A depth not given as Table 87 requires is read at the 8 `crate::image::dispatch` logs
+        // (`model/image-depth-absent`) when it decodes. Here it only predicts where `EI` stands,
+        // and a prediction the data does not confirm is searched past and logged by `scan` as the
+        // extent's own repair.
         let bits = usize::try_from(
             document
                 .get_key(dict, "BitsPerComponent")
                 .as_integer()
+                // not a repair: a prediction the bytes confirm, or `scan` logs, as said above.
                 .unwrap_or(8),
         )
         .ok()?;

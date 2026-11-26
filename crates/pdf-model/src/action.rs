@@ -385,8 +385,7 @@ impl Rendition {
                  requires before the action is executed",
             );
         };
-        let listed = document
-            .get_key(page, "Annots")
+        let listed = crate::annotation::page_annots(document, page)
             .as_array()
             .is_some_and(|items| {
                 items
@@ -1170,7 +1169,7 @@ fn attached_file(
         }
     };
     let page = pages.get(index)?;
-    let annots = document.get_key(&page.dict, "Annots");
+    let annots = crate::annotation::page_annots(document, &page.dict);
     let annots = annots.as_array()?;
     let found =
         match annotation {

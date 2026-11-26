@@ -330,7 +330,7 @@ fn read_annotations(document: &Document, pages: &BTreeMap<ObjectId, usize>) -> (
         let Some(page_dict) = page_dict.as_dict() else {
             continue;
         };
-        let annotations = document.get_key(page_dict, "Annots");
+        let annotations = crate::annotation::page_annots(document, page_dict);
         for entry in annotations.as_array().unwrap_or_default() {
             let Some(id) = entry.as_reference() else {
                 continue;

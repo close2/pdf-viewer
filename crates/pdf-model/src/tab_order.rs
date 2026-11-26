@@ -144,7 +144,7 @@ pub fn order(document: &Document, page: &crate::Page, page_id: ObjectId) -> Vec<
 
 /// The page's `/Annots`, de-duplicated, in the array's own order.
 fn annotations(document: &Document, page: &crate::Page) -> Vec<ObjectId> {
-    let object = document.get_key(&page.dict, "Annots");
+    let object = crate::annotation::page_annots(document, &page.dict);
     let Some(array) = object.as_array() else {
         return Vec::new();
     };

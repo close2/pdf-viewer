@@ -272,6 +272,8 @@ impl LoadedFont {
                         target: Target::Mono,
                     },
                 )
+                // not a repair: a decline; a program whose instructions do not start is drawn from
+                // its outlines unhinted, and nothing is read in place of a value it states.
                 .ok()
             })
             .as_ref()
@@ -342,11 +344,14 @@ impl LoadedFont {
             };
             drawn && pen.path.is_empty()
         };
+        // not a repair: a decline; a count that does not read answers `false`, as an unreadable
+        // glyph does, so a damaged program is not silenced.
         let count = match self.program {
             Program::Sfnt => FontRef::new(&self.data)
                 .ok()
                 .and_then(|font| font.maxp().ok())
                 .map(|maxp| u32::from(maxp.num_glyphs())),
+            // not a repair: the same decline for a bare CFF program's count.
             Program::BareCff => cff::glyph_count(&self.data).ok(),
             Program::Type1 => None,
         };

@@ -125,6 +125,7 @@ pub(super) fn combine_on_the_finer_grid(
             pixel.get(2).copied().unwrap_or(0),
         ];
         let (colour, opacity) = sample(colour, above);
+        // not a repair: a sample of a buffer this reader decoded, four bytes a pixel.
         let own = u16::from(pixel.get(3).copied().unwrap_or(0));
         // Rounded rather than truncated, so an opaque pixel under a fully opaque mask
         // stays opaque: 255 × 255 / 255 is exact either way, but 255 × 254 / 255 is not.
@@ -139,6 +140,7 @@ pub(super) fn combine_on_the_finer_grid(
             colour[0],
             colour[1],
             colour[2],
+            // not a repair: (255 × 255 + 127) / 255 is 255, so the conversion cannot fail.
             u8::try_from(combined).unwrap_or(u8::MAX),
         ]);
     };
@@ -295,9 +297,11 @@ pub(super) fn alpha_on_grid(alpha: &[u8], from: (u32, u32), to: (u32, u32)) -> V
             .saturating_add(1)
             .saturating_mul(source)
             .div_ceil(target)
+            // not a repair: a bound of this reader's grid arithmetic, so every cell reads a sample.
             .clamp(start.saturating_add(1), source);
         (start, end)
     };
+    // not a repair: a capacity hint, the product of two sides this reader was handed.
     let mut out = Vec::with_capacity(usize::try_from(to_w.saturating_mul(to_h)).unwrap_or(0));
     for row in 0..to_h {
         let (y0, y1) = span(row, from_h, to_h);

@@ -675,8 +675,8 @@ const IN_CONTENT_BY_CLASS: &[(&str, &str, &str)] = &[
     in_content_because!(
         "model/inline-image-data-extent",
         "ISO 32000-2 §8.9.7",
-        "this reader found the image's end by searching for EI where the dictionary's extent did \
-         not reach it; the bytes its decoding never read are cut only where they run past the end \
+        "this reader read past an /L that is no length, or found the image's end by searching \
+         for EI where the dictionary's extent did not reach it; the bytes its decoding never read are cut only where they run past the end \
          that decoding states, /L names no other, the profile grants content-as-drawn and this \
          reader draws the page the same (ADR 3735), and here one of those does not hold"
     ),

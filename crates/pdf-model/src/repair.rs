@@ -112,10 +112,10 @@ classes! {
         "ISO 32000-2 §8.9.7",
         "an inline image /ColorSpace naming no space the resources define was read as a device \
          space";
-    /// Inline image data whose extent does not end at `EI`.
+    /// Inline image data whose `/L` is no length, or whose extent does not end at `EI`.
     INLINE_IMAGE_DATA_EXTENT = "model/inline-image-data-extent", "ISO 32000-2 §8.9.7",
-        "inline image data whose stated or computed length does not end at EI was read to the \
-         EI found";
+        "inline image data whose /L is no length, or whose stated or computed length does not \
+         end at EI, was read to the EI found";
 
     // ---- images and their soft masks, §8.9.5.1 and §11.6.5.2 ---------------------------------
 
@@ -200,6 +200,10 @@ classes! {
     ACTION_ENTRY_UNUSABLE = "model/action-entry-unusable", "ISO 32000-2 §12.6.4",
         "an action entry of a type or value its table does not give it was read as absent: a \
          boolean or flag word as its default, a negative index as naming no target";
+    /// A page's `/Annots` that is not an array.
+    PAGE_ANNOTS_NOT_AN_ARRAY = "model/page-annots-not-an-array", "ISO 32000-2 §7.7.3.3",
+        "a page whose /Annots is neither absent nor an array, which Table 31 requires, was read \
+         as listing no annotation";
     /// An annotation's entry of a type or value its table does not give it.
     ANNOTATION_ENTRY_UNUSABLE = "model/annotation-entry-unusable", "ISO 32000-2 §12.5.2",
         "an annotation entry of a type or value its table does not give it was read as absent, \
@@ -214,6 +218,19 @@ classes! {
         "ISO 32000-2 §8.11.2.1",
         "an optional content group whose required /Name is absent or not a text string was named \
          by the empty string";
+    /// A file specification naming no file, or an embedded file stream's `/Params` that is no
+    /// dictionary.
+    FILE_SPECIFICATION_ENTRY_UNUSABLE = "model/file-specification-entry-unusable",
+        "ISO 32000-2 §7.11.3",
+        "a file specification in which no /UF, /F, /DOS, /Mac or /Unix is a string, where Table \
+         43 requires /F, was shown with the empty name, and an embedded file stream's /Params \
+         that is no dictionary was read as absent";
+    /// An optional content properties dictionary's `/D`, or a group's `/Usage` or one of its
+    /// dictionaries, absent where required or not a dictionary.
+    OPTIONAL_CONTENT_ENTRY_UNUSABLE = "model/optional-content-entry-unusable",
+        "ISO 32000-2 §8.11.4",
+        "an /OCProperties whose required /D is absent or no dictionary was read with every group \
+         on, and a group's /Usage, or an entry of it, that is no dictionary was read as absent";
     /// A form's `/Resources` present and not a dictionary.
     FORM_RESOURCES_NOT_A_DICTIONARY = "model/form-resources-not-a-dictionary",
         "ISO 32000-2 §8.10.2",
@@ -262,6 +279,21 @@ classes! {
          as the integer its grammar gives it was read as absent, the grammar's default standing \
          in its place";
 
+    // ---- metadata, §14.3.2 -------------------------------------------------------------------
+
+    /// An XMP packet's entity or character reference that XML does not define.
+    XMP_REFERENCE_UNDEFINED = "model/xmp-reference-undefined", "ISO 32000-2 §14.3.2",
+        "an entity reference in a metadata stream's XMP packet that XML 1.0 does not define, or a \
+         character reference naming no character, was kept as the text it is written as";
+
+    // ---- measurement, §12.9 and §12.10.5 -------------------------------------------------------
+
+    /// A number format's or a point data dictionary's entry of a type or value its table does not
+    /// give it.
+    MEASUREMENT_ENTRY_UNUSABLE = "model/measurement-entry-unusable", "ISO 32000-2 §12.9",
+        "a number format's /D that is no positive integer was read at its default, and a point \
+         data dictionary's required /Names or /XPTS that is no array was read as an empty one";
+
     // ---- a coordinate system's Well Known Text, §12.10.3 and ISO 19162 ------------------------
 
     /// A system, a datum or a unit of a `/WKT` string with no name.
@@ -278,6 +310,11 @@ classes! {
         "ISO 32000-2 §12.10.4",
         "a Mercator_Auxiliary_Sphere projection stating no Auxiliary_Sphere_Type was read as \
          type 0, the sphere of the ellipsoid's semi-major axis";
+    /// A projection of a `/WKT` string stating no false easting, or no false northing.
+    WKT_FALSE_ORIGIN_ABSENT = "model/wkt-false-origin-absent", "ISO 32000-2 §12.10.4",
+        "a projection whose /WKT string states no false easting or no false northing, each among \
+         the parameters IOGP Guidance Note 7-2 requires to define its method, was evaluated with \
+         zero in its place";
 }
 
 #[cfg(test)]

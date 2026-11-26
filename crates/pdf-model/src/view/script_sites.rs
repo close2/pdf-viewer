@@ -779,7 +779,7 @@ impl ViewState {
         (x, y): (f32, f32),
     ) {
         let page_dict = &page_object.dict;
-        let annotations = document.get_key(page_dict, "Annots");
+        let annotations = crate::annotation::page_annots(document, page_dict);
         let Some(entries) = annotations.as_array() else {
             return;
         };
@@ -1000,8 +1000,9 @@ fn page_of(document: &Document, id: ObjectId, annotation: &Dictionary) -> usize 
         .into_iter()
         .find(|(_, page)| {
             document.get(*page).as_dict().is_some_and(|page| {
-                document
-                    .get_key(page, "Annots")
+                // not a repair: `page_annots` has logged a value that is no array; an absent
+                // `/Annots` lists nothing, Table 31's entry being optional.
+                crate::annotation::page_annots(document, page)
                     .as_array()
                     .unwrap_or_default()
                     .iter()
@@ -1046,7 +1047,7 @@ impl Unreachable {
             direct: None,
             fieldless: None,
         };
-        let annotations = document.get_key(page_dict, "Annots");
+        let annotations = crate::annotation::page_annots(document, page_dict);
         let Some(entries) = annotations.as_array() else {
             return unreachable;
         };
@@ -1106,7 +1107,7 @@ fn is_widget(document: &Document, entry: &Object) -> bool {
 
 /// The annotations a page's `/Annots` lists, by object.
 fn page_annotations(document: &Document, page: &Dictionary) -> Vec<ObjectId> {
-    match document.get_key(page, "Annots") {
+    match crate::annotation::page_annots(document, page) {
         Object::Array(items) => items.iter().filter_map(Object::as_reference).collect(),
         _ => Vec::new(),
     }

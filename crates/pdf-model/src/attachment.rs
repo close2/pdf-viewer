@@ -424,9 +424,7 @@ pub fn associated_in_array(document: &Document, items: &[Object]) -> Vec<Attachm
         let Some(specification) = resolved.as_dict() else {
             continue;
         };
-        let name = crate::file_spec::FileSpec::from_dictionary(document, specification)
-            .display_name()
-            .unwrap_or_default();
+        let name = shown_name(document, specification);
         if let Some(attachment) = read(document, specification, name) {
             out.push(attachment);
         }
@@ -466,9 +464,7 @@ fn external_associated_under(
             continue;
         }
         out.push(ExternalAssociatedFile {
-            name: crate::file_spec::FileSpec::from_dictionary(document, specification)
-                .display_name()
-                .unwrap_or_default(),
+            name: shown_name(document, specification),
             relationship: Relationship::read(document, specification),
         });
     }
@@ -586,9 +582,7 @@ pub fn attachments(document: &Document) -> Vec<Attachment> {
 pub fn of_annotation(document: &Document, annotation: &Dictionary) -> Option<Attachment> {
     let specification = document.get_key(annotation, "FS");
     let specification = specification.as_dict()?;
-    let name = crate::file_spec::FileSpec::from_dictionary(document, specification)
-        .display_name()
-        .unwrap_or_default();
+    let name = shown_name(document, specification);
     let mut attachment = read(document, specification, name)?;
     // Present is the condition, not non-empty: the empty string is a text string the annotation
     // states, and the clause's "rather than" leaves `/Desc` nothing to say beside it (ADR 2814).
@@ -647,6 +641,28 @@ pub fn related(document: &Document, specification: &Dictionary) -> Vec<(String, 
         .collect()
 }
 
+/// The name a file specification shows: Table 43's `/UF`, or else its `/F`.
+///
+/// Table 43 makes `/F` "Required if the DOS, Mac, and Unix entries are all absent". A
+/// specification in which none of the five holds a string names no file, is shown with the empty
+/// name, and is logged; one that states the empty string has named its file so, and is not.
+fn shown_name(document: &Document, specification: &Dictionary) -> String {
+    crate::file_spec::FileSpec::from_dictionary(document, specification)
+        .display_name()
+        .unwrap_or_else(|| {
+            let states_one = ["UF", "F", "DOS", "Mac", "Unix"]
+                .into_iter()
+                .any(|key| matches!(document.get_key(specification, key), Object::String(_)));
+            if !states_one {
+                document.record_repair(
+                    &crate::repair::FILE_SPECIFICATION_ENTRY_UNUSABLE,
+                    pdf_syntax::Site::WholeFile,
+                );
+            }
+            String::new()
+        })
+}
+
 /// Reads one §7.11.3 file specification that carries an embedded file.
 ///
 /// `None` where it carries none: `/EF` is what makes a file specification an *attachment*, and
@@ -664,8 +680,17 @@ pub fn read(document: &Document, specification: &Dictionary, name: String) -> Op
         .into_iter()
         .find_map(|key| document.get_key(files, key).as_stream().cloned())?;
 
+    // Table 44 types `/Params` a dictionary; one of another type is read as absent, and logged.
     let parameters = document.get_key(&stream.dict, "Params");
-    let parameters = parameters.as_dict().cloned().unwrap_or_default();
+    let parameters = parameters.as_dict().cloned().unwrap_or_else(|| {
+        if !matches!(parameters, Object::Null) {
+            document.record_repair(
+                &crate::repair::FILE_SPECIFICATION_ENTRY_UNUSABLE,
+                pdf_syntax::Site::WholeFile,
+            );
+        }
+        Dictionary::new()
+    });
     let text = |dict: &Dictionary, key: &str| match document.get_key(dict, key) {
         Object::String(bytes) => {
             let text = pdf_syntax::text_string(&bytes);

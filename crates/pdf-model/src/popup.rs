@@ -234,7 +234,7 @@ impl Popup {
 /// them; a table that enumerates four is a table that has said something about the fifth.
 #[must_use]
 pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -> Vec<Popup> {
-    let annotations = document.get_key(&page.dict, "Annots");
+    let annotations = crate::annotation::page_annots(document, &page.dict);
     let Some(annotations) = annotations.as_array() else {
         return Vec::new();
     };

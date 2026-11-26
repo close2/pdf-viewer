@@ -505,7 +505,7 @@ pub fn annotation_named(
     page: &crate::Page,
     name: &[u8],
 ) -> Option<pdf_syntax::ObjectId> {
-    let annotations = document.get_key(&page.dict, "Annots");
+    let annotations = crate::annotation::page_annots(document, &page.dict);
     let annotations = annotations.as_array()?;
     for annotation in annotations {
         let Some(id) = annotation.as_reference() else {
