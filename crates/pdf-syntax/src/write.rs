@@ -413,6 +413,7 @@ pub fn incremental_update_extending(
         out.push(b'\n');
     }
 
+    let metadata = written_metadata(document, replacements, additions);
     let mut offsets: Vec<(ObjectId, usize)> = Vec::new();
     for (id, value) in replacements {
         // §7.6.2 on the way out. The caller hands over plaintext — what the person typed,
@@ -421,7 +422,7 @@ pub fn incremental_update_extending(
         // here, at the one point where the object's identity is known and §7.6.3.2 step (a)
         // needs it. A document with no `/Encrypt` gets the value back unchanged.
         let value = document
-            .encrypt_for_update(*id, value)
+            .encrypt_for_update(*id, value, metadata)
             .ok_or(UpdateError::Encryption)?;
         let value = with_written_length(value);
         offsets.push((*id, out.len().saturating_sub(origin)));
@@ -474,6 +475,36 @@ pub fn incremental_update_extending(
         cross_reference_table(&mut out, &section, document, additions)?;
     }
     Ok(out)
+}
+
+/// §14.3.2's document-level metadata stream as the updated file names it: the `/Metadata` of
+/// the catalog the update writes where it replaces the catalog (or names another from its
+/// trailer), and the source's otherwise.
+///
+/// §7.6.4.2's Table 21 `/EncryptMetadata` exempts "the document-level metadata stream (see 14.3.2,
+/// "Metadata streams")", and the reader of the updated file finds that stream from the catalog it
+/// reads — so an update that creates a packet, or names another, is encrypted against the catalog
+/// it writes rather than the one it read (ADR 3718).
+fn written_metadata(
+    document: &crate::Document,
+    replacements: &BTreeMap<ObjectId, Object>,
+    additions: &Dictionary,
+) -> Option<ObjectId> {
+    let root = additions
+        .get("Root")
+        .or_else(|| document.trailer().get("Root"))
+        .and_then(Object::as_reference)?;
+    match replacements.get(&root) {
+        Some(catalog) => catalog
+            .as_dict()
+            .and_then(|catalog| catalog.get("Metadata"))
+            .and_then(Object::as_reference),
+        None => document
+            .get(root)
+            .as_dict()
+            .and_then(|catalog| catalog.get("Metadata"))
+            .and_then(Object::as_reference),
+    }
 }
 
 /// A stream whose `/Length` is the number of bytes [`object`] writes for it; any other value

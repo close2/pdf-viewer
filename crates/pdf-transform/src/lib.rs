@@ -55,6 +55,7 @@ pub mod attachments;
 pub mod confined;
 pub mod executor;
 pub mod images;
+pub(crate) mod information;
 pub mod json;
 pub mod merge;
 pub mod optimize;

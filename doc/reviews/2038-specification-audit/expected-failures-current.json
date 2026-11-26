@@ -38,30 +38,6 @@
    "test": "rendering_10_5_10_8_spec_audit::stroke_adjustment_reaches_a_rule_two_pixels_wide_spec_audit",
    "finding": "2248-B05",
    "log": "round-2248 nextest of pdf-model"
-  },
-  {
-   "binary": "pdf-transform::metadata_writers_14_3_14_5_spec_audit",
-   "test": "a_zoneless_modification_date_is_restated_at_utc_spec_audit",
-   "finding": "2253-B01",
-   "log": "round-2253 nextest of pdf-transform"
-  },
-  {
-   "binary": "pdf-transform::metadata_writers_14_3_14_5_spec_audit",
-   "test": "a_direct_information_dictionary_crosses_beside_piece_info_spec_audit",
-   "finding": "2253-B02",
-   "log": "round-2253 nextest of pdf-transform"
-  },
-  {
-   "binary": "pdf-transform::metadata_writers_14_3_14_5_spec_audit",
-   "test": "a_redacted_page_does_not_call_its_private_data_current_spec_audit",
-   "finding": "2253-B03",
-   "log": "round-2253 nextest of pdf-transform"
-  },
-  {
-   "binary": "pdf-transform::metadata_writers_14_3_14_5_spec_audit",
-   "test": "a_created_packet_honours_encrypt_metadata_false_spec_audit",
-   "finding": "2253-B04",
-   "log": "round-2253 nextest of pdf-transform"
   }
  ],
  "no_longer_failing": [

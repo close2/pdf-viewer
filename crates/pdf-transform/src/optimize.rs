@@ -260,15 +260,13 @@ pub(crate) fn run(
     assembly.set_root(mapped);
     // §14.3.3's document information dictionary is the trailer's second root: nothing in the
     // catalog reaches it, so a walk from `/Root` alone would drop a document's title and author.
-    if let Some(info) = document
-        .trailer()
-        .get("Info")
-        .and_then(Object::as_reference)
-    {
-        let carried = copy_closure_with(&mut assembly, document, info, plan.prune, images.as_mut())
-            .map_err(|error| Refusal::Assembly(error.to_string()))?;
-        assembly.set_info(Some(carried));
-    }
+    // Direct or indirect (`information`, ADR 3719).
+    let carried = crate::information::carry(document, |info| {
+        copy_closure_with(&mut assembly, document, info, plan.prune, images.as_mut()).map(Some)
+    })
+    .and_then(|carried| carried.map(|info| info.place(&mut assembly)).transpose())
+    .map_err(|error| Refusal::Assembly(error.to_string()))?;
+    assembly.set_info(carried);
     let image_savings = place_images(images, &mut assembly, document, plan.source, report)?;
 
     if assembly.has_encrypted_source() && protect.is_none() {

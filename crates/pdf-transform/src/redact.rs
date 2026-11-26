@@ -189,6 +189,33 @@
 //! line, so where no `/RO` makes the table ignore them they are not drawn, and that is reported
 //! as a per-page [`crate::Departure`] from §12.5.6.23's full application semantics.
 //!
+//! # What else stops describing the content (§14.5, §12.3.4, ADR 3717)
+//!
+//! A redacted page's content is not the content its other entries were written for, and three of
+//! them would go on asserting otherwise. Its `/PieceInfo` holds a producer's private data — "all
+//! of the private data needed by the PDF processor other than the actual content of the
+//! document, page, or form" (§14.5), an editor's own copy of the artwork as often as not — and
+//! §14.5 makes the page's `/LastModified` the test of whether that data is current:
+//!
+//! > If the page-piece dictionary contains several data dictionaries, their modification dates
+//! > can be compared with those in the corresponding entry of the page object or form dictionary
+//! > \[…], or the ModDate entry of the document information dictionary \[…], to ascertain
+//! > whether the data dictionary corresponds to the current content of the document, page or
+//! > form.
+//!
+//! Carried unchanged, the two dates still compare equal, so the private data is declared current
+//! after its content was removed. This program has no clock to write a new date with (RFC 0002
+//! section 9), so the remedy is to stop asserting the old one: a redacted page and an edited form
+//! are written without `/PieceInfo` and `/LastModified` (Table 31 and Table 93 require the date
+//! only beside the dictionary), and a redacted page without its §12.3.4 `/Thumb`, a picture of the
+//! page before the removal. Where any page was redacted, the document's content changed too, and
+//! the catalog's `/PieceInfo` goes the same way; the information dictionary's `/ModDate` is
+//! carried as the source stated it, with nothing left to compare it against. §12.5.6.23 asks
+//! this of the removal in any case — a processor "shall remove all traces of the specified
+//! content" and "shall also be diligent in their consideration of all content that can exist in a
+//! PDF document" — and each entry dropped is a [`crate::Departure`] in the redaction's report,
+//! never a silent change.
+//!
 //! # Where each concern lives (ADR 2032)
 //!
 //! This file keeps the state the walk carries (`Walk` and the types it holds), the entry points
@@ -238,6 +265,15 @@ use crate::{Declined, Departure, Origin, Output, Protect, Refusal, Report, Sinks
 
 /// The deepest a reference chain is followed when carrying a replaced page's entries.
 const MAX_DEPTH: usize = 64;
+
+/// The entries of a redacted page that describe the content before the removal, dropped from
+/// the written page (§14.5's `/PieceInfo` and Table 31's `/LastModified` that dates it, and
+/// §12.3.4's `/Thumb`; ADR 3717).
+const STALE_PAGE_ENTRIES: [&[u8]; 3] = [b"PieceInfo", b"LastModified", b"Thumb"];
+
+/// The entries of an edited form `XObject` that describe its content before the removal:
+/// §14.5's `/PieceInfo` and Table 93's `/LastModified` (ADR 3717).
+const STALE_FORM_ENTRIES: [&[u8]; 2] = [b"PieceInfo", b"LastModified"];
 
 /// One document's `/Redact` annotations applied, and the result written as a new file.
 #[derive(Debug, Clone, PartialEq)]
@@ -310,6 +346,7 @@ pub(crate) fn run(
     let mut inline_images = 0usize;
     let mut cut_paths = 0usize;
     let mut departures: Vec<(usize, String)> = Vec::new();
+    let mut invalidated: Vec<(Option<usize>, String)> = Vec::new();
 
     for index in 0..pages.len() {
         let Some((page, page_id)) = pages
@@ -339,6 +376,10 @@ pub(crate) fn run(
                 let stated = regions.iter().map(|region| &region.overlay);
                 let after = overlay::after_removal(document, &page.resources, edit.content, stated);
                 departures.extend(after.departure.map(|why| (index.saturating_add(1), why)));
+                invalidated.extend(
+                    stale_entries(document, &page.dict, &edit.forms)
+                        .map(|what| (Some(index.saturating_add(1)), what)),
+                );
                 applied.push(AppliedPage {
                     page_id,
                     placed: page_id,
@@ -387,14 +428,80 @@ pub(crate) fn run(
             paths: cut_paths,
         },
     });
-    for (page, reasons) in departures {
+    let catalog = written.catalog_pieces;
+    report_departures(report, plan.source, departures, invalidated, catalog);
+    Ok(())
+}
+
+/// The redaction's [`Departure`]s: the overlay each page did not draw (ADR 2868), and each entry
+/// that described the removed content and was not written (ADR 3717).
+fn report_departures(
+    report: &mut Report,
+    source: usize,
+    overlays: Vec<(usize, String)>,
+    mut invalidated: Vec<(Option<usize>, String)>,
+    catalog_pieces: bool,
+) {
+    for (page, reasons) in overlays {
         report.departures.push(Departure {
-            source: plan.source,
+            source,
             page: Some(page),
             detail: format!("§12.5.6.23: the content was removed; the overlay: {reasons}"),
         });
     }
-    Ok(())
+    if catalog_pieces {
+        invalidated.push((
+            None,
+            "the catalog's /PieceInfo, private data about content that changed".to_owned(),
+        ));
+    }
+    for (page, what) in invalidated {
+        report.departures.push(Departure {
+            source,
+            page,
+            detail: format!(
+                "§14.5 and §12.5.6.23: {what} not written; each described the content before \
+                 the removal, and this program has no clock to date it again"
+            ),
+        });
+    }
+}
+
+/// What a redacted page and the forms its removal edited state that described their content
+/// before the removal, one phrase each, for the report ([`STALE_PAGE_ENTRIES`],
+/// [`STALE_FORM_ENTRIES`], ADR 3717). §7.3.7 makes a null entry an absent one, so a null is not
+/// reported; it is not written either.
+fn stale_entries<'a>(
+    document: &'a Document,
+    page: &'a Dictionary,
+    forms: &'a [FormEdit],
+) -> impl Iterator<Item = String> + 'a {
+    let stated = |dict: &Dictionary, keys: &[&[u8]]| -> Vec<String> {
+        keys.iter()
+            .filter(|key| {
+                dict.iter()
+                    .any(|(name, value)| name.as_bytes() == **key && *value != Object::Null)
+            })
+            .map(|key| format!("/{}", String::from_utf8_lossy(key)))
+            .collect()
+    };
+    let on_page = stated(page, &STALE_PAGE_ENTRIES);
+    let page_phrase =
+        (!on_page.is_empty()).then(|| format!("the page's {}", on_page.join(" and ")));
+    let form_phrases = forms.iter().filter_map(move |form| {
+        let object = document.get(form.id);
+        let on_form = object
+            .as_stream()
+            .map_or_default(|stream| stated(&stream.dict, &STALE_FORM_ENTRIES));
+        (!on_form.is_empty()).then(|| {
+            format!(
+                "form XObject {}'s {}",
+                form.id.number,
+                on_form.join(" and ")
+            )
+        })
+    });
+    page_phrase.into_iter().chain(form_phrases)
 }
 
 /// One image `XObject` whose samples the removal destroyed: its object, the re-encoded
@@ -2796,6 +2903,8 @@ struct Written {
     bytes: u64,
     sanitised: bool,
     dangling: bool,
+    /// Whether the catalog's `/PieceInfo` was dropped (§14.5, ADR 3717).
+    catalog_pieces: bool,
 }
 
 /// An object the redacted page owns outright, whose replacement takes its slot in the output.
@@ -2823,6 +2932,15 @@ fn write_document(
     protect: Option<&Protect>,
 ) -> Result<Written, Refusal> {
     let mut assembly = Assembly::new(vec![document]);
+    // §14.5: the document's content changed with any page's, so the catalog's private data is
+    // dropped where a page was redacted (ADR 3717). The catalog is then replaced rather than
+    // copied, so that its `/PieceInfo` is never walked and nothing only it reached is written.
+    let catalog = document.get(root).as_dict().cloned().unwrap_or_default();
+    let catalog_pieces = !applied.is_empty() && catalog.get("PieceInfo").is_some();
+    let replaced_root = catalog_pieces
+        .then(|| assembly.replace(0, root))
+        .transpose()
+        .map_err(|error| Refusal::Assembly(error.to_string()))?;
     for page in applied.iter_mut() {
         page.placed = assembly
             .replace(0, page.page_id)
@@ -2835,18 +2953,21 @@ fn write_document(
     } = reserve_slots(&mut assembly, applied)?;
     // The reachable closure, pruned: a replaced page short-circuits the walk, so its old content
     // and its removed annotations are reached from nowhere else and never copied.
-    let mapped_root = copy_closure(&mut assembly, document, root, true)
-        .map_err(|error| Refusal::Assembly(error.to_string()))?;
+    let mapped_root = match replaced_root {
+        Some(placed) => place_catalog(&mut assembly, document, &catalog, placed)?,
+        None => copy_closure(&mut assembly, document, root, true)
+            .map_err(|error| Refusal::Assembly(error.to_string()))?,
+    };
     assembly.set_root(mapped_root);
-    if let Some(info) = document
-        .trailer()
-        .get("Info")
-        .and_then(Object::as_reference)
-    {
-        let carried = copy_closure(&mut assembly, document, info, true)
-            .map_err(|error| Refusal::Assembly(error.to_string()))?;
-        assembly.set_info(Some(carried));
-    }
+    // §14.3.3's information dictionary, direct or indirect (`information`, ADR 3719). Its
+    // `/ModDate` crosses as the source stated it: this verb has no clock to restate it with, and
+    // with the catalog's private data gone nothing compares a data dictionary against it.
+    let carried = crate::information::carry(document, |info| {
+        copy_closure(&mut assembly, document, info, true).map(Some)
+    })
+    .and_then(|carried| carried.map(|info| info.place(&mut assembly)).transpose())
+    .map_err(|error| Refusal::Assembly(error.to_string()))?;
+    assembly.set_info(carried);
 
     let placed_located = place_located(&mut assembly, document, applied, &private)?;
     for (index, page) in applied.iter().enumerate() {
@@ -2916,7 +3037,28 @@ fn write_document(
         bytes: written.bytes,
         sanitised: expanded.sanitised,
         dangling: written.dangling > 0,
+        catalog_pieces,
     })
+}
+
+/// Writes the catalog into the slot `placed` with every entry but `/PieceInfo` carried (§14.5,
+/// ADR 3717), and answers the slot.
+fn place_catalog(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    catalog: &Dictionary,
+    placed: ObjectId,
+) -> Result<ObjectId, Refusal> {
+    let mut written = Dictionary::new();
+    for (key, value) in catalog.iter() {
+        if key.as_bytes() != b"PieceInfo" {
+            written.insert(key.clone(), carry(assembly, document, value, 0));
+        }
+    }
+    assembly
+        .place(placed, Object::Dictionary(written))
+        .map_err(|error| Refusal::Assembly(error.to_string()))?;
+    Ok(placed)
 }
 
 /// The slots a redaction's replaced and copied objects take, taken before any object is built.
@@ -3001,7 +3143,8 @@ fn reserve_slots<'a>(
 }
 
 /// Builds a replaced page dictionary: the edited content, the surviving annotations, and every
-/// other entry with its references carried into the output's numbering.
+/// other entry but [`STALE_PAGE_ENTRIES`] with its references carried into the output's
+/// numbering.
 ///
 /// Where the removal had to copy an object rather than replace it — a form or an image another
 /// page's placement also draws — the page is also given a `/Resources` of its own, so that the
@@ -3042,6 +3185,7 @@ fn build_page(
         || carried.names();
     for (key, value) in source.iter() {
         let skipped = matches!(key.as_bytes(), b"Contents" | b"Annots")
+            || STALE_PAGE_ENTRIES.contains(&key.as_bytes())
             || (key.as_bytes() == b"Resources" && restated);
         if skipped {
             continue;
@@ -3509,10 +3653,12 @@ fn reaches_in(
 }
 
 /// Builds a form `XObject`'s replacement stream: its own content with the region's marks cut out,
-/// under the dictionary the producer wrote (§8.10.2 Table 93) with only the encoding restated.
+/// under the dictionary the producer wrote (§8.10.2 Table 93) with the encoding restated and
+/// [`STALE_FORM_ENTRIES`] dropped.
 ///
 /// Every other entry — `/BBox`, `/Matrix`, `/Resources`, `/Group` — describes the form and still
-/// does: what changed is the marks its content draws, not the space it draws them in.
+/// does: what changed is the marks its content draws, not the space it draws them in. The
+/// private data and the date that called it current described the marks (ADR 3717).
 fn build_form(
     assembly: &mut Assembly<'_>,
     document: &Document,
@@ -3542,6 +3688,7 @@ fn build_form(
             // written here is the decoded stream with the region's marks cut out of it.
             b"Filter" | b"DecodeParms" | b"DP" | b"Length" => {}
             b"Resources" if restated => {}
+            stale if STALE_FORM_ENTRIES.contains(&stale) => {}
             _ => {
                 dict.insert(
                     key.clone(),

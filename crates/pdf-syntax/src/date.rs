@@ -34,9 +34,9 @@
 //! > whether the time zone is specified, the rest of the date shall be specified in local time.
 //!
 //! An absent offset is therefore **not** unknown: the clause says to treat it as GMT. [`Date::
-//! offset`] still records that the file said nothing, because a viewer showing a date should be
-//! able to say "as written" rather than inventing a zone the producer did not claim — but
-//! [`Date::instant`], which is what an ordering is built on, takes the clause's answer.
+//! offset`] still records that the file said nothing, so that a viewer can show the date as it
+//! was written — but [`Date::instant`], which is what an ordering is built on, takes the clause's
+//! answer, and so does every writer that restates the date (`pdf_model::xmp::spelled_date`).
 //!
 //! # Errata Collection 3 has struck out the last two sentences of that quotation
 //!
@@ -113,10 +113,10 @@ pub struct Date {
     pub second: u8,
     /// The `O`, `HH` and `mm` offset fields, in minutes east of UT.
     ///
-    /// `None` is *the file stated no zone*, which the clause makes mean GMT for the purpose of
-    /// comparing two dates and which [`Self::instant`] therefore reads as zero. Kept apart from
-    /// `Some(0)` because `Z` is a producer saying "UT" and an absent field is a producer saying
-    /// nothing, and only one of those is a claim.
+    /// `None` is *the file stated no zone*, which the clause, as Issue #251 amends it, makes
+    /// +0'00 — so [`Self::instant`] reads it as zero, and a writer restating the date in
+    /// another syntax writes that offset (`pdf_model::xmp::spelled_date`). Kept apart from
+    /// `Some(0)` only so that a viewer can show the date as the file wrote it.
     pub offset: Option<i16>,
 }
 
@@ -248,8 +248,9 @@ impl std::fmt::Display for Date {
     ///
     /// Always the full form, even where the file stated a prefix: a viewer showing `D:1998` as
     /// `1998-01-01T00:00:00` is showing the clause's own defaults, which are what the date
-    /// *means*. The zone is written only where the file claimed one, for [`Date::offset`]'s
-    /// reason.
+    /// *means*. The zone is written only where the file wrote one: this is the date *as written*,
+    /// for a viewer to show. A date restated into another syntax states the +0'00 Issue #251
+    /// gives an absent zone, which `pdf_model::xmp::spelled_date` adds (ADR 3720).
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             out,

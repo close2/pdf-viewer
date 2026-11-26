@@ -15,6 +15,16 @@ use crate::error::{SyntaxError, SyntaxResult};
 use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
 use crate::xref::Location;
 
+/// Which document-level metadata stream §7.6.4.2's Table 21 `/EncryptMetadata` exempts (ADR 3718).
+#[derive(Clone, Copy)]
+enum Metadata {
+    /// The one the file's own catalog names, asked only when a stream's `/Type` makes it a
+    /// candidate.
+    AsRead,
+    /// The one the catalog an update writes names, which the update's caller worked out.
+    Written(Option<ObjectId>),
+}
+
 impl Document {
     /// Reads the trailer's `/Encrypt` entry and derives the file encryption key.
     ///
@@ -325,7 +335,7 @@ impl Document {
                 } else {
                     self.decrypt_dict(encryption, id, &stream.dict)
                 };
-                let filter = self.stream_filter(encryption, id, &stream.dict);
+                let filter = self.stream_filter(encryption, id, &stream.dict, Metadata::AsRead);
                 let decrypted = encryption.decrypt_stream(&filter, id, &stream.data);
                 let decryption_failed = decrypted.is_none();
                 if decryption_failed {
@@ -368,11 +378,21 @@ impl Document {
     /// beside the writer would be two statements of one clause, and the one place they can
     /// disagree is the one place a file becomes unreadable by its own producer.
     ///
+    /// `metadata` is the document-level metadata stream as the *update* names it — its catalog
+    /// may be one the update rewrites to name a packet the source did not have — because Table
+    /// 21's `/EncryptMetadata` exempts the stream a reader of the updated file finds there, and
+    /// that reader decides from the catalog it reads (ADR 3718).
+    ///
     /// Returns `None` when the cipher refuses — a document opened without a key, or a key
     /// length no method accepts. The caller turns that into a named error rather than
     /// writing plaintext into an encrypted file, which would produce objects every reader
     /// including this one decrypts into noise.
-    pub(crate) fn encrypt_for_update(&self, id: ObjectId, object: &Object) -> Option<Object> {
+    pub(crate) fn encrypt_for_update(
+        &self,
+        id: ObjectId,
+        object: &Object,
+        metadata: Option<ObjectId>,
+    ) -> Option<Object> {
         let Some(encryption) = self.encryption.as_ref() else {
             return Some(object.clone());
         };
@@ -381,7 +401,7 @@ impl Document {
         if Some(id.number) == self.encrypt_object {
             return Some(object.clone());
         }
-        self.encrypt_value(encryption, id, object)
+        self.encrypt_value(encryption, id, object, Metadata::Written(metadata))
     }
 
     /// Encrypts every string and stream inside one indirect object.
@@ -390,6 +410,7 @@ impl Document {
         encryption: &Encryption,
         id: ObjectId,
         object: &Object,
+        metadata: Metadata,
     ) -> Option<Object> {
         match object {
             Object::String(bytes) => {
@@ -397,11 +418,11 @@ impl Document {
             }
             Object::Array(items) => items
                 .iter()
-                .map(|item| self.encrypt_value(encryption, id, item))
+                .map(|item| self.encrypt_value(encryption, id, item, metadata))
                 .collect::<Option<Vec<_>>>()
                 .map(Object::Array),
             Object::Dictionary(dict) => self
-                .encrypt_dict(encryption, id, dict)
+                .encrypt_dict(encryption, id, dict, metadata)
                 .map(Object::Dictionary),
             Object::Stream(stream) => {
                 let mut dict = if self.is_cross_reference_stream(&stream.dict) {
@@ -411,15 +432,15 @@ impl Document {
                         let value = if is_defined_cross_reference_key(key.as_bytes()) {
                             value.clone()
                         } else {
-                            self.encrypt_value(encryption, id, value)?
+                            self.encrypt_value(encryption, id, value, metadata)?
                         };
                         out.insert(key.clone(), value);
                     }
                     out
                 } else {
-                    self.encrypt_dict(encryption, id, &stream.dict)?
+                    self.encrypt_dict(encryption, id, &stream.dict, metadata)?
                 };
-                let filter = self.stream_filter(encryption, id, &stream.dict);
+                let filter = self.stream_filter(encryption, id, &stream.dict, metadata);
                 let data = encryption.encrypt_stream(&filter, id, &stream.data)?;
                 // §7.3.8.2's `/Length` is "[t]he number of bytes from the beginning of the
                 // line following the keyword stream to the last byte just before the keyword
@@ -449,6 +470,7 @@ impl Document {
         encryption: &Encryption,
         id: ObjectId,
         dict: &Dictionary,
+        metadata: Metadata,
     ) -> Option<Dictionary> {
         let signature = is_signature_dictionary(dict);
         let mut out = Dictionary::new();
@@ -456,7 +478,7 @@ impl Document {
             let encrypted = if signature && key.as_bytes() == b"Contents" {
                 value.clone()
             } else {
-                self.encrypt_value(encryption, id, value)?
+                self.encrypt_value(encryption, id, value, metadata)?
             };
             out.insert(key.clone(), encrypted);
         }
@@ -495,6 +517,7 @@ impl Document {
         encryption: &Encryption,
         id: ObjectId,
         dict: &Dictionary,
+        metadata: Metadata,
     ) -> StreamFilter {
         let stream_type = self
             .get_key(dict, "Type")
@@ -505,9 +528,13 @@ impl Document {
             // never encrypted.
             Some(b"XRef") => return StreamFilter::Method(Method::Identity),
             // Table 21's `/EncryptMetadata`, whose subject is §14.3.2's document-level
-            // metadata stream and no other.
+            // metadata stream and no other: the catalog's `/Metadata`, as the file is read or as
+            // an update writes it.
             Some(b"Metadata")
-                if !encryption.encrypt_metadata() && self.is_document_metadata(id) =>
+                if !encryption.encrypt_metadata()
+                    && self
+                        .metadata_stream(metadata)
+                        .is_some_and(|metadata| metadata.number == id.number) =>
             {
                 return StreamFilter::Method(Method::Identity);
             }
@@ -558,21 +585,26 @@ impl Document {
             .is_some_and(|name| name.as_bytes() == b"XRef")
     }
 
-    /// Whether the stream `id` is §14.3.2's document-level metadata stream: the one the
-    /// catalog's `/Metadata` names (Table 29).
+    /// The document-level metadata stream `metadata` says to ask about.
+    fn metadata_stream(&self, metadata: Metadata) -> Option<ObjectId> {
+        match metadata {
+            Metadata::AsRead => self.document_metadata(),
+            Metadata::Written(written) => written,
+        }
+    }
+
+    /// §14.3.2's document-level metadata stream: the one the catalog's `/Metadata` names
+    /// (Table 29).
     ///
     /// The catalog is a dictionary and is read through [`Document::get`]; a file whose `/Root`
-    /// is this very stream meets `get`'s own guard against a load that reaches itself, reads
-    /// null, and has no document-level metadata stream.
-    fn is_document_metadata(&self, id: ObjectId) -> bool {
-        let Some(root) = self.trailer().get("Root").and_then(Object::as_reference) else {
-            return false;
-        };
+    /// is the metadata stream itself meets `get`'s own guard against a load that reaches itself,
+    /// reads null, and has no document-level metadata stream.
+    pub(crate) fn document_metadata(&self) -> Option<ObjectId> {
+        let root = self.trailer().get("Root").and_then(Object::as_reference)?;
         self.get(root)
             .as_dict()
             .and_then(|catalog| catalog.get("Metadata"))
             .and_then(Object::as_reference)
-            .is_some_and(|metadata| metadata.number == id.number)
     }
 
     /// Whether the stream `id` is an embedded file stream: one a file specification's `/EF` or

@@ -858,7 +858,7 @@ fn assemble<'a>(
         .map_err(|error| error.to_string())?;
     piece.assembly.set_root(catalog);
 
-    carry_info(&mut piece, job);
+    carry_info(&mut piece, job).map_err(|error| error.to_string())?;
     report_losses(&piece, job, name, warnings);
     Ok(piece.assembly)
 }
@@ -867,17 +867,22 @@ fn assemble<'a>(
 ///
 /// Nothing here writes a `/ModDate`: this crate has no clock, and RFC 0002 section 9 makes the
 /// absence of one the determinism the gates rest on.
-fn carry_info(piece: &mut Piece<'_>, job: &Job<'_>) {
-    if let Some(source) = job
-        .document
-        .trailer()
-        .get("Info")
-        .and_then(Object::as_reference)
-        && let Some(placed) = piece.map(source)
-    {
+///
+/// Direct or indirect (`information`, ADR 3719); a direct dictionary's references are mapped
+/// as the piece maps every other one.
+///
+/// # Errors
+///
+/// [`AssemblyError::TooManyObjects`] where a restated dictionary has no number left.
+fn carry_info(piece: &mut Piece<'_>, job: &Job<'_>) -> Result<(), AssemblyError> {
+    let carried =
+        crate::information::carry(job.document, |id| Ok::<_, AssemblyError>(piece.map(id)))?;
+    if let Some(carried) = carried {
+        let placed = carried.place(&mut piece.assembly)?;
         piece.assembly.set_info(Some(placed));
         piece.drain();
     }
+    Ok(())
 }
 
 /// What the piece lost that no carrying could keep: §7.6's protection, and §7.3.10's nulls.

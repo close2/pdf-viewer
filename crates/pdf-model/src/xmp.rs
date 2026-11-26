@@ -1958,15 +1958,23 @@ fn supplements(prefix: &str, namespace: &str, properties: &[&&Supplement<'_>], o
 ///
 /// The two texts spell an instant differently: §7.9.4's `D:YYYYMMDDHHmmSSOHH'mm` against
 /// ISO 8601's `YYYY-MM-DDThh:mm:ss` with an offset. Every field §7.9.4 leaves out has a default
-/// the clause itself states — the month and the day are 01 and the rest are zero — so the instant
-/// is complete either way; the one field with no default is the zone, where an absent `O HH'mm`
-/// is a producer saying nothing rather than saying UT, and nothing is what this writes.
+/// the clause itself states — the month and the day are 01 and the rest are zero — and since
+/// Errata Collection 3's Issue #251 (approved) so has the zone: "the missing timezone offset
+/// shall be assumed to be the same as Greenwich Mean Time's timezone offset (+0'00)". So a date
+/// stating no `O HH'mm` is written at UTC, `Z`, which is what makes the packet's value the same
+/// instant as the dictionary's (§14.3.4's "fully equivalent") and one of the XMP Specification's
+/// profiles of ISO 8601, all six of which carry a designator once a time is present (ADR 3720).
 ///
-/// That spelling is [`pdf_syntax::Date`]'s `Display`, which a viewer shows and this writer
-/// stores: one implementation in the crate that owns the type, named here for the packet.
+/// A stated zone is [`pdf_syntax::Date`]'s `Display`, one implementation in the crate that owns
+/// the type; only the absent zone differs from what a viewer shows, which is the date as written.
 #[must_use]
 pub fn spelled_date(date: &pdf_syntax::Date) -> String {
-    date.to_string()
+    pdf_syntax::Date {
+        // not a repair: Issue #251's +0'00 is the clause's own value for an absent zone.
+        offset: Some(date.offset.unwrap_or(0)),
+        ..*date
+    }
+    .to_string()
 }
 
 /// The whole container, in its own description, with the three prefixes it uses declared on it.
@@ -4684,8 +4692,10 @@ mod tests {
             ("D:20140314124211+01'00", "2014-03-14T12:42:11+01:00"),
             ("D:20140924212303-05'30", "2014-09-24T21:23:03-05:30"),
             ("D:19990101000000Z", "1999-01-01T00:00:00Z"),
-            // Every field §7.9.4 leaves out has the default the clause states; the zone has none.
-            ("D:2001", "2001-01-01T00:00:00"),
+            // Every field §7.9.4 leaves out has the default the clause states, the zone's +0'00
+            // under Issue #251.
+            ("D:2001", "2001-01-01T00:00:00Z"),
+            ("D:20250102030405", "2025-01-02T03:04:05Z"),
         ];
         for (pdf, expected) in cases {
             let date = pdf_syntax::Date::parse(pdf).expect("§7.9.4's grammar");
@@ -4693,12 +4703,13 @@ mod tests {
         }
     }
 
-    /// The packet's spelling and the viewer's are one spelling, over every zone §7.9.4 can state
-    /// — `Z`, east, west, none — and a date that stated only its year.
+    /// The packet's spelling and the viewer's are one spelling over every zone §7.9.4 can state
+    /// — `Z`, east, west — and a date stating none is spelled as the same date at `Z` (Issue
+    /// #251), whatever fields it left out.
     #[test]
     fn the_packet_spells_a_date_exactly_as_the_viewer_shows_it() {
         let year_only = pdf_syntax::Date::parse("D:2001").expect("§7.9.4's grammar");
-        assert_eq!(spelled_date(&year_only), "2001-01-01T00:00:00");
+        assert_eq!(spelled_date(&year_only), "2001-01-01T00:00:00Z");
         let mut dates = vec![year_only];
         for offset in [None, Some(0), Some(-330), Some(-1439), Some(60), Some(840)] {
             for (year, month, day, hour, minute, second) in [
@@ -4719,11 +4730,17 @@ mod tests {
             }
         }
         for date in &dates {
+            let at_utc = pdf_syntax::Date {
+                // not a repair: Issue #251's +0'00, the expected value.
+                offset: Some(date.offset.unwrap_or(0)),
+                ..*date
+            };
             assert_eq!(
                 spelled_date(date).as_bytes(),
-                date.to_string().as_bytes(),
+                at_utc.to_string().as_bytes(),
                 "{date:?}"
             );
+            assert_eq!(spelled_date(date), spelled_date(&at_utc), "{date:?}");
         }
     }
 

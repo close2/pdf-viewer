@@ -12,7 +12,7 @@
   "code": "crates/pdf-model/src/xmp.rs:1956-1970 (spelled_date and its doc); crates/pdf-syntax/src/date.rs:246-268 (Display writes no zone for offset None); crates/pdf-transform/src/update.rs:1512-1515 (restated_packet, used by update and merge); crates/pdf-transform/src/archive/prepare/metadata.rs:2629,2664",
   "change": "Spell an unstated zone as Z (or +00:00) when a date is written into a packet; keep the viewer's display separate if it is to keep showing the absence. Correct spelled_date's doc, the 14.3.4 ledger note's sentence on the zone, and the unit test a_date_is_spelled_the_way_iso_16684_1_spells_one's D:2001 case.",
   "execution": "Executed: crates/pdf-transform/tests/metadata_writers_14_3_14_5_spec_audit.rs::a_zoneless_modification_date_is_restated_at_utc_spec_audit fails (packet states \"2025-01-02T03:04:05\"); control a_zoned_modification_date_is_restated_as_the_same_instant passes. Merge and the converter by reading.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2253-B02",
@@ -27,7 +27,7 @@
   "code": "crates/pdf-transform/src/optimize.rs:262-272; crates/pdf-transform/src/redact.rs:2841-2849; crates/pdf-transform/src/archive/rewrite.rs:2336-2344 (the_information_dictionary); crates/pdf-transform/src/archive/recovered.rs:362-366; crates/pdf-transform/src/split.rs:870-880",
   "change": "Read /Info through Document::get_key in every writer and carry a direct dictionary (as a new indirect object, or direct); one helper for the five sites.",
   "execution": "Executed: crates/pdf-transform/tests/metadata_writers_14_3_14_5_spec_audit.rs::a_direct_information_dictionary_crosses_beside_piece_info_spec_audit fails (no /ModDate in the optimised file, /PieceInfo carried); control an_indirect_information_dictionary_crosses_beside_piece_info passes. redact, split and the converter by reading.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2253-B03",
@@ -41,7 +41,7 @@
   "code": "crates/pdf-transform/src/redact.rs:3036-3050 (build_page); crates/pdf-transform/src/redact.rs:2841-2849 (/Info carried with the catalog's /PieceInfo)",
   "change": "On a page (form, document) whose content the redaction changed, drop /PieceInfo and then /LastModified, reported as a loss; or decline by name. Decide with §12.5.6.23's removal rule (A834) — the private data is a copy of what was removed.",
   "execution": "Executed: crates/pdf-transform/tests/metadata_writers_14_3_14_5_spec_audit.rs::a_redacted_page_does_not_call_its_private_data_current_spec_audit fails (data dictionary Editor still current); control the_redaction_removes_the_text_it_covers passes.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2253-B04",
@@ -56,7 +56,7 @@
   "code": "crates/pdf-syntax/src/document/encryption.rs:507-513, 567-576 (is_document_metadata reads the document's catalog); crates/pdf-transform/src/update.rs:1330-1385 (restate_metadata creates the packet and rewrites the catalog)",
   "change": "Let the incremental writer decide the exemption against the catalog being written (or let the caller mark the object), so a packet created or moved by an update is written in the clear under /EncryptMetadata false.",
   "execution": "Executed: crates/pdf-transform/tests/metadata_writers_14_3_14_5_spec_audit.rs::a_created_packet_honours_encrypt_metadata_false_spec_audit fails (no title read back); control a_created_packet_reads_back_when_metadata_is_encrypted passes.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2253-D01",
@@ -70,7 +70,7 @@
   "code": "crates/pdf-transform/src/update.rs:1176-1199",
   "change": "Drop the warning or restate it as a note on the choice, without quoting the struck words.",
   "execution": "Read, not executed.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2253-D02",
@@ -84,6 +84,6 @@
   "code": "doc/conformance/ledger.toml (14.3.4 note); crates/pdf-model/src/xmp.rs:1956-1966; crates/pdf-syntax/src/date.rs:247-252",
   "change": "Rewrite with B01's fix.",
   "execution": "Read, not executed.",
-  "status": "open"
+  "status": "fixed"
  }
 ]

@@ -1113,11 +1113,10 @@ fn set_information(
     let mut next = document.xref().next_object_number();
     let mut replacements: BTreeMap<ObjectId, Object> = BTreeMap::new();
     let mut additions = Dictionary::new();
-    let stated = document.trailer().get("Info").cloned();
+    let stated = crate::information::stated(document);
     let existing = stated
         .as_ref()
-        .map(|value| document.resolve(value))
-        .and_then(|value| value.as_dict().cloned());
+        .map(|information| information.dictionary(document));
 
     // Only an entry that changes what the document states is an edit, read the way
     // [`stated_information`] reads it. A value equal to what is stated, or a removal of an entry
@@ -1169,16 +1168,15 @@ fn set_information(
         }
     }
     let had_dictionary = existing.is_some();
-    let dict = information_dictionary(
-        existing.unwrap_or_else(Dictionary::new),
-        &dictionary_entries,
-    );
+    let dict = information_dictionary(existing.unwrap_or_default(), &dictionary_entries);
 
-    // §7.5.5's Table 15 makes `/Info` "( Optional; shall be an indirect reference )", so a
-    // document that states one inline has broken that `shall` and one that states none has
-    // nowhere to put one: both get an object of their own, named by the update's own trailer. A
-    // document that had none and whose entries all went into the packet gets none.
-    if let Some(id) = stated.as_ref().and_then(Object::as_reference) {
+    // An indirect dictionary is replaced in its own object. A direct one, which Table 15 allows
+    // (Errata Collection 3's Issue #106 struck its "; shall be an indirect reference"), and a
+    // dictionary the document did not have, become an object of their own named by the update's
+    // own trailer: §7.5.6's update adds objects and a trailer, and that is the shape it has for a
+    // changed dictionary that had no number (ADR 3719). A document that had none and whose entries
+    // all went into the packet gets none.
+    if let Some(crate::information::Information::Indirect(id)) = stated {
         replacements.insert(id, Object::Dictionary(dict));
     } else if had_dictionary || !dict.is_empty() {
         let id = ObjectId {
@@ -1187,17 +1185,6 @@ fn set_information(
         };
         replacements.insert(id, Object::Dictionary(dict));
         additions.insert(Name::new(&b"Info"[..]), Object::Reference(id));
-        if stated.is_some() {
-            report.warnings.push(Warning {
-                source: at,
-                page: None,
-                detail: String::from(
-                    "this document states /Info inline, and §7.5.5's Table 15 makes it \
-                     \"( Optional; shall be an indirect reference )\"; the update writes it as \
-                     an indirect object",
-                ),
-            });
-        }
     }
 
     let bytes =

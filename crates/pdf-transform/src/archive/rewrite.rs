@@ -2336,23 +2336,23 @@ fn the_information_dictionary(
     replaced: &mut Vec<(ObjectId, Object)>,
     applied: &mut BTreeMap<Rewrite, usize>,
 ) -> Result<(), Refusal> {
-    let Some(info) = rewriter
-        .document
-        .trailer()
-        .get("Info")
-        .and_then(Object::as_reference)
-    else {
+    // Direct or indirect (`information`, ADR 3719): `prepare` reads the entry through
+    // `get_key`, so a direct dictionary's kept date is computed and has to be written too.
+    if crate::information::stated(rewriter.document).is_none() {
         return Ok(());
-    };
+    }
     let Some(information) = prepared
         .information
         .as_ref()
         .ok()
         .filter(|_| rewriter.wants(Rewrite::InformationMovedIntoThePacket))
     else {
-        let carried = walk(rewriter, assembly, info, replaced, applied)
-            .map_err(|error| Refusal::Assembly(error.to_string()))?;
-        assembly.set_info(Some(carried));
+        let carried = crate::information::carry(rewriter.document, |info| {
+            walk(rewriter, assembly, info, replaced, applied).map(Some)
+        })
+        .and_then(|carried| carried.map(|info| info.place(assembly)).transpose())
+        .map_err(|error| Refusal::Assembly(error.to_string()))?;
+        assembly.set_info(carried);
         return Ok(());
     };
     if let Some(date) = &information.kept_modification_date {

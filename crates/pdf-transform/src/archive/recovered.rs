@@ -359,16 +359,13 @@ fn build(
         .and_then(|()| assembly.place(catalog_at, Object::Dictionary(catalog)))
         .map_err(assembly_error)?;
     assembly.set_root(catalog_at);
-    if let Some(info) = document
-        .trailer()
-        .get("Info")
-        .and_then(Object::as_reference)
-        .filter(|info| document.get(*info).as_dict().is_some())
-    {
-        let mapped = crate::optimize::copy_closure(&mut assembly, document, info, true)
-            .map_err(assembly_error)?;
-        assembly.set_info(Some(mapped));
-    }
+    // Direct or indirect (`information`, ADR 3719).
+    let carried = crate::information::carry(document, |info| {
+        crate::optimize::copy_closure(&mut assembly, document, info, true).map(Some)
+    })
+    .and_then(|carried| carried.map(|info| info.place(&mut assembly)).transpose())
+    .map_err(assembly_error)?;
+    assembly.set_info(carried);
 
     let version = document
         .version()
