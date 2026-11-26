@@ -273,8 +273,10 @@ impl Walk<'_> {
                 .unwrap_or_default();
             let marks = self.code_box(&quad, codes, code)?;
             let meets = self.regions.iter().any(|region| overlaps(*region, marks));
+            let placed = self.code_index;
             self.code_index = self.code_index.saturating_add(1);
             if meets {
+                self.removed_codes.push(placed);
                 if removed_first.is_none() {
                     if !kept.is_empty() {
                         write_pdf_string(out, &kept);

@@ -214,7 +214,19 @@
 //! this of the removal in any case — a processor "shall remove all traces of the specified
 //! content" and "shall also be diligent in their consideration of all content that can exist in a
 //! PDF document" — and each entry dropped is a [`crate::Departure`] in the redaction's report,
-//! never a silent change.
+//! never a silent change. A redacted page's and an edited form's own §14.3.2 `/Metadata` packet
+//! goes with them: it describes the content the removal changed (ADR 3725).
+//!
+//! # Every other place the region's content is copied (ADR 3725)
+//!
+//! What the region held can be repeated outside the content stream, and §12.5.6.23's "all traces"
+//! reaches the places that describe or draw *it*: a marked-content property list's and a
+//! structure element's `/ActualText`, `/Alt` and `/E` (`marked`, `traces`), an annotation whose
+//! rectangle meets the region and the field value its widget showed, and a popup that would carry
+//! a removed annotation back. Each is removed or restated and reported. A copy of the same words
+//! in an outline, a name, an embedded file or the document's metadata is not in the region; it is
+//! looked for and named in a [`crate::Warning`], and redacting it there is the reader's choice.
+//! `crates/pdf-transform/tests/redaction_leaves_no_trace.rs` proves both halves by extraction.
 //!
 //! # Where each concern lives (ADR 2032)
 //!
@@ -223,9 +235,10 @@
 //! concern holds an `impl Walk` for it: `text` (codes and the showing operators), `painting`
 //! (path construction and the cut), `frames` (`Do`, forms and the frame a stream runs in),
 //! `images` (the plans that clear an image's samples), `inline` (the inline image splice),
-//! `graphics_state` (`gs` and soft masks) and `regions` (the region in the stream's space);
-//! `forms`, `located`, `mesh`, `paths`, `shading` and `type3` are the constructions
-//! those concerns call, and `overlay` draws Table 195's `/RO` once they are done.
+//! `graphics_state` (`gs` and soft masks), `regions` (the region in the stream's space) and
+//! `marked` (marked-content sequences the removal reaches); `forms`, `located`, `mesh`, `paths`,
+//! `shading` and `type3` are the constructions those concerns call, `overlay` draws Table 195's
+//! `/RO` once they are done, and `traces` finds what else in the file describes the region.
 
 mod deep;
 mod forms;
@@ -234,6 +247,7 @@ mod graphics_state;
 mod images;
 mod inline;
 mod located;
+mod marked;
 mod mesh;
 mod overlay;
 mod painting;
@@ -241,9 +255,10 @@ mod paths;
 mod regions;
 mod shading;
 mod text;
+mod traces;
 mod type3;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::sync::Arc;
@@ -268,12 +283,14 @@ const MAX_DEPTH: usize = 64;
 
 /// The entries of a redacted page that describe the content before the removal, dropped from
 /// the written page (§14.5's `/PieceInfo` and Table 31's `/LastModified` that dates it, and
-/// §12.3.4's `/Thumb`; ADR 3717).
-const STALE_PAGE_ENTRIES: [&[u8]; 3] = [b"PieceInfo", b"LastModified", b"Thumb"];
+/// §12.3.4's `/Thumb`, ADR 3717; §14.3.2's own `/Metadata` packet, which describes the page's
+/// content and may quote it, ADR 3725).
+const STALE_PAGE_ENTRIES: [&[u8]; 4] = [b"PieceInfo", b"LastModified", b"Thumb", b"Metadata"];
 
 /// The entries of an edited form `XObject` that describe its content before the removal:
-/// §14.5's `/PieceInfo` and Table 93's `/LastModified` (ADR 3717).
-const STALE_FORM_ENTRIES: [&[u8]; 2] = [b"PieceInfo", b"LastModified"];
+/// §14.5's `/PieceInfo` and Table 93's `/LastModified` (ADR 3717), and its §14.3.2 `/Metadata`
+/// packet (ADR 3725).
+const STALE_FORM_ENTRIES: [&[u8]; 3] = [b"PieceInfo", b"LastModified", b"Metadata"];
 
 /// One document's `/Redact` annotations applied, and the result written as a new file.
 #[derive(Debug, Clone, PartialEq)]
@@ -303,6 +320,10 @@ pub struct RedactPlan {
 /// [`Refusal::NoSuchSource`], [`Refusal::Reconstructed`] where the document's structure is only
 /// this reader's recovery, [`Refusal::Assembly`] where the document is encrypted or cannot be
 /// rewritten, and [`Refusal::Sink`] where the output cannot be written.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one ordered application: plan each page, remove, overlay, write, then report"
+)]
 pub(crate) fn run(
     plan: &RedactPlan,
     at: usize,
@@ -347,6 +368,7 @@ pub(crate) fn run(
     let mut cut_paths = 0usize;
     let mut departures: Vec<(usize, String)> = Vec::new();
     let mut invalidated: Vec<(Option<usize>, String)> = Vec::new();
+    let mut removals: Vec<(Option<usize>, String)> = Vec::new();
 
     for index in 0..pages.len() {
         let Some((page, page_id)) = pages
@@ -380,7 +402,14 @@ pub(crate) fn run(
                     stale_entries(document, &page.dict, &edit.forms)
                         .map(|what| (Some(index.saturating_add(1)), what)),
                 );
+                let removed = removed_with(document, &page.dict, &regions, index, &mut removals);
+                if edit.described > 0 {
+                    removals.push((Some(index.saturating_add(1)), described(edit.described)));
+                }
                 applied.push(AppliedPage {
+                    removed,
+                    reached: edit.reached,
+                    runs: edit.runs,
                     page_id,
                     placed: page_id,
                     content: after.content,
@@ -430,7 +459,78 @@ pub(crate) fn run(
     });
     let catalog = written.catalog_pieces;
     report_departures(report, plan.source, departures, invalidated, catalog);
+    removals.extend(written.restated.into_iter().map(|detail| (None, detail)));
+    report_traces(report, plan.source, removals, written.survivors);
     Ok(())
+}
+
+/// The redaction's report of what else the removal took and of what it found outside the region
+/// still holding the removed text (`traces`, ADR 3725).
+fn report_traces(
+    report: &mut Report,
+    source: usize,
+    removals: Vec<(Option<usize>, String)>,
+    survivors: Vec<String>,
+) {
+    for (page, detail) in removals {
+        report.departures.push(Departure {
+            source,
+            page,
+            detail: format!("§12.5.6.23: {detail}"),
+        });
+    }
+    for place in survivors {
+        report.warnings.push(Warning {
+            source,
+            page: None,
+            detail: format!(
+                "§12.5.6.23: text the removal took also stands in {place}, outside the region; \
+                 it was written as the producer wrote it, and redacting it there is the reader's \
+                 own choice"
+            ),
+        });
+    }
+}
+
+/// The region's boxes and the annotations removed with it (`traces`), with what the report says
+/// of them added to `removals`.
+fn removed_with(
+    document: &Document,
+    page: &Dictionary,
+    regions: &[Redaction],
+    index: usize,
+    removals: &mut Vec<(Option<usize>, String)>,
+) -> Removed {
+    let boxes: Vec<[f32; 4]> = regions
+        .iter()
+        .flat_map(|region| region.boxes.iter().copied())
+        .collect();
+    let mut removed_annotations = traces::redactions(document, page);
+    let redact_count = removed_annotations.len();
+    for id in traces::in_region(document, page, &boxes) {
+        if !removed_annotations.contains(&id) {
+            removed_annotations.push(id);
+        }
+    }
+    traces::with_popups(document, page, &mut removed_annotations);
+    let at = index.saturating_add(1);
+    if let Some(others) = removed_annotations.get(redact_count..)
+        && !others.is_empty()
+    {
+        removals.push((Some(at), traces::removed_phrase(document, others)));
+    }
+    Removed {
+        boxes,
+        annotations: removed_annotations,
+    }
+}
+
+/// The report's phrase for the property lists the walk restated (`marked`).
+fn described(count: usize) -> String {
+    format!(
+        "{count} marked-content property list(s) whose sequence the removal reached were written \
+         without /ActualText, /Alt and /E (§14.9)"
+    )
 }
 
 /// The redaction's [`Departure`]s: the overlay each page did not draw (ADR 2868), and each entry
@@ -692,6 +792,21 @@ struct AppliedPage {
     /// Each Table 195 `/RO` form the content draws after the removal, by the `/XObject` name the
     /// page's resources gain for it.
     overlays: Vec<(Vec<u8>, ObjectId)>,
+    /// The region and the annotations removed with it.
+    removed: Removed,
+    /// Each marked-content sequence with an identifier the removal reached.
+    reached: Vec<marked::Reached>,
+    /// The text the removal took, in runs.
+    runs: Vec<String>,
+}
+
+/// A redacted page's region, and the annotations removed with it.
+struct Removed {
+    /// The region, as boxes in default user space.
+    boxes: Vec<[f32; 4]>,
+    /// The `/Redact` annotations, those whose rectangle meets the region, and the popup of each
+    /// (`traces`).
+    annotations: Vec<ObjectId>,
 }
 
 /// One `/Redact` annotation's region and what it states is drawn over the region afterwards.
@@ -834,6 +949,14 @@ struct PageEdit {
     states: Vec<(Vec<u8>, Dictionary)>,
     /// The new objects the edited page content names (ADR 1363).
     names: Names,
+    /// Each marked-content sequence with an identifier the removal reached (`marked`).
+    reached: Vec<marked::Reached>,
+    /// How many inline property lists lost their describing entries.
+    described: usize,
+    /// The text-layer index of each code the removal took.
+    removed_codes: Vec<usize>,
+    /// The text those codes read back as, in runs (`traces::removed_runs`).
+    runs: Vec<String>,
 }
 
 /// What a page's edited streams name that the producer's resources do not hold (ADR 1363).
@@ -982,13 +1105,16 @@ fn plan_page(
     // written two ways; the first walk finds which, and a second writes each placement's own
     // (ADR 1363).
     let split = forms::split(&outcomes)?;
-    if split.is_empty() {
-        return Ok(edit);
-    }
-    let mut walk = Walk::new(document, page, &interpretation, region_boxes, counts);
-    walk.image_samples = image_samples;
-    walk.split = split;
-    Ok(walk.run(&content)?.0)
+    let mut edit = if split.is_empty() {
+        edit
+    } else {
+        let mut walk = Walk::new(document, page, &interpretation, region_boxes, counts);
+        walk.image_samples = image_samples;
+        walk.split = split;
+        walk.run(&content)?.0
+    };
+    edit.runs = traces::removed_runs(&interpretation, &edit.removed_codes);
+    Ok(edit)
 }
 
 /// A user-space box mapped through the base transform into the display list's coordinates.
@@ -1861,6 +1987,16 @@ struct Walk<'a> {
     /// The transform the stream now running began under — the page's base transform, or a form's
     /// matrix at its `Do` — which a pattern's `/Matrix` is stated against (§8.7.3.1).
     stream_base: Transform,
+    /// The marked-content sequences open now, innermost last (`marked`, §14.6).
+    sequences: Vec<marked::Open>,
+    /// How many of [`Self::sequences`] the stream now running did not open.
+    sequence_floor: usize,
+    /// Each sequence with an `/MCID` the removal reached (§14.7.5.2).
+    reached: Vec<marked::Reached>,
+    /// How many inline property lists lost their describing entries (§14.9).
+    described: usize,
+    /// The index in the interpreter's text layer of each code the removal took.
+    removed_codes: Vec<usize>,
 }
 
 impl<'a> Walk<'a> {
@@ -1914,6 +2050,11 @@ impl<'a> Walk<'a> {
             added_masks: Vec::new(),
             current_state: None,
             stream_base: base_transform(page),
+            sequences: Vec::new(),
+            sequence_floor: 0,
+            reached: Vec::new(),
+            described: 0,
+            removed_codes: Vec::new(),
         }
     }
 
@@ -1939,6 +2080,10 @@ impl<'a> Walk<'a> {
                 paths: self.paths_cut,
                 forms: self.form_edits,
                 states: self.added_states,
+                reached: self.reached,
+                described: self.described,
+                removed_codes: self.removed_codes,
+                runs: Vec::new(),
                 names: Names {
                     forms: self.added_forms,
                     overrides: self.added_overrides,
@@ -1953,6 +2098,16 @@ impl<'a> Walk<'a> {
     /// Walks one content stream — the page's, or a form's under [`Walk::run_form`] — leaving its
     /// edits in `self.edits`.
     fn run_stream(&mut self, content: &[u8]) -> Result<(), String> {
+        let floor = std::mem::replace(&mut self.sequence_floor, self.sequences.len());
+        let walked = self.run_stream_operators(content);
+        let closed = walked.and_then(|()| self.close_every_sequence());
+        self.sequences.truncate(self.sequence_floor);
+        self.sequence_floor = floor;
+        closed
+    }
+
+    /// [`Walk::run_stream`]'s operators, in the order the stream states them.
+    fn run_stream_operators(&mut self, content: &[u8]) -> Result<(), String> {
         let mut lexer = Lexer::at(content, 0);
         let mut operands: Vec<(Operand, usize)> = Vec::new();
         loop {
@@ -2011,6 +2166,11 @@ impl<'a> Walk<'a> {
                             if !bytes.is_empty() {
                                 self.graphics.record_colour(keyword, bytes.to_vec());
                             }
+                        }
+                        if matches!(keyword, b"BDC" | b"BMC") {
+                            self.open_sequence(content, &operands);
+                        } else if keyword == b"EMC" {
+                            self.close_sequence()?;
                         }
                         if keyword == b"sh" {
                             if let Some(path) = self.path.as_mut() {
@@ -2905,6 +3065,11 @@ struct Written {
     dangling: bool,
     /// Whether the catalog's `/PieceInfo` was dropped (§14.5, ADR 3717).
     catalog_pieces: bool,
+    /// What each field and structure element written without its describing entries lost
+    /// (`traces`, ADR 3725).
+    restated: Vec<String>,
+    /// Each place outside the region that still holds text the removal took (`traces`).
+    survivors: Vec<String>,
 }
 
 /// An object the redacted page owns outright, whose replacement takes its slot in the output.
@@ -2923,6 +3088,10 @@ enum Owned<'a> {
 /// other entry carried into the output's numbering. The original content stream and the removed
 /// annotations are then referenced by nothing and copied by nothing, which is what makes the
 /// removal a removal rather than an orphan the file still holds.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one ordered assembly: replace, cut, copy the closure, place, look, serialise"
+)]
 fn write_document(
     document: &Document,
     root: ObjectId,
@@ -2946,6 +3115,8 @@ fn write_document(
             .replace(0, page.page_id)
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
     }
+    let (mut replaced, restated_slots) = cut_traces(&mut assembly, document, &catalog, applied)?;
+    replaced.extend(replaced_root.map(|_| root));
     let Slots {
         replacements,
         private,
@@ -2968,6 +3139,8 @@ fn write_document(
     .and_then(|carried| carried.map(|info| info.place(&mut assembly)).transpose())
     .map_err(|error| Refusal::Assembly(error.to_string()))?;
     assembly.set_info(carried);
+
+    place_restated(&mut assembly, document, &restated_slots)?;
 
     let placed_located = place_located(&mut assembly, document, applied, &private)?;
     for (index, page) in applied.iter().enumerate() {
@@ -3005,6 +3178,8 @@ fn write_document(
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
     }
 
+    let survivors = look_outside(&assembly, document, root, applied, &replaced);
+
     let version = document
         .version()
         .unwrap_or(pdf_syntax::Version { major: 1, minor: 7 });
@@ -3038,7 +3213,102 @@ fn write_document(
         sanitised: expanded.sanitised,
         dangling: written.dangling > 0,
         catalog_pieces,
+        restated: restated_slots
+            .into_iter()
+            .map(|(_, item)| item.detail)
+            .collect(),
+        survivors,
     })
+}
+
+/// Diligence (§12.5.6.23) as the duty to look: every object the output carries unchanged is read
+/// for the text the removal took, and each place that holds it is answered (`traces`).
+fn look_outside(
+    assembly: &Assembly<'_>,
+    document: &Document,
+    root: ObjectId,
+    applied: &[AppliedPage],
+    replaced: &HashSet<ObjectId>,
+) -> Vec<String> {
+    let runs: Vec<String> = applied.iter().flat_map(|page| page.runs.clone()).collect();
+    let unchanged = |id: ObjectId| assembly.copied(0, id).is_some() && !replaced.contains(&id);
+    traces::survivors(document, root, &unchanged, &runs)
+}
+
+/// Writes each field and structure element [`cut_traces`] reserved a slot for, its remaining
+/// entries carried into the output's numbering.
+fn place_restated(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    slots: &[(ObjectId, traces::Restated)],
+) -> Result<(), Refusal> {
+    for (slot, item) in slots {
+        let mut dict = Dictionary::new();
+        for (key, value) in item.dict.iter() {
+            dict.insert(key.clone(), carry(assembly, document, value, 0));
+        }
+        assembly
+            .place(*slot, Object::Dictionary(dict))
+            .map_err(|error| Refusal::Assembly(error.to_string()))?;
+    }
+    Ok(())
+}
+
+/// What [`cut_traces`] replaced, and each slot it reserved with what goes into it.
+type Cut = (HashSet<ObjectId>, Vec<(ObjectId, traces::Restated)>);
+
+/// Writes §12.5.6.23's removed annotations as the null object, so that no reference to one — a
+/// popup's `/Parent`, a reply's `/IRT`, a field's `/Kids`, an `OBJR` — copies it back, and
+/// reserves a slot for each field and structure element that described what was removed, to be
+/// restated without it (`traces`, ADR 3725). Taken before the closure walk, which both cut.
+///
+/// Answers every source object this replaced, the redacted pages' included, and each slot with
+/// what goes into it.
+fn cut_traces(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    catalog: &Dictionary,
+    applied: &[AppliedPage],
+) -> Result<Cut, Refusal> {
+    let assembly_error =
+        |error: pdf_syntax::serialize::AssemblyError| Refusal::Assembly(error.to_string());
+    let mut gone: Vec<ObjectId> = applied
+        .iter()
+        .flat_map(|page| page.removed.annotations.iter().copied())
+        .collect();
+    gone.sort_by_key(|id| (id.number, id.generation));
+    gone.dedup();
+    let gone_set: HashSet<ObjectId> = gone.iter().copied().collect();
+    let mut replaced: HashSet<ObjectId> = applied.iter().map(|page| page.page_id).collect();
+    for id in &gone {
+        if replaced.contains(id) || assembly.copied(0, *id).is_some() {
+            continue;
+        }
+        let slot = assembly.replace(0, *id).map_err(assembly_error)?;
+        assembly.place(slot, Object::Null).map_err(assembly_error)?;
+        replaced.insert(*id);
+    }
+    let items: Vec<traces::Item> = applied
+        .iter()
+        .flat_map(|page| {
+            page.reached.iter().map(|reached| traces::Item {
+                page: page.page_id,
+                reached: *reached,
+            })
+        })
+        .collect();
+    let mut restated = traces::field_values(document, &gone_set);
+    restated.extend(traces::elements(document, catalog, &items, &gone_set));
+    let mut restated_slots = Vec::new();
+    for item in restated {
+        if replaced.contains(&item.id) || assembly.copied(0, item.id).is_some() {
+            continue;
+        }
+        let slot = assembly.replace(0, item.id).map_err(assembly_error)?;
+        replaced.insert(item.id);
+        restated_slots.push((slot, item));
+    }
+    Ok((replaced, restated_slots))
 }
 
 /// Writes the catalog into the slot `placed` with every entry but `/PieceInfo` carried (§14.5,
@@ -3177,7 +3447,7 @@ fn build_page(
         )));
     };
 
-    let surviving = surviving_annotations(assembly, document, source);
+    let surviving = surviving_annotations(assembly, document, source, page);
     let mut dict = Dictionary::new();
     let restated = !carried.private.is_empty()
         || !page.states.is_empty()
@@ -3997,22 +4267,32 @@ fn add_raw_stream(
         .map_err(|error| Refusal::Assembly(error.to_string()))
 }
 
-/// The page's annotations with every `/Redact` removed, carried into the output — or `None`
-/// where none survive, so the entry is dropped rather than left empty.
+/// The page's annotations with every `/Redact` removed, and every one the region took with it
+/// (`traces`), carried into the output — or `None` where none survive, so the entry is dropped
+/// rather than left empty.
 fn surviving_annotations(
     assembly: &mut Assembly<'_>,
     document: &Document,
     page: &Dictionary,
+    applied: &AppliedPage,
 ) -> Option<Object> {
     let items = document.get_key(page, "Annots").as_array()?.to_vec();
     let mut kept = Vec::new();
     for item in &items {
-        let is_redact = document
-            .resolve(item)
+        let resolved = document.resolve(item);
+        let is_redact = resolved
             .as_dict()
             .and_then(|dict| document.get_key(dict, "Subtype").as_name().cloned())
             .is_some_and(|name| name.as_bytes() == b"Redact");
-        if !is_redact {
+        let removed = match item.as_reference() {
+            Some(id) => applied.removed.annotations.contains(&id),
+            // Table 30 requires indirect references here; a direct annotation is read by the
+            // same rule as an indirect one.
+            None => resolved
+                .as_dict()
+                .is_some_and(|dict| traces::meets(document, dict, &applied.removed.boxes)),
+        };
+        if !is_redact && !removed {
             kept.push(carry(assembly, document, item, 0));
         }
     }
