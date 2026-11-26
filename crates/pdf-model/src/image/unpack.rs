@@ -114,6 +114,10 @@ impl<'a> Prematte<'a> {
         at: usize,
         permitted: &dyn Fn(usize) -> (f32, f32),
     ) {
+        // not a repair: `matte_colour` refuses a `/Matte` whose mask grid is not the parent's
+        // (Table 143), and the plane is carried onto the parent's grid, so a sample past it is
+        // one the mask's decode did not reach and reports as its shortfall; α 0 is the clause
+        // NOTE's arbitrary value.
         let alpha = self.alpha.get(at).copied().unwrap_or(0);
         for (component, value) in values.iter_mut().enumerate() {
             *value = self.restore_component(*value, alpha, component, permitted(component));
@@ -130,6 +134,8 @@ impl<'a> Prematte<'a> {
         component: usize,
         (low, high): (f32, f32),
     ) -> f32 {
+        // not a repair: `matte_colour` refuses a `/Matte` whose count is not the parent's
+        // components (Table 144), so `component` is within it.
         let matte = self.matte.get(component).copied().unwrap_or(0.0);
         if alpha == 0 {
             matte
@@ -1133,6 +1139,8 @@ pub(super) fn levels_drawn(
 
 /// Reads bit `index` of a packed row, most significant bit first.
 fn sample_bit(row: &[u8], index: usize) -> bool {
+    // not a repair: every route reads only the whole samples a row holds, so the byte is within
+    // the row; what the data never carried is `short_of_its_grid`'s report (§7.3.8.2).
     let byte = row.get(index / 8).copied().unwrap_or(0);
     // not a repair: `index % 8` is below eight, so the conversion cannot fail.
     let shift = 7u32.saturating_sub(u32::try_from(index % 8).unwrap_or(0));
@@ -1154,6 +1162,7 @@ pub(super) fn index_of(row: &[u8], index: usize, bits: u32) -> usize {
 /// straddles one; 16 bits is two bytes, most significant first, as every multi-byte integer
 /// in a PDF is.
 fn raw_sample(row: &[u8], index: usize, bits: u32) -> u32 {
+    // not a repair: as `sample_bit`'s, a byte within the row.
     let byte = |at: usize| u32::from(row.get(at).copied().unwrap_or(0));
     match bits {
         1 => u32::from(sample_bit(row, index)),

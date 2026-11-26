@@ -19,6 +19,7 @@
 
 use super::submit::{Execute, Submit};
 use super::xml::{Element, Tree};
+use pdf_syntax::RepairClass;
 
 /// The container classes this module reads, by their element names in XFA 3.3's template grammar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,15 +168,25 @@ impl Default for Digits {
 }
 
 impl Digits {
-    /// The limits `element` states, the defaults for one it does not or states badly: a negative
-    /// bound is page 671's `-1`, no limit, and a value that is no integer is not a statement.
-    fn of(element: &Element) -> Self {
-        let bound = |name: &str, default: Option<usize>| match element
-            .attribute(name)
-            .and_then(|text| text.trim().parse::<i64>().ok())
-        {
-            Some(limit) => usize::try_from(limit).ok(),
-            None => default,
+    /// The limits `element` states, the defaults for one it does not or states badly: `-1` is
+    /// page 671's no limit, and a value that is no integer or is below `-1` is read as absent and
+    /// noted as `XFA_TEMPLATE_ATTRIBUTE_UNUSABLE`.
+    fn of(element: &Element, noted: &mut Vec<&'static RepairClass>) -> Self {
+        let mut bound = |name: &str, default: Option<usize>| {
+            let Some(text) = element.attribute(name) else {
+                // not a repair: page 671 states both defaults, which `Digits::default` holds.
+                return default;
+            };
+            match text.trim().parse::<i64>() {
+                Ok(-1) => None,
+                // not a repair: a negative limit is matched just above and below, so the
+                // conversion fails on none.
+                Ok(limit) if limit >= 0 => usize::try_from(limit).ok(),
+                _ => {
+                    note(noted, &crate::repair::XFA_TEMPLATE_ATTRIBUTE_UNUSABLE);
+                    default
+                }
+            }
         };
         let default = Self::default();
         Self {
@@ -487,7 +498,16 @@ pub(crate) type Unbindable = &'static str;
 
 impl Template {
     /// Reads the template under `root`, the `template` element of a packet.
+    #[cfg(test)]
     pub(crate) fn read(tree: &Tree, root: usize) -> Self {
+        Self::read_noting(tree, root).0
+    }
+
+    /// Reads the template under `root`, the `template` element of a packet, with the classes of
+    /// repair the reading made: the reader holds no document, so its caller, which does, records
+    /// them (ADR 3621).
+    pub(crate) fn read_noting(tree: &Tree, root: usize) -> (Self, Vec<&'static RepairClass>) {
+        let mut noted = Vec::new();
         let mut template = Self {
             containers: Vec::new(),
             roots: Vec::new(),
@@ -534,7 +554,7 @@ impl Template {
                 parent,
                 children: Vec::new(),
             };
-            read_properties(&mut container, tree, element);
+            read_properties(&mut container, tree, element, &mut noted);
             match parent.and_then(|parent| template.containers.get_mut(parent)) {
                 Some(parent) => parent.children.push(at),
                 None => template.roots.push(at),
@@ -548,7 +568,7 @@ impl Template {
                     .map(|&child| (child, Some(at))),
             );
         }
-        template
+        (template, noted)
     }
 
     /// The `locale` the container at `index` states or inherits from the nearest container
@@ -866,7 +886,12 @@ fn read_ui(container: &mut Container, tree: &Tree, ui: &Element) {
     };
 }
 
-fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
+fn read_properties(
+    container: &mut Container,
+    tree: &Tree,
+    element: &Element,
+    noted: &mut Vec<&'static RepairClass>,
+) {
     for &child in &element.children {
         let Some(property) = tree.get(child) else {
             continue;
@@ -904,7 +929,7 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
                 container.rich |= tree.child(child, "exData").is_some();
                 let kind = property.children.first().and_then(|&kind| tree.get(kind));
                 container.value_type = kind.map(|kind| kind.local.clone());
-                container.digits = kind.map_or_default(Digits::of);
+                container.digits = kind.map_or_default(|kind| Digits::of(kind, noted));
             }
             "validate" => {
                 container.pictures.validate = picture(tree, child);
@@ -946,11 +971,14 @@ fn read_properties(container: &mut Container, tree: &Tree, element: &Element) {
             "event" => read_event(container, tree, child, property),
             "calculate" => read_calculate(container, tree, child, property),
             "occur" => {
-                let bound = |name: &str, default: i64| {
-                    property
-                        .attribute(name)
-                        .and_then(|value| value.trim().parse::<i64>().ok())
-                        .unwrap_or(default)
+                let mut bound = |name: &str, default: i64| {
+                    let Some(value) = property.attribute(name) else {
+                        return default;
+                    };
+                    value.trim().parse::<i64>().unwrap_or_else(|_| {
+                        note(noted, &crate::repair::XFA_TEMPLATE_ATTRIBUTE_UNUSABLE);
+                        default
+                    })
                 };
                 // *Repeating Elements using Occurrence Limits*: an absent `min` is 1 and an absent
                 // `max` duplicates the `min`.
@@ -998,7 +1026,10 @@ fn read_event(container: &mut Container, tree: &Tree, child: usize, event: &Elem
         }
     };
     container.events.push(Event {
-        activity: event.attribute("activity").unwrap_or_default().to_owned(),
+        // not a repair: page 703 underlines `click` in the element's syntax, and page 597's key
+        // says "[u]nderlined words indicate the default value. The application uses this value if
+        // the attribute is omitted."
+        activity: event.attribute("activity").unwrap_or("click").to_owned(),
         bound: Bound::of(event.attribute("ref")),
         listens: event
             .attribute("listen")
@@ -1030,6 +1061,14 @@ fn picture(tree: &Tree, property: usize) -> Option<String> {
     let at = tree.child(property, "picture")?;
     let text = tree.get(at)?.text.trim();
     (!text.is_empty()).then(|| text.to_owned())
+}
+
+/// Adds `class` to `noted` once.
+#[cold]
+fn note(noted: &mut Vec<&'static RepairClass>, class: &'static RepairClass) {
+    if !noted.iter().any(|seen| std::ptr::eq(*seen, class)) {
+        noted.push(class);
+    }
 }
 
 /// A `dataRef`'s SOM expression as a path: `$record.` or `$data.` followed by names with
@@ -1160,5 +1199,47 @@ mod tests {
         assert!(varying.dynamic().is_some());
         let set = template("<template><subform name=\"r\"><subformSet/></subform></template>");
         assert!(set.dynamic().is_some());
+    }
+
+    /// An `occur` bound or a `decimal`'s digits that are no integer are read as the grammar's
+    /// default and noted for the caller to log; a template stating integers notes nothing.
+    #[test]
+    fn a_bound_that_is_no_integer_is_noted() {
+        let read = |text: &str| {
+            let tree = parse(text.as_bytes()).expect("well formed");
+            Template::read_noting(&tree, 0).1
+        };
+        assert!(
+            read(
+                "<template><subform name=\"r\"><occur min=\"2\" max=\"-1\"/></subform></template>"
+            )
+            .is_empty()
+        );
+        let noted = read("<template><subform name=\"r\"><occur min=\"two\"/></subform></template>");
+        assert!(
+            noted
+                .iter()
+                .any(|class| class.name == "model/xfa-template-attribute-unusable")
+        );
+        let noted = read(
+            "<template><field name=\"f\"><value><decimal fracDigits=\"-4\"/></value></field>\
+             </template>",
+        );
+        assert_eq!(noted.len(), 1);
+    }
+
+    /// Page 703 underlines `click` in the event element's syntax, so an event that states no
+    /// `activity` fires on a click.
+    #[test]
+    fn an_event_without_an_activity_fires_on_a_click() {
+        let t = template(
+            "<template><field name=\"f\"><event ref=\"$\"><script>1</script></event></field>\
+             </template>",
+        );
+        let field = t.get(0).expect("the field is read");
+        assert_eq!(
+            field.events.first().map(|event| event.activity.as_str()),
+            Some("click")
+        );
     }
 }

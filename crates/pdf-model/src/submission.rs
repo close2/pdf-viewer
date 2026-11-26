@@ -632,6 +632,8 @@ fn html_body(
                 .and_then(|widgets| widgets.first())
                 .and_then(|widget| document.get(*widget).as_dict().cloned())
                 .and_then(|widget| mapping_name(document, &widget))
+                // not a repair: Table 226 makes `/TM` optional, and a field stating none is
+                // exported under the name it is selected by, its fully qualified name (§12.7.4.2).
                 .unwrap_or_else(|| entry.name.clone()),
             entry,
         })
@@ -996,13 +998,13 @@ fn exported(
                         .is_on(document, dict)
                 })
             });
-            // not a repair: no field in the chain states /Opt, so there are no options to map from,
-            // an absent entry.
             let options = field
                 .chain()
                 .into_iter()
                 .map(|source| document.get_key(source, "Opt"))
                 .find(|options| options.as_array().is_some())
+                // not a repair: no field in the chain states /Opt, so there are no options to map
+                // from, an absent entry.
                 .unwrap_or(Object::Null);
             button_export(document, &options, on).map_or(value, |export| {
                 Object::String(pdf_syntax::text_string::encode_text_string(&export).into())
@@ -1019,7 +1021,7 @@ fn stated_indices(document: &Document, field: &Field) -> Option<Vec<usize>> {
         .into_iter()
         .map(|source| document.get_key(source, "I"))
         .find(|entry| entry.as_array().is_some())?;
-    stated
+    let read: Option<Vec<usize>> = stated
         .as_array()?
         .iter()
         .map(|index| {
@@ -1028,7 +1030,13 @@ fn stated_indices(document: &Document, field: &Field) -> Option<Vec<usize>> {
                 .as_integer()
                 .and_then(|index| usize::try_from(index).ok())
         })
-        .collect()
+        .collect();
+    // Table 234 makes `/I` an array of zero-based indices; one holding anything else is read as
+    // absent, the selection then taken from `/V`, and logged as `FIELD_ENTRY_UNUSABLE`.
+    if read.is_none() {
+        crate::form::field_entry_unusable(document);
+    }
+    read
 }
 
 /// §12.7.5.4: a choice field's `/V` — one text string or an array of them — with each displayed
@@ -1218,13 +1226,12 @@ fn selected_file(
     if let Some(chosen) = view.chosen_file(name) {
         return Selected::Carried(SelectedFile {
             name: Some(chosen.pathname.clone()),
-            // not a repair: HTML 4.01 section 17.13.4.2 names application/octet-stream where no
-            // type is given.
             media_type: chosen
                 .media_type
                 .clone()
-                // HTML 4.01 section 17.13.4.2's own fallback, which is the same one an embedded
-                // file stream stating no Table 44 `/Subtype` gets below.
+                // not a repair: HTML 4.01 section 17.13.4.2 names application/octet-stream where
+                // no type is given, the same fallback an embedded file stream stating no Table 44
+                // `/Subtype` gets below.
                 .unwrap_or_else(|| "application/octet-stream".to_owned()),
             bytes: chosen.bytes.clone(),
         });
@@ -2624,11 +2631,17 @@ struct Placed {
 /// which a `/T` on the widget shows, and the widget's `/Parent` where it is a kid of its field.
 fn mapping_name(document: &Document, widget: &Dictionary) -> Option<String> {
     let field = if widget.get("T").is_none() {
-        document
-            .get_key(widget, "Parent")
-            .as_dict()
-            .cloned()
-            .unwrap_or_else(|| widget.clone())
+        let parent = document.get_key(widget, "Parent");
+        if let Some(parent) = parent.as_dict() {
+            parent.clone()
+        } else {
+            // A widget with no `/Parent` is its own field, the merged dictionary §12.7.4.1
+            // permits; a `/Parent` that is no dictionary is read as absent.
+            if !parent.is_null() {
+                crate::form::field_entry_unusable(document);
+            }
+            widget.clone()
+        }
     } else {
         widget.clone()
     };

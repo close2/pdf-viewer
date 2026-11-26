@@ -333,6 +333,9 @@ impl Xmp {
     ///
     /// As [`Xmp::read`].
     pub fn document(document: &Document) -> Option<Result<Self, XmpError>> {
+        // not a repair: an unreadable catalog declines (None), the answer for a document with no
+        // such entry; nothing is read in its place, and the catalog's own failure is recorded
+        // where the page tree reads it (CATALOG_UNREADABLE).
         let catalog = document.catalog().ok()?;
         Self::read(document, &catalog)
     }
@@ -1262,6 +1265,7 @@ pub fn record(bytes: &[u8], event: &Event<'_>) -> Result<Vec<u8>, WriteError> {
     } else {
         item(event, &mut out);
     }
+    // not a repair: the same position, as above.
     out.push_str(text.get(at..).unwrap_or_default());
     Ok(out.into_bytes())
 }

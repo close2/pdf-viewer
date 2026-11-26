@@ -121,6 +121,11 @@ pub fn with_outlines_scaled(data: &[u8], scale: f64) -> Result<Vec<u8>, CffError
     let global = global_subroutines(data);
     // One Local Subr INDEX per Font DICT: a charstring's `callsubr` reaches the subroutines of
     // the Private DICT it is interpreted against and no other.
+    //
+    // not a repair: its one caller hands it a face this reader ships for a font the document
+    // does not embed (`crate::stretch`), not the file's; one that locates no Font DICTs is run
+    // with no local subroutines, and the read-back proof (`stretch_cff`) refuses every glyph that
+    // then draws otherwise.
     let dicts: Vec<Vec<u8>> = if cid_keyed {
         index_items(data, layout.fd_array_at.unwrap_or(0))
             .unwrap_or_default()
@@ -128,6 +133,7 @@ pub fn with_outlines_scaled(data: &[u8], scale: f64) -> Result<Vec<u8>, CffError
             .map(<[u8]>::to_vec)
             .collect()
     } else {
+        // not a repair: as above, a shipped face, held to the read-back proof.
         vec![
             index_item(data, layout.top_index.start, 0)
                 .unwrap_or_default()
@@ -143,6 +149,7 @@ pub fn with_outlines_scaled(data: &[u8], scale: f64) -> Result<Vec<u8>, CffError
         let glyph = u16::try_from(index).map_err(|_| CffError::Malformed {
             detail: "the CharStrings INDEX holds more glyphs than a glyph index names".to_owned(),
         })?;
+        // not a repair: as above, a shipped face, held to the read-back proof.
         let subfont = if cid_keyed {
             font.subfont_index(GlyphId::from(glyph)).unwrap_or(0)
         } else {

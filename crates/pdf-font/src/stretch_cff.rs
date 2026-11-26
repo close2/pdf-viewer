@@ -73,6 +73,8 @@ pub fn cff_outlines(program: &[u8], scale: f32) -> Result<Vec<u8>, StretchError>
     let outlines = with_tables(program, &[(b"CFF ", scaled_cff.clone())]).ok_or(
         StretchError::Unreadable("the tables could not be laid out again"),
     )?;
+    // not a repair: a decline, of a substitute face this machine holds and not the file's
+    // (ADR 2789): a count that does not read refuses the fitting.
     let glyphs = crate::cff::glyph_count(cff)
         .ok()
         .and_then(|count| u16::try_from(count).ok())
@@ -145,6 +147,8 @@ fn proved(original: &[u8], scaled: &[u8], scale: f32, glyphs: u16) -> Result<(),
         let tables = sfnt_tables(program)?;
         let (at, length) = *tables.get(b"CFF ".as_slice())?;
         let cff = program.get(at..at.checked_add(length)?)?;
+        // not a repair: a proof's operand, of a substitute face and not the file's: widths that
+        // do not read compare as unreadable, and the rewrite must read the same.
         crate::cff::charstring_widths(cff, &(0..glyphs).collect::<Vec<_>>()).ok()
     };
     if widths(original) != widths(scaled) {
@@ -197,11 +201,14 @@ fn drawn_alike(before: &Commands, after: &Commands, scale: f32) -> bool {
 /// does not draw.
 fn drawn(program: &[u8], glyph: u16) -> Option<Commands> {
     use skrifa::MetadataProvider as _;
+    // not a repair: a proof's operand, of a substitute face and not the file's: a glyph that does
+    // not draw is compared as one that does not, before and after.
     let font = skrifa::FontRef::new(program).ok()?;
     let mut commands = Commands::default();
     font.outline_glyphs()
         .get(skrifa::GlyphId::from(glyph))?
         .draw(skrifa::instance::Size::unscaled(), &mut commands)
+        // not a repair: as above, an operand of the proof.
         .ok()?;
     Some(commands)
 }
@@ -223,6 +230,8 @@ impl Commands {
                 clippy::cast_possible_truncation,
                 reason = "a whole number from a 16.16 coordinate; the i16 conversion checks range"
             )]
+            // not a repair: an extent past `hmtx`'s 16-bit field is left out of the box this
+            // writer states for a substitute face, a bound of the writer's.
             i16::try_from(value as i32).ok()
         };
         Some((whole(min.floor())?, whole(max.ceil())?))

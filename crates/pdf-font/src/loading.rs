@@ -1358,7 +1358,6 @@ fn both_symbol_flags(document: &Document, descriptor: Option<&Dictionary>) -> bo
     })
 }
 
-/// Reads a font dictionary's `/ToUnicode` `CMap` and whatever it builds on (§9.10.3).
 /// A Type 0 font's `/Encoding` where it is one of §9.7.5.2's predefined names, as text.
 ///
 /// Only [`collection_gap`] asks, and only for the one of its four facts that is stated of the
@@ -1375,7 +1374,14 @@ fn encoding_name(document: &Document, dict: &Dictionary) -> Option<String> {
     std::str::from_utf8(name.as_bytes()).ok().map(str::to_owned)
 }
 
-fn to_unicode(document: &Document, dict: &Dictionary) -> tounicode::ToUnicode {
+/// Reads a font dictionary's `/ToUnicode` `CMap` and whatever it builds on (ISO 32000-2
+/// §9.10.3), logging on `document` an entry that is not a stream, a map that does not read and
+/// a chain past this reader's depth.
+///
+/// Every font dictionary's `/ToUnicode` is read here, a Type 3 font's (`pdf_model::type3`) as
+/// well as those [`LoadedFont`] opens, so that one reader follows `/UseCMap` and one logs.
+#[must_use]
+pub fn to_unicode(document: &Document, dict: &Dictionary) -> tounicode::ToUnicode {
     let stated = document.get_key(dict, "ToUnicode");
     // not a repair: an absent `/ToUnicode` is §9.10.2's first method not taken, and Table 109
     // makes the entry optional.

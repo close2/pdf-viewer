@@ -304,33 +304,7 @@ impl Type3Font {
             }
         });
 
-        let first_char = document
-            .get_key(dict, "FirstChar")
-            .as_integer()
-            .unwrap_or_default();
-        // Table 110 bounds `/Widths` on both sides — "[f]or character codes outside the range
-        // FirstChar to LastChar, the width shall be 0" — so an array longer than the range
-        // states nothing for the codes past `/LastChar`, and it is cut there once rather than
-        // asked again at every code. An absent `/LastChar`, which the table makes Required,
-        // leaves the array its own length: the range then ends where the array does, as
-        // `pdf_font`'s `stated_widths` reads a simple font that never stated the endpoint.
-        let stated = document
-            .get_key(dict, "LastChar")
-            .as_integer()
-            .map(|last_char| {
-                usize::try_from(last_char.saturating_sub(first_char).saturating_add(1)).unwrap_or(0)
-            });
-        let widths = document
-            .get_key(dict, "Widths")
-            .as_array()
-            .map_or_default(|items| {
-                items
-                    .iter()
-                    .take(stated.unwrap_or(usize::MAX))
-                    .map(|item| document.resolve(item))
-                    .map(|item| item.as_number().map_or(0.0, narrow))
-                    .collect()
-            });
+        let (first_char, widths) = widths(document, dict);
 
         Ok(Self {
             font_matrix,
@@ -340,13 +314,7 @@ impl Type3Font {
             widths,
             first_char,
             resources: document.get_key(dict, "Resources").as_dict().cloned(),
-            to_unicode: pdf_font::tounicode::ToUnicode::parse(
-                &document
-                    .get_key(dict, "ToUnicode")
-                    .as_stream()
-                    .and_then(|stream| document.decoded_stream_data(stream))
-                    .unwrap_or_else(|| Arc::from([])),
-            ),
+            to_unicode: pdf_font::to_unicode(document, dict),
         })
     }
 
@@ -424,11 +392,13 @@ impl Type3Font {
         // "For character codes outside the range FirstChar to LastChar, the width shall be
         // 0" — Table 110, which is why nothing here consults `/MissingWidth`. The array was
         // cut at `/LastChar` when it was read, so both sides of the range end it here.
-        // not a repair: ISO 32000-2 Table 110 gives a code outside FirstChar to LastChar the width
-        // 0.
-        let width = i64::from(code)
+        // not a repair: a code below `/FirstChar` has no index, and is outside the range.
+        let index = i64::from(code)
             .checked_sub(self.first_char)
-            .and_then(|index| usize::try_from(index).ok())
+            .and_then(|index| usize::try_from(index).ok());
+        // not a repair: ISO 32000-2 Table 110 gives a code outside FirstChar to LastChar the
+        // width 0, and an array short of the range was logged when `widths` read it.
+        let width = index
             .and_then(|index| self.widths.get(index))
             .copied()
             .unwrap_or(0.0);
@@ -491,9 +461,11 @@ impl Type3Font {
         // sends every other simple font to. `pr4922.pdf`'s Type 3 font names its twenty glyphs
         // `/P`, `/a`, `/colon`, `/five`, `/hyphen`, `/slash` and so on, and nothing in it is
         // invented.
-        if let Some(text) = self
-            .encoding
-            .get(&u8::try_from(code).unwrap_or(0))
+        // not a repair: a character code beyond one byte names no glyph (§9.6.4), so it has no
+        // name to look up.
+        if let Some(text) = u8::try_from(code)
+            .ok()
+            .and_then(|code| self.encoding.get(&code))
             .and_then(|name| pdf_font::encoding::text_for(name.as_str()?))
         {
             out.push_str(&text);
@@ -708,21 +680,120 @@ fn encoding(document: &Document, dict: &Dictionary) -> BTreeMap<u8, Name> {
     // appears in the array or the array ends."
     let differences = document.get_key(encoding, "Differences");
     let Some(items) = differences.as_array() else {
+        // Table 112 makes `/Differences` optional; one of another type is read as absent.
+        if !matches!(differences, Object::Null) {
+            noted(
+                document,
+                &pdf_font::repair::DIFFERENCES_MALFORMED,
+                entry_site(dict, "Encoding"),
+            );
+        }
         return table;
     };
+    // A code outside one byte, a name before any code and an element of neither type are each
+    // read past and logged as `DIFFERENCES_MALFORMED`, as `pdf_font` reads every other simple
+    // font's array.
     let mut code: Option<u8> = None;
+    let mut malformed = false;
     for item in items {
         match document.resolve(item) {
-            Object::Integer(value) => code = u8::try_from(value).ok(),
+            Object::Integer(value) => {
+                code = u8::try_from(value).ok();
+                malformed |= code.is_none();
+            }
             Object::Name(glyph) => {
-                let Some(at) = code else { continue };
+                let Some(at) = code else {
+                    malformed = true;
+                    continue;
+                };
                 table.insert(at, glyph.clone());
                 code = at.checked_add(1);
             }
-            _ => {}
+            _ => malformed = true,
         }
     }
+    if malformed {
+        noted(
+            document,
+            &pdf_font::repair::DIFFERENCES_MALFORMED,
+            entry_site(dict, "Encoding"),
+        );
+    }
     table
+}
+
+/// Table 110's `/FirstChar` and `/Widths`, the array cut at `/LastChar`.
+///
+/// ISO 32000-2 §9.6.4's Table 110 makes all three required, and `/Widths`
+///
+/// > An array of ( LastChar - FirstChar + 1) numbers, each element being the glyph width for
+/// > the character code that equals FirstChar plus the array index.
+///
+/// Where the font states less, the reading is `pdf_font`'s for every other simple font, and
+/// it is logged as `font/widths-malformed` once: a `/FirstChar` that is no integer reads 0, an
+/// absent `/LastChar` lets the array end the range, an element that is no number and a code the
+/// array falls short of are given Table 110's width outside the range, 0.
+fn widths(document: &Document, dict: &Dictionary) -> (i64, Vec<f32>) {
+    let stated_first = document.get_key(dict, "FirstChar").as_integer();
+    let stated_last = document.get_key(dict, "LastChar").as_integer();
+    let array = document.get_key(dict, "Widths");
+    let mut malformed = stated_first.is_none() || stated_last.is_none();
+    // not a repair: a `/FirstChar` that is no integer is logged just above, and read from code 0
+    // as `pdf_font::metrics` reads a simple font's.
+    let first_char = stated_first.unwrap_or(0);
+    // Table 110 bounds `/Widths` on both sides — "[f]or character codes outside the range
+    // FirstChar to LastChar, the width shall be 0" — so an array longer than the range states
+    // nothing for the codes past `/LastChar`, and it is cut there once rather than asked again
+    // at every code. A `/LastChar` before `/FirstChar` states an empty range.
+    let range = stated_last.map(|last_char| {
+        // not a repair: a range that ends before it starts holds no code, and the subtraction's
+        // only failure is that.
+        usize::try_from(last_char.saturating_sub(first_char).saturating_add(1)).unwrap_or(0)
+    });
+    let widths: Vec<f32> = if let Some(items) = array.as_array() {
+        items
+            .iter()
+            // not a repair: an absent `/LastChar` is logged above, and the array then ends the
+            // range, as `pdf_font::metrics` reads a simple font that never stated the endpoint.
+            .take(range.unwrap_or(usize::MAX))
+            .map(|item| {
+                let width = document.resolve(item).as_number();
+                malformed |= width.is_none();
+                width.map_or(0.0, narrow)
+            })
+            .collect()
+    } else {
+        malformed = true;
+        Vec::new()
+    };
+    if range.is_some_and(|range| widths.len() < range) {
+        malformed = true;
+    }
+    if malformed {
+        noted(
+            document,
+            &pdf_font::repair::WIDTHS_MALFORMED,
+            entry_site(dict, "Widths"),
+        );
+    }
+    (first_char, widths)
+}
+
+/// Records a repair of `class` at `at` on the document read from (ADR 3477).
+///
+/// Cold: a font that states what Table 110 requires never reaches it.
+#[cold]
+fn noted(document: &Document, class: &'static pdf_syntax::RepairClass, at: pdf_syntax::Site) {
+    document.record_repair(class, at);
+}
+
+/// Where a repair of the entry `key` of a Type 3 font dictionary is placed: the entry itself
+/// where the file writes it as an indirect object, else the whole file — the reader is handed
+/// the dictionary and not its object, as `pdf_font`'s readers are.
+fn entry_site(dict: &Dictionary, key: &str) -> pdf_syntax::Site {
+    dict.get(key)
+        .and_then(Object::as_reference)
+        .map_or(pdf_syntax::Site::WholeFile, pdf_syntax::Site::Object)
 }
 
 /// Writes every code a predefined encoding names into the table.
@@ -782,5 +853,27 @@ mod tests {
         // descriptor's `/MissingWidth`.
         assert!((unit.advance(98) - 0.0).abs() < f32::EPSILON);
         assert!((unit.advance(96) - 0.0).abs() < f32::EPSILON);
+    }
+
+    /// A code beyond one byte names no glyph (§9.6.4), so it takes no name's text: 256 is not
+    /// code 0, whose name here is `/A`.
+    #[test]
+    fn a_code_beyond_one_byte_takes_no_name() {
+        let font = Type3Font {
+            font_matrix: Transform::new(0.001, 0.0, 0.0, 0.001, 0.0, 0.0),
+            encoding: BTreeMap::from([(0, Name::new(&b"A"[..]))]),
+            char_procs: Dictionary::default(),
+            char_procs_damage: None,
+            widths: Vec::new(),
+            first_char: 0,
+            resources: None,
+            to_unicode: pdf_font::tounicode::ToUnicode::parse(&[]),
+        };
+        let mut zero = String::new();
+        assert!(font.text(0, &mut zero));
+        assert_eq!(zero, "A");
+        let mut beyond = String::new();
+        assert!(!font.text(256, &mut beyond));
+        assert_eq!(beyond, "");
     }
 }

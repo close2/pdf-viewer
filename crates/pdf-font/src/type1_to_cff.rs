@@ -189,6 +189,8 @@ fn written(
         .ok_or_else(too_large)?
         .len();
     let private_at = fd_array_at.saturating_add(fd_array_length);
+    // not a repair: an offset of this writer's that a DICT cannot state refuses the program
+    // (`too_large`), a decline.
     let offset = |at: usize| {
         i64::try_from(at)
             .ok()
@@ -208,6 +210,7 @@ fn written(
 
     let top_index = index(&[top_dict(system, count, placed)]).ok_or_else(too_large)?;
     let fd_array = index(&[font_dict(private_at)]).ok_or_else(too_large)?;
+    // not a repair: a capacity hint, of an offset `offset` has already held to `i32`'s range.
     let mut out = Vec::with_capacity(
         usize::try_from(private_at)
             .unwrap_or_default()
@@ -242,6 +245,7 @@ fn top_dict(system: &SystemInfo, count: usize, placed: [i64; 4]) -> Vec<u8> {
     }
     push_operator(&mut out, OP_ROS);
     for (operand, operator) in [
+        // not a repair: a glyph count, which a `u16` glyph index bounds, always fits.
         (i64::try_from(count).unwrap_or(i64::MAX), OP_CID_COUNT),
         (charset, OP_CHARSET),
         (fd_select, OP_FD_SELECT),
@@ -257,6 +261,7 @@ fn top_dict(system: &SystemInfo, count: usize, placed: [i64; 4]) -> Vec<u8> {
 /// The one Font DICT: its Private DICT's size and offset.
 fn font_dict(private_at: i64) -> Vec<u8> {
     let mut out = Vec::new();
+    // not a repair: the length of this writer's own fixed Private DICT, which always fits.
     out.extend_from_slice(&int5(i64::try_from(PRIVATE.len()).unwrap_or_default()));
     out.extend_from_slice(&int5(private_at));
     push_operator(&mut out, OP_PRIVATE);
@@ -333,6 +338,7 @@ impl OutlinePen for Recorded {
 
 /// A glyph refused by its index and name.
 fn refused(program: &Program, glyph: u16, why: &str) -> Type1Error {
+    // not a repair: the words of a refusal's message, not a value read in the file's place.
     let name = program
         .font
         .glyph_name(GlyphId::from(glyph))

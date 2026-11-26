@@ -67,7 +67,7 @@ pub use crate::composite::composite_cmap;
 pub use crate::glyph_names::PERMITTED_ENCODING_NAMES;
 pub use crate::loading::{
     CharacterGlyph, FontError, LoadedFont, NOTDEF_GLYPH, NamingGap, OutlineRefused, UnreachedCode,
-    without_program,
+    to_unicode, without_program,
 };
 pub use crate::metrics::{
     SuppliedWidths, VerticalDisplacements, descriptor_flags, measured_extent,

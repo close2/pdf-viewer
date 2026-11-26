@@ -426,3 +426,60 @@ fn an_action_entry_of_the_wrong_type_is_logged() {
         [(repair::ACTION_ENTRY_UNUSABLE.name, Site::WholeFile)]
     );
 }
+
+/// One page drawing `a` and `b` in a Type 3 font whose dictionary states `widths` and
+/// `differences` as Table 110 and Table 112 read them.
+fn type3_page(widths: &str, differences: &str) -> Document {
+    let glyph = "0 0 0 0 0 0 d1";
+    file(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R \
+         /Resources << /Font << /F1 5 0 R >> >> >>"
+            .to_owned(),
+        {
+            let operators = "BT /F1 1 Tf (ab) Tj ET";
+            format!(
+                "<< /Length {} >>\nstream\n{operators}\nendstream",
+                operators.len()
+            )
+        },
+        format!(
+            "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 0 0] \
+             /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /a 6 0 R /b 6 0 R >> \
+             /Encoding << /Type /Encoding /Differences {differences} >> {widths} >>"
+        ),
+        format!("<< /Length {} >>\nstream\n{glyph}\nendstream", glyph.len()),
+    ])
+}
+
+/// Table 110 makes `/FirstChar`, `/LastChar` and `/Widths` required, the last one number per code
+/// of the range; a Type 3 font stating them so logs nothing, and one whose array falls short of its
+/// range, or that states none, logs `font/widths-malformed`, its missing code given 0.
+#[test]
+fn a_type3_font_whose_widths_fall_short_is_logged() {
+    let stated = type3_page("/FirstChar 97 /LastChar 98 /Widths [500 500]", "[97 /a /b]");
+    assert_eq!(logged(&stated), []);
+    let short = type3_page("/FirstChar 97 /LastChar 98 /Widths [500]", "[97 /a /b]");
+    has(&short, &pdf_font::repair::WIDTHS_MALFORMED, Site::WholeFile);
+    let absent = type3_page("", "[97 /a /b]");
+    has(
+        &absent,
+        &pdf_font::repair::WIDTHS_MALFORMED,
+        Site::WholeFile,
+    );
+}
+
+/// §9.6.5.1: each code in `/Differences` is "the first index in a sequence of character codes",
+/// a byte for a simple font; a name before any code is read past and logged.
+#[test]
+fn a_type3_differences_array_with_a_name_before_a_code_is_logged() {
+    has(
+        &type3_page(
+            "/FirstChar 97 /LastChar 98 /Widths [500 500]",
+            "[/a 97 /a /b]",
+        ),
+        &pdf_font::repair::DIFFERENCES_MALFORMED,
+        Site::WholeFile,
+    );
+}

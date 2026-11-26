@@ -61,6 +61,8 @@ pub fn joining_type(character: char) -> JoiningType {
             std::cmp::Ordering::Equal
         }
     });
+    // not a repair: `DerivedJoiningType.txt` states that "[a]ll code points not explicitly listed
+    // for Joining_Type have the value Non_Joining (U)", the arm below.
     match found.ok().and_then(|at| JOINING_TYPES.get(at)) {
         Some((_, _, b'R')) => JoiningType::Right,
         Some((_, _, b'L')) => JoiningType::Left,
@@ -180,6 +182,8 @@ pub struct Shaped {
 /// The presentation form `UnicodeData.txt` decomposes to `base` under `position`'s tag.
 fn presentation_form(base: char, position: Position) -> Option<char> {
     let key = (base, position.table_code());
+    // not a repair: a character `UnicodeData.txt` gives no form under the tag has none, which
+    // `Shaped::unformed` then says.
     PRESENTATION_FORMS
         .binary_search_by(|(candidate, form, _)| (*candidate, *form).cmp(&key))
         .ok()
@@ -190,6 +194,8 @@ fn presentation_form(base: char, position: Position) -> Option<char> {
 /// The lam-alef ligature for one pair, in the position the ligature rules give it.
 fn ligature(lam: char, alef: char, position: Position) -> Option<char> {
     let key = (lam, alef, position.table_code());
+    // not a repair: a pair `UnicodeData.txt` gives no ligature is drawn as the two joined letters,
+    // as `shape` says a style without that ligature draws them.
     PRESENTATION_LIGATURES
         .binary_search_by(|(first, second, form, _)| (*first, *second, *form).cmp(&key))
         .ok()
@@ -212,6 +218,7 @@ pub fn shape(text: &[char]) -> Vec<Shaped> {
     let mut out = Vec::with_capacity(text.len());
     let mut consumed = vec![false; text.len()];
     for (index, (&character, form)) in text.iter().zip(&forms).enumerate() {
+        // not a repair: `consumed` has one slot per character of `text`, so `index` is in it.
         if consumed.get(index).copied().unwrap_or(false) {
             continue;
         }
@@ -242,6 +249,8 @@ pub fn shape(text: &[char]) -> Vec<Shaped> {
             Position::Isolated => Some(character),
             joined => presentation_form(character, joined),
         };
+        // not a repair: R7's nominal character where `UnicodeData.txt` has no form, which
+        // `unformed` reports.
         out.push(Shaped {
             character: formed.unwrap_or(character),
             source: index,

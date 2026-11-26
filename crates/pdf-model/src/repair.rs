@@ -252,6 +252,16 @@ classes! {
         "an ol start, an li value or a body's xfa:spec in a rich text string that does not read \
          as the number or version its grammar gives it was read as absent";
 
+    // ---- an XFA template, §12.7.3's `/XFA` and the XFA 3.3 grammar it names ------------------
+
+    /// An attribute of an XFA template's `occur` or of a value's content element that does not
+    /// read as the number its grammar gives it.
+    XFA_TEMPLATE_ATTRIBUTE_UNUSABLE = "model/xfa-template-attribute-unusable",
+        "ISO 32000-2 §12.7.3",
+        "an occur min or max, or a fracDigits or leadDigits, in an XFA template that does not read \
+         as the integer its grammar gives it was read as absent, the grammar's default standing \
+         in its place";
+
     // ---- a coordinate system's Well Known Text, §12.10.3 and ISO 19162 ------------------------
 
     /// A system, a datum or a unit of a `/WKT` string with no name.

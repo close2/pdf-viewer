@@ -921,6 +921,8 @@ impl ViewState {
         let value = if field.is_empty() {
             String::new()
         } else {
+            // not a repair: Table 226 makes `/V` optional, and a field with no value is the empty
+            // text a script reads.
             self.text_of(document, annotation).unwrap_or_default()
         };
         let mut ran = Ran::default();
@@ -976,10 +978,17 @@ fn is_script_rendition(action: &crate::action::Action) -> bool {
 /// `/P` is Optional for every subtype but a screen annotation, so a page's own `/Annots` is the
 /// statement every annotation has; the walk is made only at an annotation's event, a person's act.
 /// Page one where neither names a page.
+///
+/// A `/P` that is no reference to a page of the tree is read as absent, and logged as
+/// `ANNOTATION_ENTRY_UNUSABLE`: Table 166 makes it "\[a]n indirect reference to the page object
+/// with which this annotation is associated".
 fn page_of(document: &Document, id: ObjectId, annotation: &Dictionary) -> usize {
     let pages = crate::page::Pages::new(document);
-    if let Some(page) = annotation.get("P").and_then(Object::as_reference) {
-        return pages.index_of(page).unwrap_or_default();
+    if let Some(stated) = annotation.get("P") {
+        match stated.as_reference().and_then(|page| pages.index_of(page)) {
+            Some(index) => return index,
+            None => crate::annotation::annotation_entry_unusable(document),
+        }
     }
     let mut ordered: Vec<(usize, ObjectId)> = pages
         .indices()
@@ -1214,6 +1223,9 @@ fn open_action(document: &Document) -> Walked {
 /// Table 29 makes the catalog's `/AA` "\[a]n additional-actions dictionary defining the actions
 /// that shall be taken in response to various trigger events affecting the document as a whole".
 fn document_entry(document: &Document, trigger: DocumentTrigger) -> Option<Object> {
+    // not a repair: an unreadable catalog declines (None), the answer for a document with no
+    // `/AA`; nothing is read in its place, and the catalog's own failure is recorded where the
+    // page tree reads it (CATALOG_UNREADABLE).
     let catalog = document.catalog().ok()?;
     let additional = document.get_key(&catalog, "AA");
     additional.as_dict()?.get(trigger.key()).cloned()

@@ -75,6 +75,8 @@ pub fn digitless_reals(data: &[u8]) -> Result<Vec<DigitlessReal>, CffError> {
     if let Some(private) = private_of(&top_tokens) {
         read_reals(&tokens(data, private), DictKind::Private, &mut found);
     }
+    // not a repair: a decline of this finder's: an `FDArray` offset that is negative locates no
+    // Font DICT, so none is searched there, and no value stands in for the file's.
     let fd_array = top_tokens
         .iter()
         .position(|token| matches!(token, Token::Operator(op) if *op == OP_FD_ARRAY))
@@ -142,6 +144,7 @@ fn tokens(data: &[u8], range: Range<usize>) -> Vec<Token> {
                 Some(&b1) => (Token::Operator(ESCAPE | u16::from(b1)), 2),
                 None => break,
             },
+            // not a repair: an operand the DICT's end cuts short ends the tokens, a decline.
             28 => match dict
                 .get(next..at.saturating_add(3))
                 .and_then(|bytes| <[u8; 2]>::try_from(bytes).ok())
@@ -149,6 +152,7 @@ fn tokens(data: &[u8], range: Range<usize>) -> Vec<Token> {
                 Some(bytes) => (Token::Integer(i64::from(i16::from_be_bytes(bytes))), 3),
                 None => break,
             },
+            // not a repair: as above, a cut operand ends the tokens.
             29 => match dict
                 .get(next..at.saturating_add(5))
                 .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
@@ -175,6 +179,8 @@ fn tokens(data: &[u8], range: Range<usize>) -> Vec<Token> {
                 )
             }
             32..=254 => {
+                // not a repair: an operand whose second byte is past the DICT's end is refused by
+                // the width test below, so the 0 is never read as a value.
                 let b1 = dict.get(next).copied().unwrap_or(0);
                 let (value, width) = super::small_operand(b0, b1);
                 if at.saturating_add(width) > dict.len() {
@@ -232,6 +238,7 @@ fn private_of(tokens: &[Token]) -> Option<Range<usize>> {
     let [.., Token::Integer(size), Token::Integer(offset)] = operands else {
         return None;
     };
+    // not a repair: a negative size or offset locates no Private DICT, a decline.
     let size = usize::try_from(*size).ok()?;
     let offset = usize::try_from(*offset).ok()?;
     Some(offset..offset.checked_add(size)?)

@@ -136,6 +136,9 @@ impl Encryption {
         resolve: &dyn Fn(&Object) -> Object,
     ) -> SyntaxResult<Self> {
         let unsupported = |detail: String| SyntaxError::UnsupportedEncryption { detail };
+        // Table 20 requires `/V`; one absent or not an integer is read as 0 — refused under s5,
+        // and `/V` 1's 40-bit key under s3 and s4 — and logged as `ENCRYPTION_ENTRY` by
+        // `Document::authenticate` before this runs.
         let version = get("V").as_integer().unwrap_or(0);
         let lists = match sub_filter {
             SubFilter::S5 => {
@@ -290,6 +293,8 @@ impl StringLists {
         method: Method,
         resolve: &dyn Fn(&Object) -> Object,
     ) -> SyntaxResult<Self> {
+        // not a repair: a decline: a `/StrF` filter with no dictionary in `/CF` has no
+        // `/Recipients`, which the line below refuses by name.
         let entry = entries
             .iter()
             .find(|(key, _)| *key == name)
@@ -342,6 +347,8 @@ fn filter_lists(
     resolve: &dyn Fn(&Object) -> Object,
 ) -> SyntaxResult<RecipientLists> {
     let unsupported = |detail: String| SyntaxError::UnsupportedEncryption { detail };
+    // not a repair: Table 20 makes `/CF` optional, and `crypt_filters` has already refused a
+    // `/StmF` or `/StrF` naming a filter it does not define, so without one both are the identity.
     let entries = get("CF").as_dict().cloned().unwrap_or_default();
     let named = |key: &str| {
         get(key)
@@ -357,6 +364,8 @@ fn filter_lists(
     };
     // `/StrF` naming a filter of its own beside `/StmF`'s: the second default filter.
     let string_name = named("StrF").filter(|string| Some(string) != name.as_ref());
+    // not a repair: `crypt_filters` refused a named filter whose `/CF` entry is no dictionary, so
+    // the entry is empty only where neither default filter names one, and then no list is read.
     let entry = entries
         .iter()
         .find(|(key, _)| Some(*key) == name.as_ref())
@@ -395,6 +404,8 @@ fn filter_lists(
                  the first and a string for a filter a stream's /Crypt decode parameters name"
             )));
         };
+        // not a repair: `crypt_filters` read every `/CF` entry that is not a Table 26 name and is
+        // a dictionary, as this one is, so `other` is in `named`.
         let method = filters
             .named
             .get(other)

@@ -235,8 +235,9 @@ impl Resource {
         let locale_set = tree.first("localeSet").map(|at| (&tree, at));
         let config = tree.first("config").is_some().then_some(&tree);
         let locales = LocaleSet::read(locale_set, config);
+        let template = read_template(document, id, &tree, template);
         Ok(Self {
-            template: Template::read(&tree, template),
+            template,
             locales,
             config: Config::read(&tree),
             datasets: Datasets::new(text, tree, datasets),
@@ -271,6 +272,7 @@ impl Resource {
         let datasets = tree
             .first("datasets")
             .ok_or(ResourceError::Missing("datasets"))?;
+        let template = read_template(document, template_id, &template_tree, template);
         // A `config` packet that is stated and does not read leaves the form without its
         // configured locale and with page 509's and page 1340's defaults, rather than refusing
         // the fields that need neither.
@@ -279,7 +281,7 @@ impl Resource {
             _ => None,
         };
         Ok(Self {
-            template: Template::read(&template_tree, template),
+            template,
             datasets: Datasets::new(text, tree, datasets),
             datasets_stream: datasets_id,
             locales: Self::locales(document, named("localeSet"), config.as_ref()),
@@ -375,6 +377,16 @@ fn packet_streams(packets: &[Object]) -> Vec<ObjectId> {
             _ => None,
         })
         .collect()
+}
+
+/// The template under `root` of the packet stream `id`, every repair its reading made recorded at
+/// that stream (ADR 3621).
+fn read_template(document: &Document, id: ObjectId, tree: &xml::Tree, root: usize) -> Template {
+    let (template, noted) = Template::read_noting(tree, root);
+    for class in noted {
+        document.record_repair(class, pdf_syntax::Site::Object(id));
+    }
+    template
 }
 
 /// One packet's stream, decoded under [`MAX_PACKET_BYTES`] and parsed.

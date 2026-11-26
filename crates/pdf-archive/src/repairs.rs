@@ -216,6 +216,7 @@ pub static MAPPING: &[Mapped] = &[
     // refuses by the class's name where it reads the entry again (ADR 3709).
     base("model/rich-text-malformed"),
     base("model/rich-text-attribute-unusable"),
+    base("model/xfa-template-attribute-unusable"),
     base("model/wkt-name-absent"),
     base("model/wkt-identifier-unusable"),
     base("model/wkt-auxiliary-sphere-type-absent"),

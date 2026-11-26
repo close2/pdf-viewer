@@ -56,6 +56,8 @@ impl<'text> Paragraphs<'text> {
         let classes = &self.info.original_classes;
         let end = line.end.min(levels.len());
         let start = line.start.min(end);
+        // not a repair: `start` and `end` are clamped to the levels just above, so the range is
+        // always within them; the text's levels are this resolution's, not a value a file states.
         let mut out: Vec<u8> = levels
             .get(start..end)
             .unwrap_or_default()
@@ -124,6 +126,8 @@ fn reset_line(levels: &mut [u8], classes: &[BidiClass], paragraph: u8) {
     let mut run_start: Option<usize> = None;
     let mut previous = paragraph;
     for at in 0..levels.len().min(classes.len()) {
+        // not a repair: `at` is below both lengths, so the class is there, and a separator with
+        // no run of white space before it is a run of its own, as UAX #9 rule L1 resets it.
         let class = classes.get(at).copied().unwrap_or(BidiClass::L);
         match class {
             B | S => {
@@ -143,6 +147,7 @@ fn reset_line(levels: &mut [u8], classes: &[BidiClass], paragraph: u8) {
             }
             _ => run_start = None,
         }
+        // not a repair: `at` is below the levels' length, so the level is there.
         previous = levels.get(at).copied().unwrap_or(paragraph);
     }
     if let Some(from) = run_start
@@ -161,6 +166,8 @@ fn reset_line(levels: &mut [u8], classes: &[BidiClass], paragraph: u8) {
 pub fn visual_order(levels: &[u8]) -> Vec<usize> {
     let levels: Vec<Level> = levels
         .iter()
+        // not a repair: every caller passes levels a UAX #9 resolution produced, which BD2 bounds
+        // at `max_depth` + 1, so `Level::new` refuses none.
         .map(|level| Level::new(*level).unwrap_or_else(|_| Level::rtl()))
         .collect();
     BidiInfo::reorder_visual(&levels)
@@ -174,6 +181,8 @@ pub fn visual_order(levels: &[u8]) -> Vec<usize> {
 /// opens in the direction the run reads.
 #[must_use]
 pub fn mirrored(character: char) -> Option<char> {
+    // not a repair: a character `BidiMirroring.txt` does not list has no mirror, which is the
+    // file's own statement.
     MIRRORING
         .binary_search_by(|(from, _)| from.cmp(&character))
         .ok()
