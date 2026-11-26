@@ -54,8 +54,9 @@ const CRISP: i32 = 3;
 /// Luminance a valley pixel is lighter than both its neighbours by: a quarter of the range.
 const VALLEY: i32 = 64;
 /// How far across, in device pixels, another mark's edge may lie from a fitted rule's centre and
-/// still be at its coordinates: the widest fitted rule's whole width, so two rules that touch count.
-const BESIDE: f32 = pdf_render::FIT_BELOW;
+/// still be at its coordinates: one and a half pixels, a thin rule's whole width, so two thin
+/// rules that touch count.
+const BESIDE: f32 = 1.5;
 /// Side of a crop, in device pixels.
 const CROP: u32 = 48;
 /// Magnification of a written crop.
@@ -70,7 +71,7 @@ struct Page {
     sampled: usize,
     shared: usize,
     /// Fitted strokes by requested device width: under half a pixel (already one pixel wide by
-    /// the clause's second requirement), half to one, and one to one and a half.
+    /// the clause's second requirement), half to one, and one or more.
     widths: [usize; 3],
     crisp_off: usize,
     crisp_on: usize,
@@ -478,8 +479,8 @@ fn report(pages: &[Page]) {
         totals.ms_on += page.ms_on;
     }
     println!(
-        "fitted strokes by requested device width: {} under 0.5 px, {} from 0.5 to 1 px, {} from \
-         1 to 1.5 px",
+        "fitted strokes by requested device width: {} under 0.5 px, {} from 0.5 to 1 px, {} of 1 px \
+         or more",
         totals.widths[0], totals.widths[1], totals.widths[2]
     );
     println!(

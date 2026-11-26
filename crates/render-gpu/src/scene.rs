@@ -274,7 +274,8 @@ fn knock_out(
 /// refinement here but the whole of ISO 32000-2 §8.4.3.2 on this backend: `kurbo` expands
 /// a zero-width stroke into an empty outline, so a `0 w` line — the standard's "thinnest
 /// line that can be rendered at device resolution" — would draw nothing at all (ADR 0028).
-/// §10.7.5's stroke adjustment arrives through the same call.
+/// §10.7.5's second requirement arrives through the same call; its first is
+/// `pdf_render::grid_fit`'s, applied in [`encode_stroke`] before this is asked.
 ///
 /// As in `render-cpu`, the miter limit is always set explicitly: `kurbo`'s default is
 /// `4.0` where PDF's initial value is `10.0`.
@@ -409,6 +410,14 @@ fn encode_stroke(
     let at = spaces.at;
     let layer = compose.layer(blend);
     let (brush, brush_at, rastered) = stroke_brush(paint, spaces.page_to_path)?;
+    // §10.7.5's first requirement, stated once in `pdf-render` and drawn alike by every backend
+    // (ADRs 2530, 2553 and 3729): a stroke under `/SA` along the device axes is drawn a whole
+    // number of pixels wide with its edges on pixel boundaries, and everything below strokes the
+    // fitted path as though the document had stated it.
+    let fitted = pdf_render::grid_fit(path, s, to_path);
+    let (path, s) = fitted
+        .as_ref()
+        .map_or((path, s), |fitted| (&fitted.path, &fitted.stroke));
     // A pattern past the dashes `pdf-render` lets a stroke be cut into is cut over the part of
     // the path the target can show where that is within the bound, and drawn solid at the
     // coverage it implies where not, decided there for all three backends (trap 2, ADRs 3334 and

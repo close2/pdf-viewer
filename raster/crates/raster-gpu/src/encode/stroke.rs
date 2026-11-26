@@ -52,16 +52,14 @@ impl Encoder<'_> {
         // adjustment applied where the composed transform is known (ADR 0085) — so
         // one scene states one stroke and is true at every magnification.
         let device_width = raster::resolve_width(stroke, to_device);
-        // §10.7.5's fit, which moves a thin rule's vertices to pixel centres at this placement
-        // and strokes it one pixel wide (`raster::grid_fit`): its points are this placement's,
-        // so it is expanded here rather than once under the linear part, and its reach grows by
-        // the half pixel a vertex may move.
+        // §10.7.5's fit, which moves a rule's vertices to where its edges lie on pixel
+        // boundaries at this placement and strokes it a whole number of pixels wide
+        // (`raster::grid_fit`): its points are this placement's, so it is expanded here rather
+        // than once under the linear part, and its reach grows by the half pixel a vertex may move.
         let fitted = raster::grid_fit(&stored.segments, stroke, to_device);
-        let (device_width, moved) = if fitted.is_some() {
-            (1.0, 0.5)
-        } else {
-            (device_width, 0.0)
-        };
+        let (device_width, moved) = fitted
+            .as_ref()
+            .map_or((device_width, 0.0), |fitted| (fitted.width, 0.5));
         // Visibility before the blend wrap, so a stroke outside the target costs
         // neither its expansion nor the implicit group §11.3.5 would put it in. The
         // outline's hull grows by the stroke's own reach: a miter join may carry a
@@ -94,7 +92,7 @@ impl Encoder<'_> {
         if let Some(fitted) = fitted {
             self.segments = self.segments.saturating_add(stored.segments.len() as u64);
             let span = self.clock.start();
-            let stroked = raster::stroke_pieces(&fitted, stroke, device_width).pieces;
+            let stroked = raster::stroke_pieces(&fitted.polylines, stroke, device_width).pieces;
             self.clock.geometry(span);
             return self.push_stroked(&stroked, paint, &resolved, device_width, mask);
         }

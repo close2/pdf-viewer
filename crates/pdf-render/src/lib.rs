@@ -77,7 +77,7 @@ pub use edge::{
     DeviceRectangles, RECTANGLES_PER_PATH, device_rectangle, device_rectangles, rectangle_coverage,
 };
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
-pub use grid_fit::{FIT_BELOW, GridFit, grid_fit};
+pub use grid_fit::{GridFit, fitted_centre, fitted_width, grid_fit};
 pub use group_cost::{
     MAX_GROUP_BLIT_PIXELS, check_group_blit, check_selected_blit, commands_blit_demand,
     group_blit_demand,

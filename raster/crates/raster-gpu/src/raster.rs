@@ -68,7 +68,7 @@ pub(crate) use fill::{
     CoverageMask, RowIndex, Rule, clip_mask, fill_mask, fill_mask_settled, winds_two_values,
 };
 pub(crate) use flatten::{DeviceTransform, Polyline, flatten, flatten_stroke, polyline_bounds};
-pub(crate) use grid_fit::{ALIKE, ALONG_AN_AXIS, FIT_BELOW, grid_fit};
+pub(crate) use grid_fit::{ALIKE, ALONG_AN_AXIS, fitted_centre, fitted_width, grid_fit};
 pub(crate) use meet::{RowEdges, Work as MeetWork, area_in_pixel};
 #[cfg(test)]
 pub(crate) use stroke::stroke_polylines;

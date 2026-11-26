@@ -9,15 +9,15 @@
 //! > different.
 //!
 //! Whether a stroke needs adjusting is a question about the device grid — its width in device
-//! pixels and where its coordinates fall among them — so `pdf_render::grid_fit` takes a thin rule
-//! along the device axes at one view and declines it at another. §8.5.3.2 cuts the dash pattern
+//! pixels and where its coordinates fall among them — so `pdf_render::grid_fit` takes a rule along
+//! the device axes at one view and declines it, as already on the grid, at another. §8.5.3.2 cuts the dash pattern
 //! along the path the stroke follows, and the fit moves a corner along the segments it ends, so a
 //! dashed rectangle the fit takes is dashed along other lengths than the same rectangle the fit
 //! declines. A scene built where the fit declined is therefore that view's scene and no other's:
 //!
-//! - **a zoom that brings the width under the fit's bound rebuilds** — 0.6 units are 2.4 device
-//!   pixels at scale 4, which the fit leaves alone, and 0.6 at scale 1, which it fits to one pixel
-//!   through pixel centres;
+//! - **a zoom that takes a rule off the grid rebuilds** — 0.6 units are three whole device pixels
+//!   at scale 5, on pixel centres there, which the fit leaves alone, and 0.6 of a pixel at scale 1,
+//!   which it fits to one pixel through pixel centres;
 //! - **a scroll that takes a rule off the pixel centres it lay on rebuilds** — a one-unit
 //!   rectangle on pixel centres at scale 1 is already what the fit makes, and a quarter pixel away
 //!   it is not;
@@ -142,17 +142,17 @@ fn step(gpu: &mut QuorraRasterizer, list: &Arc<DisplayList>, view: (f32, (f32, f
     );
 }
 
-/// At scale 4 the 0.6-unit width is 2.4 device pixels, at or over `pdf_render::FIT_BELOW`, and
-/// the fit declines; a scroll there declines it too and keeps the scene. At scale 1 the width is
-/// 0.6 of a pixel and the corners, a fifth of a unit off the pixel centres, move to them along the
-/// segments they end — so the dashes after each corner are cut along other lengths, and the step
-/// rebuilds.
+/// At scale 5 the 0.6-unit width is three whole device pixels and the corners, placed on pixel
+/// centres, are where the fit puts a stroke three pixels wide, so the fit declines; a scroll of a
+/// whole pixel there declines it too and keeps the scene. At scale 1 the width is 0.6 of a pixel
+/// and the corners, a fifth of a unit off the pixel centres, move to them along the segments they
+/// end — so the dashes after each corner are cut along other lengths, and the step rebuilds.
 #[test]
-fn a_zoom_that_brings_a_dashed_rule_under_the_fit_rebuilds_it() {
+fn a_zoom_that_takes_a_dashed_rule_off_the_grid_rebuilds_it() {
     let list = dashed_rectangle((20.2, 20.2), (60.2, 50.2), 0.6);
     let mut kept = backend();
-    step(&mut kept, &list, (4.0, (-60.0, -490.0)), false);
-    step(&mut kept, &list, (4.0, (-60.25, -489.5)), true);
+    step(&mut kept, &list, (5.0, (-80.5, -630.5)), false);
+    step(&mut kept, &list, (5.0, (-81.5, -629.5)), true);
     step(&mut kept, &list, (1.0, (0.0, 0.0)), false);
 }
 

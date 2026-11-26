@@ -357,7 +357,7 @@ fn draw_marks(
 /// the scene that holds it is this view's.
 ///
 /// **A decline is an answer of this view too** (ADR 2902). The fit's bounds are device measures —
-/// a width under [`pdf_render::FIT_BELOW`] device pixels, a vertex not already on a pixel centre —
+/// a transform that stretches the axes alike, a stroke not already on the grid at its width —
 /// so the dashes a stroke under `/SA` keeps unfitted here are cut where another view's build would
 /// cut them only where that view declines as well: the scene keeps the question as an
 /// [`UnfittedDashes`] and another view asks it again before it keeps the scene. A stroke without

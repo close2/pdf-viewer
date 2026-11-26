@@ -1,4 +1,4 @@
-//! ISO 32000-2 §10.7.5's first requirement: a thin stroke's width and coordinates fitted to the
+//! ISO 32000-2 §10.7.5's first requirement: a stroke's width and coordinates fitted to the
 //! device grid when the graphics state's stroke adjustment parameter enables it.
 //!
 //! > When stroke adjustment is enabled, the line width and the coordinates of a stroke shall
@@ -8,39 +8,60 @@
 //!
 //! The non-uniformity the clause removes is the one its first paragraph names: "\[a] line of a
 //! given width can intersect with different numbers of device pixels, depending on where it is
-//! positioned". On an anti-aliasing device that shows as a hairline drawn across two pixel rows
-//! at partial intensity in one place and as one full row in another. The fit removes it for the
-//! one shape it is defined on, a stroke whose every segment lies along a device axis: the width
-//! becomes one whole device pixel and each vertex moves, across the segments it ends, to the
-//! nearest pixel centre, so both edges of every segment lie on pixel boundaries and the line
-//! covers one whole row or column wherever the document placed it. A free end keeps where the
-//! document ended it, because moving a rule along itself changes nothing the clause names.
+//! positioned". On an anti-aliasing device that shows as a rule drawn across a partly covered row
+//! either side of its whole ones in one place and as whole rows alone in another. The fit removes
+//! it for the one shape it is defined on, a stroke whose every segment lies along a device axis:
+//! the width becomes the whole number of device pixels nearest the requested one, and never fewer
+//! than one ([`fitted_width`]), and each vertex moves, across the segments it ends, to the
+//! nearest place where both edges of a stroke that wide lie on pixel boundaries
+//! ([`fitted_centre`]) — a pixel centre for an odd width, a pixel boundary for an even one — so
+//! the line covers the same number of whole rows or columns wherever the document placed it. A
+//! free end keeps where the document ended it, because moving a rule along itself changes nothing
+//! the clause names.
 //!
 //! **What is fitted is a construction of this tree's, and its bounds are the clause's.**
 //!
-//! - *Strokes under one and a half device pixels*, because one whole pixel is then within half a
-//!   pixel of the requested width — the clause's own bound — and because they are the strokes
-//!   whose two partial rows a reader sees as blur. A wider stroke keeps its own coordinates.
+//! - *Every width*, because the clause's first sentence binds every stroke the parameter
+//!   enables, and the nearest whole number of pixels is never more than half a pixel from the
+//!   requested width — the clause's own bound. A requested width halfway between two whole
+//!   numbers takes the smaller, which is as near as the larger and moves less ink (ADR 3729).
 //! - *Every segment along a device axis*, because a diagonal or a curve has no pair of edges to
 //!   put on pixel boundaries; such a stroke keeps its own coordinates and its coverage-weighted
 //!   thickness, which is the requested width at every placement (ADR 0848).
 //! - *A transform that stretches both axes alike*, because one stroke width is one device width
 //!   only then; §8.4.3.2 says a stroke's device thickness otherwise varies with its orientation.
-//! - *A move of at most half a device pixel per coordinate*: the nearest pixel centre is never
-//!   further away, so the fit never carries a line out of the pixel its centre was in.
+//! - *A move of at most half a device pixel per coordinate*: the places a fitted stroke's centre
+//!   may stand are a whole pixel apart, so the nearest is never further away.
 //!
 //! ADR 2530 is the construction and its measurement over the pdf.js documents that enable the
 //! parameter; ADR 2553 draws it by default in this backend and every lane of `raster` at once,
-//! as the owner chose (`doc/questions/A714`).
+//! as the owner chose (`doc/questions/A714`); ADR 3729 carries it to every width.
 
 use crate::geom::{Path, PathCommand, Point, Transform};
 use crate::paint::{Stroke, thinnest_line};
 
-/// The device width, in device pixels, below which a stroke is fitted to one whole pixel.
+/// The whole number of device pixels a stroke `device` pixels wide is fitted to: the nearest,
+/// the smaller of two equally near, and never fewer than one.
 ///
-/// One whole pixel is within the clause's half a pixel of every width under this, and of none
-/// over it.
-pub const FIT_BELOW: f32 = 1.5;
+/// Within the clause's half a pixel of every requested width of half a pixel or more; a width
+/// under half a pixel is one pixel by the clause's second requirement already
+/// ([`Stroke::device_width`]).
+#[must_use]
+pub fn fitted_width(device: f32) -> f32 {
+    (device - 0.5).ceil().max(1.0)
+}
+
+/// The device coordinate across a segment at which a fitted stroke `pixels` wide, whose centre
+/// the document put at `v`, has both edges on pixel boundaries: the nearest such place.
+///
+/// For one pixel that is the pixel centre `⌊v⌋ + 0.5`; for two, the nearest pixel boundary.
+/// `pixels` is a whole number ([`fitted_width`]), so the places are a whole pixel apart and the
+/// move is at most half a pixel.
+#[must_use]
+pub fn fitted_centre(v: f32, pixels: f32) -> f32 {
+    let half = 0.5 * pixels;
+    (v - half + 0.5).floor() + half
+}
 
 /// How far, in device pixels, a segment's two ends may differ across an axis and still count
 /// as lying along it.
@@ -69,17 +90,18 @@ pub(crate) fn stretches_alike(t: Transform) -> bool {
 #[derive(Debug, Clone)]
 pub struct GridFit {
     /// The command's path with every vertex moved across the segments it ends to the nearest
-    /// device pixel centre, in the path's own space.
+    /// place where the fitted stroke's edges lie on pixel boundaries, in the path's own space.
     pub path: Path,
-    /// The command's stroke with its width one device pixel, in the path's own space.
+    /// The command's stroke with its width a whole number of device pixels ([`fitted_width`]),
+    /// in the path's own space.
     pub stroke: Stroke,
 }
 
 /// The stroke §10.7.5's first requirement asks for in place of `path` under `stroke`, or `None`
 /// where it asks for none or the stroke is already on the grid.
 ///
-/// `to_device` maps the path to device pixels. `None` for a stroke whose `/SA` is off, one at
-/// [`FIT_BELOW`] device pixels or wider, a path with a curve or a segment off a device axis, a
+/// `to_device` maps the path to device pixels. `None` for a stroke whose `/SA` is off, one whose
+/// device width is not a finite number, a path with a curve or a segment off a device axis, a
 /// transform that stretches the axes differently or has no inverse, and a stroke the fit would
 /// leave exactly where it is — so a caller strokes the command's own path whenever this declines.
 #[must_use]
@@ -94,39 +116,42 @@ pub fn grid_fit(path: &Path, stroke: &Stroke, to_device: Transform) -> Option<Gr
     // `device_width` already holds §8.4.3.2's zero width and §10.7.5's half-pixel promotion,
     // so a stroke it makes one pixel is fitted for its position too.
     let device = stroke.device_width(to_device) / one_pixel;
-    // A width that is not a number is not under the bound either.
-    if device.is_nan() || device >= FIT_BELOW {
+    // A width that is not a finite number has no whole number of pixels nearest it.
+    if !device.is_finite() {
         return None;
     }
+    let pixels = fitted_width(device);
     let back = to_device.invert()?;
-    let fitted = snapped(path, to_device, back)?;
-    // A pixel centre is a half-integer, and `n + 0.5` holds exactly in `f32` at every page size,
-    // so a vertex already there comes back from the round trip within this of where it was.
+    let fitted = snapped(path, pixels, to_device, back)?;
+    let width = pixels * one_pixel;
+    // A fitted centre is a whole or a half-integer, which holds exactly in `f32` at every page
+    // size, so a vertex already there comes back from the round trip within this of where it was.
     let unchanged = fitted
         .commands()
         .iter()
         .zip(path.commands())
         .all(|(a, b)| same_command(*a, *b, one_pixel / 1024.0));
-    if unchanged && (stroke.width - one_pixel).abs() <= one_pixel / 1024.0 {
+    if unchanged && (stroke.width - width).abs() <= one_pixel / 1024.0 {
         return None;
     }
     Some(GridFit {
         path: fitted,
         stroke: Stroke {
-            width: one_pixel,
+            width,
             ..stroke.clone()
         },
     })
 }
 
-/// `path` with each vertex moved across the segments it ends to the nearest device pixel
-/// centre, or `None` where a segment of it, closing segments included, lies off the device axes.
+/// `path` with each vertex moved across the segments it ends to the nearest place a stroke
+/// `pixels` wide has both edges on pixel boundaries ([`fitted_centre`]), or `None` where a
+/// segment of it, closing segments included, lies off the device axes.
 ///
 /// Only the coordinate *across* a segment moves: a vertex that ends a horizontal segment has its
-/// device `y` moved to a pixel centre and one that ends a vertical segment its `x`, so a corner
+/// device `y` moved and one that ends a vertical segment its `x`, so a corner
 /// moves in both and the free end of a rule keeps where the document ended it. The device point
 /// is mapped there by `to_device` and back by `back`.
-fn snapped(path: &Path, to_device: Transform, back: Transform) -> Option<Path> {
+fn snapped(path: &Path, pixels: f32, to_device: Transform, back: Transform) -> Option<Path> {
     let commands = path.commands();
     let device: Vec<Option<Point>> = commands
         .iter()
@@ -165,7 +190,7 @@ fn snapped(path: &Path, to_device: Transform, back: Transform) -> Option<Path> {
             (false, false) => return None,
         }
     }
-    let centre = |v: f32| v.floor() + 0.5;
+    let centre = |v: f32| fitted_centre(v, pixels);
     let mut fitted = Path::new();
     for (index, command) in commands.iter().enumerate() {
         let moved = |p: Point| {
@@ -264,12 +289,69 @@ mod tests {
         assert!(grid_fit(&rule(50.3), &stroke, Transform::IDENTITY).is_none());
     }
 
-    /// One whole pixel is within half a pixel of the requested width only below
-    /// [`FIT_BELOW`], so a stroke at it keeps its own width and coordinates.
+    /// The clause's first sentence binds every width: a rule of any width is fitted to the
+    /// nearest whole number of pixels, its edges on pixel boundaries at every placement — a
+    /// two-pixel rule's centre on a boundary, a three-pixel rule's on a pixel centre — and its
+    /// width within the clause's half a pixel of the requested one.
     #[test]
-    fn a_stroke_at_one_and_a_half_pixels_keeps_its_coordinates() {
-        assert!(grid_fit(&rule(50.3), &adjusted(1.49), Transform::IDENTITY).is_some());
-        assert!(grid_fit(&rule(50.3), &adjusted(FIT_BELOW), Transform::IDENTITY).is_none());
+    fn a_rule_of_any_width_is_whole_pixel_rows_at_every_placement() {
+        for scale in [1.0_f32, 2.0] {
+            let to_device = Transform::scale(scale, scale);
+            // The third field: whether the rule at the first placement is already on the grid.
+            let cases = [
+                (1.6_f32, 2.0_f32, false),
+                (2.0, 2.0, true),
+                (2.5, 2.0, false),
+                (3.2, 3.0, false),
+            ];
+            for (requested, pixels, on_grid) in cases {
+                for eighth in 0_u8..8 {
+                    let y = (50.0 + f32::from(eighth) / 8.0) / scale;
+                    let at = format!("scale {scale}, width {requested}, {eighth}/8");
+                    let fit = grid_fit(&rule(y), &adjusted(requested / scale), to_device);
+                    let Some(fit) = fit else {
+                        // Only a rule the fit would leave where it is is declined.
+                        assert!(on_grid && eighth == 0, "{at}");
+                        continue;
+                    };
+                    assert!((fit.stroke.width * scale - pixels).abs() < 1e-5, "{at}");
+                    assert!((pixels - requested).abs() <= 0.5, "{at}");
+                    for device in device_ys(&fit, to_device) {
+                        let edge = device - 0.5 * pixels;
+                        assert!((edge - edge.round()).abs() < 1e-4, "{at}: edge at {edge}");
+                        assert!(
+                            (device - 50.0 - f32::from(eighth) / 8.0).abs() <= 0.5,
+                            "{at}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The whole number of pixels is the nearest, the smaller of two equally near, and never
+    /// fewer than one; the centre moves at most half a pixel, to where both edges are on
+    /// boundaries.
+    #[test]
+    fn the_fitted_width_and_centre() {
+        let widths = [
+            (0.2, 1.0),
+            (0.5, 1.0),
+            (1.49, 1.0),
+            (1.5, 1.0),
+            (1.51, 2.0),
+            (2.5, 2.0),
+        ];
+        for (device, pixels) in widths {
+            assert!(
+                (fitted_width(device) - pixels).abs() < f32::EPSILON,
+                "{device}"
+            );
+        }
+        assert!((fitted_centre(50.3, 1.0) - 50.5).abs() < f32::EPSILON);
+        assert!((fitted_centre(50.25, 2.0) - 50.0).abs() < f32::EPSILON);
+        assert!((fitted_centre(50.75, 2.0) - 51.0).abs() < f32::EPSILON);
+        assert!((fitted_centre(-3.0, 1.0) - -2.5).abs() < f32::EPSILON);
     }
 
     /// A diagonal, a curve and a stretched transform are not shapes a fit is defined on.

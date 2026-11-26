@@ -3,15 +3,16 @@
 //! > When stroke adjustment is enabled, the line width and the coordinates of a stroke shall
 //! > automatically be adjusted as necessary to produce lines of uniform thickness.
 //!
-//! The oracle fits a thin rule along the device axes under `/SA` to one whole pixel through pixel
-//! centres (`pdf_render::grid_fit`, ADR 2530), and raster fits it at its own encode — the stroke
+//! The oracle fits a rule along the device axes under `/SA` to the nearest whole number of pixels
+//! with its edges on pixel boundaries (`pdf_render::grid_fit`, ADRs 2530 and 3729), and raster
+//! fits it at its own encode — the stroke
 //! arm and the line drawn as a stroke through `raster::grid_fit`, the line lane's closed form in
 //! `line.wgsl`'s vertex stage (ADR 2553). This file holds the two to one picture at eight
 //! placements an eighth of a pixel apart, in each of raster's three coverage lanes, for a lone
 //! rule — which the translation hands raster as a line — and for a rectangle's outline, which it
-//! hands raster as a stroke with corners. The expected value is the clause's: the rule is one
-//! whole pixel row wherever it was put, which the oracle is asserted to draw before the lanes are
-//! compared with it.
+//! hands raster as a stroke with corners, each thin and wide. The expected value is the clause's:
+//! the rule is the same whole pixel rows wherever it was put, which the oracle is asserted to draw
+//! before the lanes are compared with it.
 
 #![expect(
     clippy::arithmetic_side_effects,
@@ -43,19 +44,14 @@ const PAGE: Size = Size {
     height: 100.0,
 };
 
-/// The stated width: 0.6 of a device pixel at scale 1, under [`pdf_render::FIT_BELOW`] and over
-/// the half pixel §10.7.5's second requirement promotes, so only the first requirement acts.
+/// The stated width of the thin strokes: 0.6 of a device pixel at scale 1, over the half pixel
+/// §10.7.5's second requirement promotes, so only the first requirement acts.
 const WIDTH: f32 = 0.6;
 
 /// How far a lane's channel may sit from the oracle's, in levels of 255: the lanes' coverage is
 /// exact area and the oracle's is analytic, and a pixel centre is a half-integer either way, so a
 /// fitted rule's edges fall on pixel boundaries and the two agree to rounding.
 const LEVELS: u8 = 2;
-
-/// A stroke of `path` at [`WIDTH`], under `/SA` where `adjust` says so.
-fn stroked(path: Path, adjust: bool) -> DisplayList {
-    stroked_under(path, adjust, WIDTH, Transform::IDENTITY)
-}
 
 /// A stroke of `path` at `width` under `transform`, under `/SA` where `adjust` says so.
 fn stroked_under(path: Path, adjust: bool, width: f32, transform: Transform) -> DisplayList {
@@ -84,10 +80,15 @@ fn stroked_with(path: Path, stroke: Stroke, transform: Transform) -> DisplayList
 
 /// A horizontal rule at `y`, from 10 to 90, under `/SA` where `adjust` says so.
 fn rule(y: f32, adjust: bool) -> DisplayList {
+    wide_rule(y, adjust, WIDTH)
+}
+
+/// A horizontal rule at `y`, from 10 to 90, `width` wide, under `/SA` where `adjust` says so.
+fn wide_rule(y: f32, adjust: bool, width: f32) -> DisplayList {
     let mut path = Path::new();
     path.push(PathCommand::MoveTo(Point::new(10.0, y)));
     path.push(PathCommand::LineTo(Point::new(90.0, y)));
-    stroked(path, adjust)
+    stroked_under(path, adjust, width, Transform::IDENTITY)
 }
 
 /// A horizontal rule at `y` under `/SA`, a sixth of a pixel wide under a transform whose two
@@ -101,15 +102,20 @@ fn promoted_under_unequal_stretches(y: f32) -> DisplayList {
     stroked_under(path, true, 1.0 / 6.0, Transform::scale(1.0, 1.00125))
 }
 
-/// A closed rectangle's outline with its lower left corner at `(at, at)`.
+/// A closed rectangle's outline with its lower left corner at `(at, at)`, [`WIDTH`] wide.
 fn outline(at: f32) -> DisplayList {
+    wide_outline(at, WIDTH)
+}
+
+/// A closed rectangle's outline with its lower left corner at `(at, at)`, `width` wide.
+fn wide_outline(at: f32, width: f32) -> DisplayList {
     let mut path = Path::new();
     path.push(PathCommand::MoveTo(Point::new(at, at)));
     path.push(PathCommand::LineTo(Point::new(at + 60.0, at)));
     path.push(PathCommand::LineTo(Point::new(at + 60.0, at + 40.0)));
     path.push(PathCommand::LineTo(Point::new(at, at + 40.0)));
     path.push(PathCommand::Close);
-    stroked(path, true)
+    stroked_under(path, true, width, Transform::IDENTITY)
 }
 
 /// The rows of columns 20 to 80 that hold any ink, each with its darkest and lightest red levels.
@@ -171,34 +177,43 @@ fn placements() -> impl Iterator<Item = f32> {
 }
 
 /// The oracle draws the clause: a 0.6-pixel rule under `/SA` is one whole pixel row, fully
-/// covered, at each of eight placements — and the rule drawn without `/SA` is not.
+/// covered, at each of eight placements, and a 2.2-pixel rule two — and the rule drawn without
+/// `/SA` is not.
 #[test]
-fn the_oracle_draws_a_fitted_rule_as_one_whole_row_at_every_placement() {
-    for offset in placements() {
-        let levels = |adjust: bool| {
-            let list = rule(50.0 + offset, adjust);
-            let target =
-                TargetSpec::for_page(&list, 1.0, 1 << 30).expect("a page of a stated size");
-            let drawn = render_cpu::CpuRasterizer::new()
-                .rasterize(&list, target)
-                .expect("one stroke");
-            inked_rows(&drawn)
-                .iter()
-                .map(|&(_, darkest, lightest)| (darkest, lightest))
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(
-            levels(true),
-            [(0, 0)],
-            "a rule placed {offset} past a pixel boundary is one fully covered row across every interior column"
-        );
-        assert_ne!(
-            levels(false),
-            [(0, 0)],
-            "a rule placed {offset} past a pixel boundary without /SA keeps its coverage-weighted \
-             width"
-        );
+fn the_oracle_draws_a_fitted_rule_as_whole_rows_at_every_placement() {
+    for (width, rows) in [(WIDTH, 1), (2.2, 2)] {
+        for offset in placements() {
+            the_oracle_draws_whole_rows(width, rows, offset);
+        }
     }
+}
+
+/// The oracle's rule `width` wide at `offset` past a pixel boundary: `rows` fully covered rows
+/// under `/SA`, and not without it.
+fn the_oracle_draws_whole_rows(width: f32, rows: usize, offset: f32) {
+    let levels = |adjust: bool| {
+        let list = wide_rule(50.0 + offset, adjust, width);
+        let target = TargetSpec::for_page(&list, 1.0, 1 << 30).expect("a page of a stated size");
+        let drawn = render_cpu::CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("one stroke");
+        inked_rows(&drawn)
+            .iter()
+            .map(|&(_, darkest, lightest)| (darkest, lightest))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        levels(true),
+        vec![(0, 0); rows],
+        "a rule {width} wide placed {offset} past a pixel boundary is {rows} fully covered \
+         rows across every interior column"
+    );
+    assert_ne!(
+        levels(false),
+        vec![(0, 0); rows],
+        "a rule {width} wide placed {offset} past a pixel boundary without /SA keeps its \
+         coverage-weighted width"
+    );
 }
 
 /// Every lane draws what the oracle draws, a fitted rule and a fitted outline alike, at each of
@@ -216,6 +231,12 @@ fn every_lane_draws_the_oracles_fitted_strokes_at_every_placement() {
         for (shape, list) in [
             ("rule", rule(50.0 + offset, true)),
             ("outline", outline(20.0 + offset)),
+            ("two-pixel rule", wide_rule(50.0 + offset, true, 2.0)),
+            ("three-pixel rule", wide_rule(50.0 + offset, true, 2.7)),
+            (
+                "two-and-a-half-pixel outline",
+                wide_outline(20.0 + offset, 2.5),
+            ),
             (
                 "promoted rule under unequal stretches",
                 promoted_under_unequal_stretches(50.0 + offset),

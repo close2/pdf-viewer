@@ -131,24 +131,30 @@ fn device_line(instance: Instance) -> DeviceLine {
     }
     var start = on_view(instance.ends.xy);
     var end = on_view(instance.ends.zw);
-    // §10.7.5's fit, by the steps `fit_on_device` states on the host: a round pen under 1.5
-    // device pixels across, on a line along a device axis, becomes one device pixel and the
-    // line's ends move across it to the nearest pixel centre. The bounds are `raster::grid_fit`'s:
-    // the stated pen round to 1/1024 of its size, which is the transform stretching both axes
-    // alike, and an axis to 1/64 of a pixel.
+    // §10.7.5's fit, by the steps `fit_on_device` states on the host: a round pen, on a line
+    // along a device axis, becomes the nearest whole number of device pixels across — the smaller
+    // of two equally near, never fewer than one — and the line's ends move across it to the
+    // nearest place where both its edges lie on pixel boundaries. The bounds are
+    // `raster::grid_fit`'s: the stated pen round to 1/1024 of its size, which is the transform
+    // stretching both axes alike, and an axis to 1/64 of a pixel.
     let alike = abs(stated.x - stated.y) <= max(stated.x, stated.y) / 1024.0;
-    if resolution == 1u && alike && 2.0 * max(half.x, half.y) < 1.5 {
+    // A device width past the largest finite `f32` (or not a number) has no whole number of
+    // pixels nearest it, and the host's `fit_on_device` declines it.
+    let device = 2.0 * max(half.x, half.y);
+    if resolution == 1u && alike && device <= 3.4028235e38 {
+        let pixels = max(ceil(device - 0.5), 1.0);
+        let semi = 0.5 * pixels;
         let horizontal = abs(end.y - start.y) <= 1.0 / 64.0;
         let vertical = abs(end.x - start.x) <= 1.0 / 64.0;
         if horizontal && !vertical {
-            start.y = floor(start.y) + 0.5;
-            end.y = floor(end.y) + 0.5;
+            start.y = floor(start.y - semi + 0.5) + semi;
+            end.y = floor(end.y - semi + 0.5) + semi;
         } else if vertical && !horizontal {
-            start.x = floor(start.x) + 0.5;
-            end.x = floor(end.x) + 0.5;
+            start.x = floor(start.x - semi + 0.5) + semi;
+            end.x = floor(end.x - semi + 0.5) + semi;
         }
         if horizontal || vertical {
-            half = vec2<f32>(0.5);
+            half = vec2<f32>(semi);
         }
     }
     let a = on_view(instance.admit.xy);

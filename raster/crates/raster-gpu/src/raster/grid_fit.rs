@@ -1,17 +1,19 @@
-//! ISO 32000-2 §10.7.5's first requirement at a placement: a thin rule along the device axes is
-//! stroked one whole device pixel wide, through pixel centres.
+//! ISO 32000-2 §10.7.5's first requirement at a placement: a rule along the device axes is
+//! stroked a whole number of device pixels wide, its edges on pixel boundaries.
 //!
 //! > When stroke adjustment is enabled, the line width and the coordinates of a stroke shall
 //! > automatically be adjusted as necessary to produce lines of uniform thickness.
 //!
 //! The construction is the caller's own `pdf_render::grid_fit` (their ADR 2530), stated again
 //! here because a scene states a stroke once and the placement that decides the fit is only known
-//! at encode (ADR 0085). Under `/SA` a stroke whose device width is under [`FIT_BELOW`], under a
-//! transform that stretches both axes alike, and whose every segment lies along a device axis has
-//! each vertex moved, across the segments it ends, to the nearest pixel centre — at most half a
-//! pixel, the clause's own bound — and is stroked one device pixel wide. A free end keeps where
-//! the document ended it, a corner moves in both coordinates, and a curve or a diagonal keeps its
-//! coordinates and its coverage-weighted thickness (their ADR 0848).
+//! at encode (ADR 0085). Under `/SA` a stroke of any device width, under a transform that
+//! stretches both axes alike, and whose every segment lies along a device axis is stroked the
+//! nearest whole number of device pixels wide, the smaller of two equally near and never fewer
+//! than one ([`fitted_width`]) — within the clause's half a pixel of the requested width — and has
+//! each vertex moved, across the segments it ends, to the nearest place where both edges lie on
+//! pixel boundaries ([`fitted_centre`]), at most half a pixel. A free end keeps where the document
+//! ended it, a corner moves in both coordinates, and a curve or a diagonal keeps its coordinates
+//! and its coverage-weighted thickness (their ADRs 0848 and 3729).
 //!
 //! **The fit is a function of the stroke and the placement**, the translation included, so a
 //! fitted stroke is expanded at its placement rather than once under its linear part and moved
@@ -22,10 +24,30 @@ use raster_scene::{Point, Segment, Stroke};
 use super::flatten::{DeviceTransform, Polyline, flatten_stroke};
 use super::stroke::resolve_width;
 
-/// The device width, in device pixels, below which a stroke is fitted to one whole pixel: one
-/// whole pixel is within the clause's half a pixel of every width under this and of none over it.
-/// The caller's `pdf_render::FIT_BELOW`, to the value.
-pub(crate) const FIT_BELOW: f32 = 1.5;
+/// The whole number of device pixels a stroke `device` pixels wide is fitted to: the nearest,
+/// the smaller of two equally near, and never fewer than one. The caller's
+/// `pdf_render::fitted_width`, statement for statement.
+pub(crate) fn fitted_width(device: f32) -> f32 {
+    (device - 0.5).ceil().max(1.0)
+}
+
+/// The device coordinate across a segment at which a fitted stroke `pixels` wide, whose centre
+/// stood at `v`, has both edges on pixel boundaries: the nearest such place, a pixel centre for
+/// an odd width and a boundary for an even one. The caller's `pdf_render::fitted_centre`,
+/// statement for statement.
+pub(crate) fn fitted_centre(v: f32, pixels: f32) -> f32 {
+    let half = 0.5 * pixels;
+    (v - half + 0.5).floor() + half
+}
+
+/// A stroke as §10.7.5's fit places it: the device polylines to stroke and the whole number of
+/// device pixels to stroke them at.
+pub(crate) struct Fitted {
+    /// The stroke's polylines with each point moved across the segments it ends.
+    pub(crate) polylines: Vec<Polyline>,
+    /// The fitted device width ([`fitted_width`]).
+    pub(crate) width: f32,
+}
 
 /// How far, in device pixels, a segment's two ends may differ across an axis and still lie
 /// along it: far under anything a reader could see, far over an `f32` page transform's rounding.
@@ -36,17 +58,13 @@ pub(crate) const ALONG_AN_AXIS: f32 = 1.0 / 64.0;
 pub(crate) const ALIKE: f32 = 1.0 / 1024.0;
 
 /// The device polylines §10.7.5's first requirement strokes in place of `segments` under
-/// `stroke` at the placement `t`, each to be stroked one device pixel wide — or `None` where it
-/// asks for no fit, and the stroke is expanded as stated.
+/// `stroke` at the placement `t`, and the whole device width to stroke them at — or `None` where
+/// it asks for no fit, and the stroke is expanded as stated.
 ///
-/// `None` for a stroke whose `/SA` is off, one at [`FIT_BELOW`] device pixels or wider, a path
+/// `None` for a stroke whose `/SA` is off, one whose device width is not a finite number, a path
 /// with a curve or a segment off a device axis, and a transform that stretches the axes
 /// differently or stretches nothing.
-pub(crate) fn grid_fit(
-    segments: &[Segment],
-    stroke: Stroke,
-    t: DeviceTransform,
-) -> Option<Vec<Polyline>> {
+pub(crate) fn grid_fit(segments: &[Segment], stroke: Stroke, t: DeviceTransform) -> Option<Fitted> {
     if !stroke.adjust {
         return None;
     }
@@ -55,27 +73,30 @@ pub(crate) fn grid_fit(
         return None;
     }
     // `resolve_width` already holds §8.4.3.2's zero width and §10.7.5's half-pixel promotion, so
-    // a stroke it makes one pixel is fitted for its position too. A width that is not a number is
-    // not under the bound either.
+    // a stroke it makes one pixel is fitted for its position too. A width that is not a finite
+    // number has no whole number of pixels nearest it.
     let device = resolve_width(stroke, t);
-    if device.is_nan() || device >= FIT_BELOW {
+    if !device.is_finite() {
         return None;
     }
+    let width = fitted_width(device);
     if segments
         .iter()
         .any(|segment| matches!(segment, Segment::CubicTo { .. }))
     {
         return None;
     }
-    flatten_stroke(segments, t)
+    let polylines = flatten_stroke(segments, t)
         .into_iter()
-        .map(snapped)
-        .collect()
+        .map(|polyline| snapped(polyline, width))
+        .collect::<Option<_>>()?;
+    Some(Fitted { polylines, width })
 }
 
-/// `polyline` with each point moved across the segments it ends to the nearest pixel centre, or
-/// `None` where a segment of it, the closing one included, lies off the device axes.
-fn snapped(mut polyline: Polyline) -> Option<Polyline> {
+/// `polyline` with each point moved across the segments it ends to the nearest place a stroke
+/// `pixels` wide has both edges on pixel boundaries, or `None` where a segment of it, the closing
+/// one included, lies off the device axes.
+fn snapped(mut polyline: Polyline, pixels: f32) -> Option<Polyline> {
     let count = polyline.points.len();
     let mut across = vec![(false, false); count];
     let closing = usize::from(polyline.closed);
@@ -95,7 +116,7 @@ fn snapped(mut polyline: Polyline) -> Option<Polyline> {
             (false, false) => return None,
         }
     }
-    let centre = |v: f32| v.floor() + 0.5;
+    let centre = |v: f32| fitted_centre(v, pixels);
     for (point, (x, y)) in polyline.points.iter_mut().zip(across) {
         *point = Point::new(
             if x { centre(point.x) } else { point.x },

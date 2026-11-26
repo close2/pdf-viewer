@@ -304,10 +304,10 @@ impl CpuRasterizer {
     /// Enables or disables the grid fit of ISO 32000-2 §10.7.5's first requirement for the
     /// strokes whose graphics state enables stroke adjustment; on by default.
     ///
-    /// On, such a stroke under 1.5 device pixels along the device axes is drawn one whole pixel
-    /// wide through pixel centres (`pdf_render::grid_fit`, ADR 2530), which every lane of raster
-    /// draws alike at its own encode, as the owner chose (A714, ADR 2553). Off
-    /// draws such a stroke at its own coordinates and its coverage-weighted width (ADR 0848), for
+    /// On, such a stroke along the device axes is drawn a whole number of pixels wide with its
+    /// edges on pixel boundaries (`pdf_render::grid_fit`, ADRs 2530 and 3729), which every lane
+    /// of raster draws alike at its own encode, as the owner chose (A714, ADR 2553). Off draws
+    /// such a stroke at its own coordinates and its coverage-weighted width (ADR 0848), for
     /// the measurements that compare the two; the clause's second requirement, a stroke under half
     /// a pixel drawn one pixel wide, holds either way, because it is `Stroke::device_width`'s.
     #[must_use]

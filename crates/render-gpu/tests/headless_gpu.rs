@@ -1369,6 +1369,77 @@ fn cpu_and_gpu_agree_on_the_thinnest_line_the_device_draws() {
     }
 }
 
+/// ISO 32000-2 §10.7.5's first requirement draws alike on both backends, at every width:
+///
+/// > When stroke adjustment is enabled, the line width and the coordinates of a stroke shall
+/// > automatically be adjusted as necessary to produce lines of uniform thickness.
+///
+/// A horizontal rule under `/SA` 0.6, 2 and 2.7 device pixels wide, at eight placements an eighth
+/// of a pixel apart, is the nearest whole number of fully covered rows — one, two, three — on each
+/// backend, the same rows on both, because both stroke `pdf_render::grid_fit`'s fitted path
+/// (ADRs 2530 and 3729). The audit fixture's two-pixel rule at y 50.25 is among them.
+#[test]
+fn cpu_and_gpu_draw_a_stroke_adjusted_rule_as_whole_rows_at_every_placement() {
+    use pdf_render::{
+        BlendMode, Color, Command, DisplayList, Paint, Path, PathCommand, Point, Raster, Size,
+        Stroke, Transform,
+    };
+    use std::sync::Arc;
+
+    let _gpu = gpu_lock::Hold::unless_software("vello-device");
+    let rule = |y: f32, width: f32| {
+        let mut list = DisplayList::new(Size::new(100.0, 100.0));
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(10.0, y)));
+        path.push(PathCommand::LineTo(Point::new(90.0, y)));
+        list.push(Command::Stroke {
+            path: Arc::new(path),
+            transform: Transform::IDENTITY,
+            stroke: Stroke {
+                width,
+                adjust: true,
+                ..Stroke::default()
+            },
+            paint: Paint::Solid(Color::BLACK),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+        list
+    };
+    // The red level of column 50, every row: the rule's interior column.
+    let column = |raster: &Raster| -> Vec<u8> {
+        let width = raster.width as usize;
+        (0..raster.height as usize)
+            .map(|row| raster.data[(row * width + 50) * 4])
+            .collect()
+    };
+    let mut gpu_rasterizer = gpu();
+    for (width, rows) in [(0.6_f32, 1_usize), (2.0, 2), (2.7, 3)] {
+        for eighth in 0_u8..8 {
+            let y = 50.0 + f32::from(eighth) / 8.0;
+            let list = rule(y, width);
+            let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+            let cpu = CpuRasterizer::new()
+                .rasterize(&list, target)
+                .expect("supported");
+            let gpu = gpu_rasterizer.rasterize(&list, target).expect("supported");
+            for (name, drawn) in [("cpu", column(&cpu)), ("gpu", column(&gpu))] {
+                let inked: Vec<u8> = drawn.iter().copied().filter(|&l| l < 255).collect();
+                assert!(
+                    inked.len() == rows && inked.iter().all(|&l| l == 0),
+                    "{name}: a rule {width} wide at y {y} is {rows} whole rows, not {inked:?}"
+                );
+            }
+            assert_eq!(
+                column(&cpu),
+                column(&gpu),
+                "a rule {width} wide at y {y}: the backends ink different rows"
+            );
+        }
+    }
+}
+
 /// A stroke with no length draws the same on both backends: ISO 32000-2 §8.5.3.2.
 ///
 /// The second instance of the defect the previous scene guards against, and the reason both

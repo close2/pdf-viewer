@@ -115,9 +115,9 @@ impl CpuRasterizer {
         }
         let at = to_device.of(transform);
         // §10.7.5's first requirement, where `/SA` asks for it and the caller has not turned the
-        // fit off (it is on by default, ADR 2553): a thin stroke along the device axes is drawn one
-        // whole pixel wide across pixel centres, and everything below strokes the fitted path as
-        // though the document had stated it (ADR 2530).
+        // fit off (it is on by default, ADR 2553): a stroke along the device axes is drawn a whole
+        // number of pixels wide with its edges on pixel boundaries, and everything below strokes
+        // the fitted path as though the document had stated it (ADRs 2530 and 3729).
         let fitted = self
             .stroke_adjustment
             .then(|| pdf_render::grid_fit(path, stroke, at))

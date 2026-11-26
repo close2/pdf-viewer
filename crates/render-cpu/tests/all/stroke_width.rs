@@ -282,11 +282,11 @@ fn the_substituted_width_matches_the_rasterisers_hairline() {
 /// grid fit off, a rule keeps its coordinates and its coverage-weighted width, and the tight
 /// bound is a ratchet on that: `MEASURED` is the worst this ladder produced, doubled, for the
 /// slack the turned rung's comment states (ADRs 0848, 1189). With the fit on, which
-/// `CpuRasterizer::with_stroke_adjustment` turns on for a stroke under `/SA`, a rule under one
-/// and a half device pixels is one whole pixel at every placement — `poppler`'s construction,
-/// 0.4 from a requested 0.6 — so the test holds it to the clause's bound and to the same
-/// thickness at all eight placements, which is the uniformity the clause's first sentence names;
-/// a wider rule is not fitted and keeps the ratchet.
+/// `CpuRasterizer::with_stroke_adjustment` turns on for a stroke under `/SA`, a rule of any
+/// width is the nearest whole number of pixels at every placement (`pdf_render::fitted_width`;
+/// 0.4 from a requested 0.6, 0.5 from a requested 2.5) — so the test holds it to the clause's
+/// bound and to the same thickness at all eight placements, which is the uniformity the
+/// clause's first sentence names (ADR 3729).
 #[test]
 fn stroke_adjustment_holds_the_thickness_within_half_a_pixel_at_every_placement() {
     /// The clause's own bound, in device pixels of thickness.
@@ -323,15 +323,17 @@ fn stroke_adjustment_holds_the_thickness_within_half_a_pixel_at_every_placement(
                 // so the quantity the clause bounds is the width times the scale — the
                 // reciprocal the module comment warns about, met from the other side.
                 let requested = f64::from(width * scale);
-                let fit_applies = fitted && requested < f64::from(pdf_render::FIT_BELOW);
+                let fit_applies = fitted;
+                let whole = f64::from(pdf_render::fitted_width(width * scale));
                 let (least, most) = thicknesses
                     .iter()
                     .fold((f64::MAX, f64::MIN), |(l, m), &t| (l.min(t), m.max(t)));
                 if fit_applies {
                     assert!(
-                        most - least <= UNIFORM && (most - 1.0).abs() <= UNIFORM,
+                        most - least <= UNIFORM && (most - whole).abs() <= UNIFORM,
                         "scale {scale}, width {width}: the fitted rule's thickness runs from \
-                         {least} to {most} over the eight placements, not one whole pixel at each"
+                         {least} to {most} over the eight placements, not {whole} whole pixels \
+                         at each"
                     );
                 }
                 for (eighth, got) in thicknesses.iter().enumerate() {

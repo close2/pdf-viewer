@@ -67,7 +67,7 @@
   "code": "crates/pdf-render/src/grid_fit.rs:20-23, 43 (FIT_BELOW = 1.5, \"its bounds are the clause's\"); raster/crates/raster-gpu/src/raster/grid_fit.rs (the lanes' copy); doc/adr/2530",
   "change": "Fit every axis-aligned stroke under /SA true: width rounded to the nearest whole number of device pixels (at least one), edges on pixel boundaries, in render-cpu and every raster lane at once (A714's construction); correct grid_fit's module comment and the 10.7.5 ledger note.",
   "execution": "Executed on the CPU oracle: crates/pdf-model/tests/rendering_10_5_10_8_spec_audit.rs::stroke_adjustment_reaches_a_rule_two_pixels_wide_spec_audit — control (one point, one whole row) passes; two points [.., 191, 0, 63, ..].",
-  "status": "open"
+  "status": "fixed (ADR 3729; pdf_render::fitted_width and fitted_centre fit a /SA stroke of any width along the device axes to the nearest whole number of pixels, edges on pixel boundaries, in render-cpu, render-gpu and every raster lane; rendering_10_5_10_8_spec_audit::stroke_adjustment_reaches_a_rule_two_pixels_wide_spec_audit passes)"
  },
  {
   "id": "2248-D01",
