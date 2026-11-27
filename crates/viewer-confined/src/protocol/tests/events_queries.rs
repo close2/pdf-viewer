@@ -218,6 +218,7 @@ fn every_carried_event_round_trips() {
                     fit: pdf_model::media::Fit::Slice,
                     controls: true,
                     quarter_turns: 3,
+                    backward: true,
                     ..pdf_model::media::Playing::default()
                 },
                 screen: None,

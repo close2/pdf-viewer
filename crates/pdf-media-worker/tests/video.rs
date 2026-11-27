@@ -426,3 +426,165 @@ fn the_mp4_reader_reads_the_timing_tables() {
     let file = mp4_with(&sets, &units, 16, 16, &unordered);
     assert!(movie_video_track(movie_of(&file), file.len() as u64).is_err());
 }
+
+/// Eight pictures, each carrying its own index in its samples (`pcm_stream::samples`), in two groups
+/// of four — `stss` names samples 1 and 5 — at 40 ms a picture (ISO/IEC 14496-12, 8.6.1.2, 8.6.2).
+fn two_groups() -> (Vec<u8>, Vec<pdf_media_worker::video::Picture>) {
+    let (sets, units, pictures) = stream(8, 32, 32, Coding::Progressive);
+    let tables = Tables {
+        sync: Some(vec![1, 5]),
+        ..Tables::default()
+    };
+    (mp4_with(&sets, &units, 32, 32, &tables), pictures)
+}
+
+/// One group: `stss` names the first sample alone, so the pictures that copy it are not sync
+/// samples (a track without `stss` makes every sample one, ISO/IEC 14496-12, 8.6.2).
+fn one_group() -> Tables {
+    Tables {
+        sync: Some(vec![1]),
+        ..Tables::default()
+    }
+}
+
+/// Decodes `file` backward in a confined worker: each picture's index in `pictures` and its time
+/// in the pass.
+#[expect(
+    clippy::expect_used,
+    reason = "a test's helper: a fixture that does not play should fail the test loudly"
+)]
+fn played_backward(
+    file: &[u8],
+    pictures: &[pdf_media_worker::video::Picture],
+    until: Option<std::time::Duration>,
+    from: std::time::Duration,
+) -> Vec<(usize, u128)> {
+    let mut worker = MediaWorker::with_program(WORKER.into());
+    let mut presented = Vec::new();
+    worker
+        .decode_mp4_video_backward(file, until, from, &mut |picture, at| {
+            let index = pictures
+                .iter()
+                .position(|known| *known == picture)
+                .expect("a picture of the fixture");
+            presented.push((index, at.as_millis()));
+            ControlFlow::Continue(())
+        })
+        .expect("played backward");
+    presented
+}
+
+/// ISO 32000-2 §13.4, Table 307: "If the value of this entry is negative, the movie shall be
+/// played backward with respect to Start and Duration." The worker decodes each group from its sync
+/// sample and lets it out last picture first, the last group first, so the pictures arrive in the
+/// reverse of their presentation order; picture `k` ends at `(k + 1) × 40` ms, so its time in a pass
+/// from the track's end (320 ms) is `(7 − k) × 40` ms (ADR 3837).
+#[test]
+fn a_movie_played_backward_presents_its_pictures_last_first() {
+    let (file, pictures) = two_groups();
+    let presented = played_backward(&file, &pictures, None, std::time::Duration::ZERO);
+    let expected: Vec<(usize, u128)> = (0..8)
+        .rev()
+        .map(|index| (index, (7 - index as u128) * 40))
+        .collect();
+    assert_eq!(presented, expected);
+}
+
+/// "With respect to Start and Duration": a pass that begins at a section's end — 200 ms, where
+/// picture 5 begins — presents picture 4 first, at zero, and nothing presented at or after its
+/// beginning; the group that holds pictures 4 to 7 is still decoded from its sync sample.
+#[test]
+fn a_backward_pass_begins_at_its_section_s_end() {
+    let (file, pictures) = two_groups();
+    let presented = played_backward(
+        &file,
+        &pictures,
+        Some(std::time::Duration::from_millis(200)),
+        std::time::Duration::ZERO,
+    );
+    assert_eq!(presented, [(4, 0), (3, 40), (2, 80), (1, 120), (0, 160)]);
+}
+
+/// A backward pass resumed 160 ms in: the last group's pictures are all before that in the pass,
+/// so it is not decoded, and the first group's are presented from 160 ms down.
+#[test]
+fn a_resumed_backward_pass_skips_the_groups_before_it() {
+    let (file, pictures) = two_groups();
+    let presented = played_backward(
+        &file,
+        &pictures,
+        None,
+        std::time::Duration::from_millis(160),
+    );
+    assert_eq!(presented, [(3, 160), (2, 200), (1, 240), (0, 280)]);
+}
+
+/// A group whose decoded planes pass `MAX_GROUP_BYTES` is refused by name before any of it is
+/// decoded: thirty-three 1920 by 1088 pictures — an IDR and thirty-two that copy it, one group —
+/// are 103 403 520 bytes, past the 100 663 296 one backward pass holds.
+#[test]
+fn a_group_past_the_bound_is_refused_by_name() {
+    let (sets, units, _) = held_stream(32, 1920, 1088);
+    let file = mp4_with(&sets, &units, 1920, 1088, &one_group());
+    let mut worker = MediaWorker::with_program(WORKER.into());
+    let mut handed = 0;
+    let refused = worker
+        .decode_mp4_video_backward(&file, None, std::time::Duration::ZERO, &mut |_, _| {
+            handed += 1;
+            ControlFlow::Continue(())
+        })
+        .expect_err("past the bound");
+    assert!(matches!(refused, MediaError::Refused(_)), "{refused:?}");
+    assert!(
+        refused
+            .to_string()
+            .contains("a movie played backward holds"),
+        "{refused}"
+    );
+    assert_eq!(handed, 0);
+}
+
+/// The media worker's address space at its peak over a 1080-line group of thirty-two pictures played
+/// backward — the most `MAX_GROUP_BYTES` admits — and the time from the request to the first
+/// picture, which is the whole group's decode (ADR 3837).
+#[test]
+// not a gate: it prints the figures ADR 3837 records; the tests above are what fail on behaviour.
+#[ignore = "a measurement a person reads, of a 1080-line group through the confined worker"]
+fn the_worker_s_address_space_over_a_backward_1080_line_group() {
+    for (width, height, skipped) in [(32, 32, 7), (1920, 1088, 31)] {
+        let (sets, units, picture) = held_stream(skipped, width, height);
+        let file = mp4_with(&sets, &units, width as u16, height as u16, &one_group());
+        let mut worker = MediaWorker::with_program(WORKER.into());
+        // Started, and its ring attached, before the clock starts: what a second clip costs.
+        worker
+            .decode_mp4_video(&file, &mut |_| ControlFlow::Break(()))
+            .expect("started");
+        let asked = std::time::Instant::now();
+        let mut first = None;
+        let mut decoded = 0;
+        worker
+            .decode_mp4_video_backward(&file, None, std::time::Duration::ZERO, &mut |out, _| {
+                first.get_or_insert_with(|| asked.elapsed());
+                assert_eq!(out, picture);
+                decoded += 1;
+                ControlFlow::Continue(())
+            })
+            .expect("played backward");
+        let mut peak = String::new();
+        if let Some(process) = worker.process_id() {
+            let status = std::fs::read_to_string(format!("/proc/{process}/status")).unwrap();
+            peak = status
+                .lines()
+                .filter(|line| line.starts_with("VmPeak") || line.starts_with("VmHWM"))
+                .collect::<Vec<_>>()
+                .join("; ");
+        }
+        let planes = decoded * (width * height + 2 * (width / 2) * (height / 2));
+        println!(
+            "{width}x{height}, a group of {decoded} pictures, {planes} bytes of planes: first \
+             backward picture after {:?}; {peak}",
+            first.unwrap_or_default()
+        );
+        assert_eq!(decoded, skipped as usize + 1);
+    }
+}

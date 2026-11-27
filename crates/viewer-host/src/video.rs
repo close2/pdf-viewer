@@ -30,6 +30,11 @@
 //! and a longer one holds the last picture up until it has elapsed; `/RC` counts the passes, a
 //! fraction of one cutting the last (`timeline`, ADR 3593) — the sound's own cuts, on its clock.
 //!
+//! **A movie played backward** — Table 307's negative `/Rate` — is decoded one group of pictures at
+//! a time, the last group first, each let out last picture first by the worker; each picture's time
+//! counts down from the section's end, so the pass is timed as a forward one is, on the clip's own
+//! clock, its sound not yet reversed and so not sounded (ADR 3837).
+//!
 //! **A movie's poster** — Table 306's `/Poster` `true` — is its first picture, decoded once by
 //! [`Posters`] and drawn over the movie annotation's rectangle while the movie is not playing
 //! (ADR 3609).
@@ -79,6 +84,14 @@ const WAITING_LOOK: Duration = Duration::from_millis(5);
 pub const DECODING_LOOK: Duration = Duration::from_millis(4);
 
 impl InHand {
+    /// How the clip's passes are decoded backward, where Table 307's `/Rate` is negative.
+    fn backward(&self) -> Option<Backward> {
+        self.shown.backward.then(|| Backward {
+            begin: self.timeline.begin(),
+            until: self.timeline.end(),
+        })
+    }
+
     /// Where the pass's pictures ended, in its own time: one interval after the last picture, or
     /// the cut.
     fn pictures_end(&self) -> Duration {
@@ -159,6 +172,9 @@ pub struct Shown {
     pub window: Option<pdf_model::media::Window>,
     /// Table 306's `/Rotate` in clockwise quarter turns, for a movie (ADR 3817).
     pub quarter_turns: u8,
+    /// Table 307's negative `/Rate`: each pass's pictures played backward, from the section's end
+    /// down to its beginning, on the clip's own clock (ADR 3837).
+    pub backward: bool,
 }
 
 impl Shown {
@@ -190,6 +206,7 @@ impl Shown {
             fit: playing.fit,
             window: sound.window.clone(),
             quarter_turns: playing.quarter_turns,
+            backward: playing.backward,
         })
     }
 }
@@ -581,11 +598,22 @@ enum Decoded {
 }
 
 /// What the window asks of the decoding thread: decode `file` as pass `generation`, sending no
-/// picture before `from`.
+/// picture before `from`, forward or backward.
 struct Decode {
     generation: u64,
     file: Arc<[u8]>,
     from: Duration,
+    backward: Option<Backward>,
+}
+
+/// A pass played backward (Table 307's negative `/Rate`, ADR 3837): it begins at `until` on the
+/// movie's timeline — the section's end, or the track's where the section states none — and each
+/// picture's time in the pass, counted down from there, is placed after `begin`, so the window
+/// times a backward pass as it times a forward one.
+#[derive(Debug, Clone, Copy)]
+struct Backward {
+    begin: Duration,
+    until: Option<Duration>,
 }
 
 /// The decoding thread and the two directions of talk with it.
@@ -699,6 +727,9 @@ impl VideoPlayer {
             )));
             return;
         }
+        // A movie played backward is silent until its sound is reversed with it (ADR 3818); the
+        // sound player declines its sound, and the pictures run on their own clock.
+        let sound = sound.filter(|_| !shown.backward);
         let mut clock = MediaClock::new(CLOCK_RATE);
         let now = Instant::now();
         if shown.auto_play {
@@ -733,7 +764,8 @@ impl VideoPlayer {
             shown_count: 0,
             dropped: 0,
         });
-        let generation = self.decode(file, begin);
+        let backward = self.in_hand.as_ref().and_then(InHand::backward);
+        let generation = self.decode(file, begin, backward);
         if let Some(hand) = self.in_hand.as_mut() {
             hand.generation = generation;
         }
@@ -755,7 +787,7 @@ impl VideoPlayer {
     }
 
     /// Starts a pass of `file` on the thread, started here at the first, and answers its number.
-    fn decode(&mut self, file: Arc<[u8]>, from: Duration) -> u64 {
+    fn decode(&mut self, file: Arc<[u8]>, from: Duration, backward: Option<Backward>) -> u64 {
         self.generation = self.generation.wrapping_add(1);
         let generation = self.generation;
         if self.running.is_none() {
@@ -772,6 +804,7 @@ impl VideoPlayer {
                 generation,
                 file,
                 from,
+                backward,
             })
             .is_err()
         {
@@ -854,7 +887,8 @@ impl VideoPlayer {
         hand.next = None;
         let file = Arc::clone(&hand.shown.file);
         let said = format!("{}: showing its pictures again", hand.shown.label);
-        let generation = self.decode(file, from);
+        let backward = hand.backward();
+        let generation = self.decode(file, from, backward);
         if let Some(hand) = self.in_hand.as_mut() {
             hand.generation = generation;
         }
@@ -1250,7 +1284,8 @@ impl VideoPlayer {
                     hand.interval = Duration::ZERO;
                     let file = Arc::clone(&hand.shown.file);
                     let begin = hand.timeline.begin();
-                    let generation = self.decode(file, begin);
+                    let backward = hand.backward();
+                    let generation = self.decode(file, begin, backward);
                     if let Some(hand) = self.in_hand.as_mut() {
                         hand.generation = generation;
                     }
@@ -1339,7 +1374,7 @@ fn decode_pass(
     let mut last = Duration::ZERO;
     // The decode begins at the sync sample before `from` (ADR 3555); the pictures between it and
     // `from` are decoded and not sent.
-    let result = media.decode_mp4_video_from(&order.file, order.from, &mut |picture, at| {
+    let mut send = |picture: pdf_media_worker::video::Picture, at: Duration| {
         if wanted.load(Ordering::SeqCst) != generation {
             return ControlFlow::Break(());
         }
@@ -1359,7 +1394,18 @@ fn decode_pass(
         }
         wake();
         ControlFlow::Continue(())
-    });
+    };
+    let result = match order.backward {
+        // A backward pass's times count down from `until`, placed after `begin` (ADR 3837); a
+        // resume's `from` is a time in the pass placed the same way.
+        Some(Backward { begin, until }) => media.decode_mp4_video_backward(
+            &order.file,
+            until,
+            order.from.saturating_sub(begin),
+            &mut |picture, back| send(picture, begin.saturating_add(back)),
+        ),
+        None => media.decode_mp4_video_from(&order.file, order.from, &mut send),
+    };
     if wanted.load(Ordering::SeqCst) == generation {
         let _ = outbox.send(Decoded::Over {
             generation,

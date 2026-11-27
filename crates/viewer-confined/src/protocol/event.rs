@@ -964,8 +964,9 @@ fn write_sound(writer: &mut Writer, sound: Option<&viewer_core::SoundData>) {
 
 /// §13.2.5's play parameters beside a sound's samples (ADR 3341): the level, the duration's kind
 /// and seconds, the repeat count, the three flags, and §13.2.4.3's section — its beginning, then
-/// its end or a negative number for the clip's own end (ADR 3398), and Table 291's `/F` as its
-/// integer (ADR 3553).
+/// its end or a negative number for the clip's own end (ADR 3398), Table 291's `/F` as its
+/// integer (ADR 3553), Table 306's quarter turns (ADR 3817) and whether Table 307's negative
+/// `/Rate` plays the movie backward (ADR 3837).
 fn write_playing(writer: &mut Writer, playing: &pdf_model::media::Playing) {
     use pdf_model::media::SimpleDuration;
     let (kind, seconds) = match playing.duration {
@@ -985,7 +986,8 @@ fn write_playing(writer: &mut Writer, playing: &pdf_model::media::Playing) {
         .f64(playing.section.end.unwrap_or(-1.0))
         .u8(playing.fit.value())
         .bool(playing.controls)
-        .u8(playing.quarter_turns);
+        .u8(playing.quarter_turns)
+        .bool(playing.backward);
 }
 
 /// Table 306's `/Rotate` as `pdf_model::media::Playing::quarter_turns` promises it: 0 to 3.
@@ -1060,6 +1062,7 @@ fn read_playing(reader: &mut Reader<'_>) -> Result<pdf_model::media::Playing, Pr
         },
         controls: reader.bool("whether a clip shows a controller bar")?,
         quarter_turns: quarter_turns(reader.u8("a clip's clockwise quarter turns")?)?,
+        backward: reader.bool("whether a movie is played backward")?,
     })
 }
 

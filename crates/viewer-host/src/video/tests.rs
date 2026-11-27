@@ -31,6 +31,7 @@ fn shown(repeat: f64) -> Shown {
         fit: pdf_model::media::Fit::PlayersDefault,
         window: None,
         quarter_turns: 0,
+        backward: false,
     }
 }
 

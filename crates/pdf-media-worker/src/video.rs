@@ -21,6 +21,13 @@
 //! whose memory management operation 5 resets the order count mid-sequence is the case it does not
 //! see, and the conformance walk is where that would show.
 //!
+//! # Backward
+//!
+//! A movie played backward (ISO 32000-2 §13.4, Table 307's negative `/Rate`) is decoded one group
+//! of pictures at a time, each from its sync sample in a session of its own, and held as a [`Group`]
+//! until the group ends; its pictures are then let out last picture first (ADR 3837). A group whose
+//! planes pass [`MAX_GROUP_BYTES`] is refused by its size.
+//!
 //! # What is refused
 //!
 //! Interlaced H.264 — field pictures or MBAFF — which the decoder refuses by name and no decoder
@@ -37,6 +44,16 @@ pub const REORDER_FRAMES: usize = 16;
 /// The largest picture a session outputs, in luma samples: 1920 by 1088, the 1080-line frame RFC
 /// 0015 section 4.1 sized the video worker for (ADR 3528). A larger one is refused by its size.
 pub const MAX_PICTURE_PIXELS: usize = 1920 * 1088;
+
+/// The most bytes of decoded planes one group of pictures played backward holds (ISO 32000-2
+/// §13.4, Table 307's negative `/Rate`; ADR 3837): 96 MiB, thirty-two 1920 by 1088 pictures.
+///
+/// A movie played backward shows each group's last picture first, and a group's pictures can only
+/// be decoded forward from its sync sample, so the whole group is decoded and held before its first
+/// picture is let out. The bound is what `Profile::Media`'s 256 MiB address space leaves beside a
+/// session's sixteen reference frames and the ring (`tests/video.rs` measures the peak); a group
+/// past it is refused by its size, never cut short.
+pub const MAX_GROUP_BYTES: usize = 96 << 20;
 
 /// What a stream says of its pictures' colour, read from its sequence parameter set's VUI (ITU-T
 /// H.264 Annex E, E.1.1), with Annex E's inference for each code the stream leaves out (E.2.1):
@@ -253,6 +270,57 @@ impl Session {
     }
 }
 
+/// One group of pictures decoded for a backward pass, held in output order until the group ends and
+/// then let out last picture first (ISO 32000-2 §13.4, Table 307: "If the value of this entry is
+/// negative, the movie shall be played backward with respect to Start and Duration"; ADR 3837).
+#[derive(Debug, Default)]
+pub struct Group {
+    pictures: Vec<Picture>,
+    bytes: usize,
+}
+
+impl Group {
+    /// Holds `pictures`, the next a session let out.
+    ///
+    /// # Errors
+    ///
+    /// [`VideoError::Refused`] naming the bound where the group's planes would pass
+    /// [`MAX_GROUP_BYTES`]; the group is then not to be played, and nothing of it has been let out.
+    pub fn hold(&mut self, pictures: Vec<Picture>) -> Result<(), VideoError> {
+        for picture in pictures {
+            let planes = picture
+                .y
+                .len()
+                .saturating_add(picture.u.len())
+                .saturating_add(picture.v.len());
+            let bytes = self.bytes.saturating_add(planes);
+            if bytes > MAX_GROUP_BYTES {
+                return Err(VideoError::Refused(format!(
+                    "a group of pictures past the {MAX_GROUP_BYTES} bytes of decoded planes a \
+                     movie played backward holds: its picture {} of {} by {} reaches {bytes}",
+                    self.pictures.len().saturating_add(1),
+                    picture.width,
+                    picture.height
+                )));
+            }
+            self.bytes = bytes;
+            self.pictures.push(picture);
+        }
+        Ok(())
+    }
+
+    /// The bytes of decoded planes held.
+    #[must_use]
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+
+    /// The group's pictures, last picture first.
+    pub fn reversed(self) -> impl Iterator<Item = Picture> {
+        self.pictures.into_iter().rev()
+    }
+}
+
 /// An Annex B byte stream cut into the units [`Session::access_unit`] takes, each ending after a
 /// coded slice with the parameter sets and other units before it attached: what an elementary
 /// stream, such as a conformance bitstream, is fed as.
@@ -271,5 +339,42 @@ fn refusal(error: DecodeError) -> VideoError {
             VideoError::Interlaced(what.to_owned())
         }
         other => VideoError::Refused(format!("the H.264 stream: {other}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Group, MAX_GROUP_BYTES, Picture, Signal, VideoError};
+
+    /// A 1920 by 1088 picture whose every sample is `index`.
+    fn picture(index: u8) -> Picture {
+        const LUMA: usize = 1920 * 1088;
+        const CHROMA: usize = 960 * 544;
+        Picture {
+            width: 1920,
+            height: 1088,
+            y: vec![index; LUMA],
+            u: vec![index; CHROMA],
+            v: vec![index; CHROMA],
+            signal: Signal::default(),
+        }
+    }
+
+    /// A group lets its pictures out last first, and holds thirty-two 1080-line pictures — 3 133 440
+    /// bytes of planes each — and refuses the thirty-third by name (ADR 3837).
+    #[test]
+    fn a_group_reverses_and_refuses_past_its_bound() {
+        let mut group = Group::default();
+        group
+            .hold((0..32).map(picture).collect())
+            .expect("thirty-two pictures");
+        assert!(group.bytes() <= MAX_GROUP_BYTES);
+        let refused = group.hold(vec![picture(32)]).expect_err("the thirty-third");
+        assert!(
+            matches!(&refused, VideoError::Refused(said) if said.contains("played backward")),
+            "{refused:?}"
+        );
+        let order: Vec<u8> = group.reversed().map(|picture| picture.y[0]).collect();
+        assert_eq!(order, (0..32).rev().collect::<Vec<u8>>());
     }
 }

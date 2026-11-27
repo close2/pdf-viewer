@@ -78,6 +78,13 @@ impl Timeline {
         self.begin
     }
 
+    /// The section's end on the movie's timeline, where it states one: where a pass played
+    /// backward begins (ADR 3837).
+    pub(super) fn end(&self) -> Option<Duration> {
+        self.section
+            .map(|section| self.begin.saturating_add(section))
+    }
+
     /// A picture's time in its pass, from its time on the movie's timeline.
     pub(super) fn in_pass(&self, at: Duration) -> Duration {
         at.saturating_sub(self.begin)

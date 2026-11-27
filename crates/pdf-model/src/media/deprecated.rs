@@ -17,9 +17,10 @@
 //! window where Table 307's `/FWScale` asks for one, and is told the activation entries this
 //! player honours: `/Start` and `/Duration` as §13.2.4.3's section, `/Volume`, `/ShowControls`,
 //! `/Mode`'s `Once`, `Open` and `Repeat`, `/FWScale` and `/FWPosition` — and Table 306's
-//! `/Rotate`, the pictures and the poster turned clockwise by it (ADR 3817). Those it cannot honour
-//! are said, as for the hand-off: a negative `/Rate` and `Palindrome`'s backward half are not built
-//! yet (ADR 3818, `doc/todo/80`).
+//! `/Rotate`, the pictures and the poster turned clockwise by it (ADR 3817), and a negative
+//! `/Rate`'s pictures played backward (ADR 3837). Those it cannot honour are said, as for the
+//! hand-off: a backward movie's sound and `Palindrome`'s alternation are not built yet (ADR 3818,
+//! `doc/todo/80`).
 //!
 //! **What the hand-off cannot carry is said, never dropped** (trap 5): Table 307's activation
 //! entries and Table 212's playing parameters are each something a player would have to be *told*,
@@ -236,11 +237,15 @@ struct Told {
 /// - `/Mode`: `Once` plays one pass; `Repeat` plays "repeatedly from beginning to end until
 ///   stopped", a repeat count of zero; `Open` plays "and leave\[s] the movie controller bar open",
 ///   which this player reads as the last picture held, with the bar where one is shown, until the
-///   movie is stopped — an infinite duration. `Palindrome`'s backward half would decode each group
-///   of pictures backwards from its sync sample, which the media worker does not do; the movie is
-///   played forward repeatedly instead, and that is said.
-/// - `/Rate` other than 1 — "the initial speed" — is said and the movie played at its own speed:
-///   the pictures follow the sound's device clock (ADR 3555), which runs at the recording's rate.
+///   movie is stopped — an infinite duration. `Palindrome`'s alternation between passes is not
+///   built yet (ADR 3818); the movie is played repeatedly in one direction instead, and that is
+///   said.
+/// - `/Rate` negative — "the movie shall be played backward with respect to Start and Duration" —
+///   plays the pictures backward, from the section's end down to its start (ADR 3837); the sound
+///   is not reversed yet (ADR 3818), so the movie plays silent and that is said.
+/// - `/Rate` of a size other than 1 — "the initial speed" — is said and the movie played at its own
+///   speed: the pictures follow the sound's device clock (ADR 3555), which runs at the recording's
+///   rate.
 /// - `/Synchronous` true — "the movie player shall retain control until the movie is completed or
 ///   dismissed by the user" — is said: the window stays the reader's while the movie plays, and
 ///   Escape dismisses it.
@@ -296,9 +301,9 @@ fn told(
         Some(b"Palindrome") => {
             told.playing.repeat = 0.0;
             told.set_aside.push(
-                "Table 307's /Mode /Palindrome's backward half, because this program's media \
-                 worker decodes pictures forward only, so the movie plays forward repeatedly \
-                 until stopped"
+                "Table 307's /Mode /Palindrome's backward half, because this program's player \
+                 does not yet alternate a movie's direction between passes, so the movie plays \
+                 in one direction repeatedly until stopped"
                     .to_owned(),
             );
         }
@@ -308,21 +313,26 @@ fn told(
                 .to_owned(),
         ),
     }
-    if let Some(rate) = stated("Rate")
-        .as_number()
-        .filter(|rate| (rate - 1.0).abs() >= f64::EPSILON)
-    {
+    if let Some(rate) = stated("Rate").as_number().filter(|rate| rate.is_finite()) {
         // A negative rate is "the movie shall be played backward with respect to Start and
-        // Duration", which the worker's forward-only decoding does not yet do (ADR 3818).
-        let backward = if rate < 0.0 {
-            ", and forward, because this program's media worker decodes pictures forward only"
-        } else {
-            ""
-        };
-        told.set_aside.push(format!(
-            "Table 307's /Rate {rate}, because this program's player plays a movie at its \
-             recorded speed, its pictures following the sound device's clock{backward}"
-        ));
+        // Duration": the worker decodes each group of pictures from its sync sample and lets it
+        // out last picture first (ADR 3837). The sound is not yet reversed with them (ADR 3818),
+        // so a movie played backward is silent, and that is said.
+        if rate < 0.0 {
+            told.playing.backward = true;
+            told.set_aside.push(
+                "Table 307's /Rate's backward sound, because this program's player plays a movie's \
+                 pictures backward and does not yet reverse its sound, so the movie is played \
+                 backward in silence"
+                    .to_owned(),
+            );
+        }
+        if (rate.abs() - 1.0).abs() >= f64::EPSILON {
+            told.set_aside.push(format!(
+                "Table 307's /Rate {rate}, because this program's player plays a movie at its \
+                 recorded speed, its pictures following the sound device's clock"
+            ));
+        }
     }
     if matches!(stated("Synchronous"), Object::Boolean(true)) {
         told.set_aside.push(
@@ -892,8 +902,8 @@ mod tests {
         }
     }
 
-    /// `/Mode /Open` holds the last picture until the movie is stopped; `/Palindrome` plays forward
-    /// repeatedly and says its backward half is set aside (ADR 3594).
+    /// `/Mode /Open` holds the last picture until the movie is stopped; `/Palindrome` plays
+    /// repeatedly and says its alternation is set aside (ADRs 3594, 3818).
     #[test]
     fn open_holds_and_palindrome_is_said() {
         let movie_with = |mode: &str| {
@@ -917,6 +927,44 @@ mod tests {
         let palindrome = movie_with("Palindrome");
         assert_eq!(palindrome.playing.repeat, 0.0);
         assert!(palindrome.unhonoured[0].contains("Palindrome"));
+    }
+
+    /// Table 307's negative `/Rate` — "the movie shall be played backward with respect to Start
+    /// and Duration" — reaches the player as `backward`, and the sound it does not yet reverse is
+    /// said; a rate of -2 also says its speed, and a positive one plays forward (ADR 3837).
+    #[test]
+    fn a_negative_rate_plays_the_pictures_backward_and_says_the_sound() {
+        let movie_at = |rate: &str| {
+            let doc = document(&[
+                "<< /Type /Catalog >>",
+                &format!(
+                    "<< /Type /Annot /Subtype /Movie /Rect [0 0 10 10] /Movie << /F 3 0 R >> \
+                     /A << /Rate {rate} >> >>"
+                ),
+                "<< /Type /Filespec /F (clip.mp4) /EF << /F 4 0 R >> >>",
+                "<< /Type /EmbeddedFile /Subtype /video#2Fmp4 /Length 4 >>\nstream\nmoov\nendstream",
+            ]);
+            movie(&doc, &dict(&doc, 2), None, shows_video(false)).expect("shown")
+        };
+        let backward = movie_at("-1");
+        assert!(backward.playing.backward);
+        assert_eq!(backward.unhonoured.len(), 1, "{:?}", backward.unhonoured);
+        assert!(
+            backward.unhonoured[0].contains("backward in silence"),
+            "{:?}",
+            backward.unhonoured
+        );
+        let faster = movie_at("-2");
+        assert!(faster.playing.backward);
+        assert!(
+            faster
+                .unhonoured
+                .iter()
+                .any(|said| said.starts_with("Table 307's /Rate -2"))
+        );
+        let forward = movie_at("1");
+        assert!(!forward.playing.backward);
+        assert!(forward.unhonoured.is_empty(), "{:?}", forward.unhonoured);
     }
 
     /// Table 189's `/A false` withholds the annotation's own activation and not a movie action's,

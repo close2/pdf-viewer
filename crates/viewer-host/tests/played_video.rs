@@ -67,6 +67,7 @@ fn shown(file: Arc<[u8]>) -> Shown {
         fit: pdf_model::media::Fit::PlayersDefault,
         window: None,
         quarter_turns: 0,
+        backward: false,
     }
 }
 
@@ -298,4 +299,59 @@ fn a_section_shows_only_its_pictures() {
             indices.len()
         )
     );
+}
+
+/// **A movie played backward** — Table 307's negative `/Rate`, "the movie shall be played backward
+/// with respect to Start and Duration" (ISO 32000-2 §13.4, ADR 3837): its pictures come last first,
+/// picture `k` of six at `(5 − k) × 40` ms into the pass — the time from the track's end down to the
+/// picture's end — each its own samples, and the end is said with the counts. The wrong answers
+/// excluded: the pictures in their recorded order, and a pass timed on the movie's own clock, which
+/// would hold the first picture shown for the length of the clip.
+#[test]
+fn a_movie_played_backward_shows_its_pictures_last_first() {
+    let (file, samples) = clip(6);
+    let (mut player, wakes) = player();
+    player.play(Shown {
+        backward: true,
+        ..shown(file)
+    });
+    let began = Instant::now();
+    let mut indices = Vec::new();
+    let mut said = Vec::new();
+    loop {
+        if let Some(frame) = player.due(Instant::now()) {
+            let index = samples
+                .iter()
+                .position(|known| *known == frame.picture)
+                .expect("a picture of the clip");
+            assert_eq!(
+                frame.at,
+                INTERVAL * (5 - index as u32),
+                "picture {index}'s time"
+            );
+            indices.push(index);
+        }
+        let seen = player.seen();
+        let finished = seen
+            .iter()
+            .any(|seen| matches!(seen, Seen::Ended(_) | Seen::Refused(_) | Seen::Stopped(_)));
+        said.extend(seen);
+        if finished {
+            break;
+        }
+        assert!(
+            began.elapsed() < PATIENCE,
+            "the worker must be built: `cargo build -p pdf-media-worker --bins`; said {said:?}"
+        );
+        rest(&player, &wakes);
+    }
+    assert!(!indices.is_empty(), "a picture was shown; said {said:?}");
+    assert!(
+        indices.windows(2).all(|pair| pair[0] > pair[1]),
+        "last first: {indices:?}"
+    );
+    let Some(Seen::Ended(ended)) = said.last() else {
+        panic!("the clip ended: {said:?}");
+    };
+    assert!(ended.starts_with("the clip: ended after"), "{ended}");
 }

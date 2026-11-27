@@ -156,11 +156,19 @@ pub struct Playing {
     ///
     /// Zero for every other clip, whose player states its own orientation.
     pub quarter_turns: u8,
+    /// ISO 32000-2 §13.4, Table 307's `/Rate` negative, for a movie this program shows itself
+    /// (ADR 3837):
+    ///
+    /// > If the value of this entry is negative, the movie shall be played backward with respect
+    /// > to Start and Duration.
+    ///
+    /// False for every other clip.
+    pub backward: bool,
 }
 
 impl Default for Playing {
     /// Each table's default: `/V` 100, `/D` intrinsic, `/RC` 1.0, `/A` true, `/F` 5,
-    /// `/Synchronous`, `/Mix` and `/ShowControls` false, `/Rotate` 0.
+    /// `/Synchronous`, `/Mix` and `/ShowControls` false, `/Rotate` 0, `/Rate` 1.0 (forward).
     fn default() -> Self {
         Self {
             level: 1.0,
@@ -173,6 +181,7 @@ impl Default for Playing {
             fit: Fit::PlayersDefault,
             controls: false,
             quarter_turns: 0,
+            backward: false,
         }
     }
 }

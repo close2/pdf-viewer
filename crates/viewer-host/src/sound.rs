@@ -334,7 +334,20 @@ impl Player {
     }
 
     /// Plays `played` in place of whatever sounds, starting the thread if this is the first.
+    ///
+    /// A movie played backward — Table 307's negative `/Rate` — stops whatever sounds and is not
+    /// sounded: its pictures are played backward, and its sound is not yet reversed with them
+    /// (ADRs 3818, 3837), so it is declined and said rather than played forward under them.
     pub fn play(&mut self, played: Played) {
+        if played.sound.playing.backward {
+            self.stop();
+            self.early.push(Heard::Refused(format!(
+                "{}: not sounded, because the movie is played backward (Table 307's negative \
+                 /Rate) and this player does not yet reverse a sound",
+                played.label
+            )));
+            return;
+        }
         if self.running.is_none() {
             self.start();
         }

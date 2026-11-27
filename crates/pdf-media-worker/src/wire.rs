@@ -869,7 +869,7 @@ pub const FRAME_INTERLACED: u8 = 16;
 /// past what a document's clip carries, and a unit past it is refused by its size (ADR 3527).
 pub const MAX_VIDEO_UNIT_BYTES: usize = 4 << 20;
 
-/// Largest video run request a worker reads: its version, its last-run flag, a count, and units of
+/// Largest video run request a worker reads: its version, its [`VideoRun`] flag, a count, and units of
 /// at most [`MAX_VIDEO_UNIT_BYTES`] together.
 pub const MAX_VIDEO_RUN_BYTES: usize = 1 + 1 + 4 + 4 + MAX_VIDEO_UNIT_BYTES;
 
@@ -1038,35 +1038,65 @@ pub fn decode_video_track(payload: &[u8], total: u64) -> Result<VideoTrack, Stri
     })
 }
 
-/// A video run request's bytes: the version, whether this is the track's last run — whose closing
-/// follows every picture the session still holds — then [`encode_units`]'s count, sizes and units.
+/// What a video run asks of the worker's session: forward decoding, or one group of pictures of a
+/// movie played backward (ISO 32000-2 §13.4, Table 307's negative `/Rate`; ADR 3837).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VideoRun {
+    /// Each picture let out as the session outputs it; `last` is the track's last run, whose
+    /// closing follows every picture the session still holds.
+    Forward {
+        /// Whether this is the track's last run.
+        last: bool,
+    },
+    /// Part of one group of pictures, decoded from its sync sample and held: the first run of a
+    /// group begins a fresh session, no picture is let out until the run that `ends` the group,
+    /// and that run lets out every picture of the group last picture first.
+    Backward {
+        /// Whether this run ends the group.
+        ends: bool,
+    },
+}
+
+impl VideoRun {
+    /// The run's flag byte: 0 and 1 forward (not last, last), 2 and 3 backward (continuing, ending).
+    fn flag(self) -> u8 {
+        match self {
+            Self::Forward { last } => u8::from(last),
+            Self::Backward { ends: false } => 2,
+            Self::Backward { ends: true } => 3,
+        }
+    }
+}
+
+/// A video run request's bytes: the version, the run's [`VideoRun`] as a flag byte, then
+/// [`encode_units`]'s count, sizes and units.
 #[must_use]
-pub fn encode_video_run(last: bool, units: &[&[u8]]) -> Vec<u8> {
-    let mut bytes = vec![VERSION, u8::from(last)];
+pub fn encode_video_run(run: VideoRun, units: &[&[u8]]) -> Vec<u8> {
+    let mut bytes = vec![VERSION, run.flag()];
     bytes.extend_from_slice(&encode_units(units));
     bytes
 }
 
-/// A video run request read back: whether it is the last, and its access units.
+/// A video run request read back: what it asks, and its access units.
 ///
 /// # Errors
 ///
-/// As [`decode_units`], and a flag other than 0 or 1.
-pub fn decode_video_run(payload: &[u8]) -> Result<(bool, Vec<&[u8]>), String> {
+/// As [`decode_units`], and a flag no build writes.
+pub fn decode_video_run(payload: &[u8]) -> Result<(VideoRun, Vec<&[u8]>), String> {
     let rest = versioned(payload, "video run request")?;
     let (&flag, units) = rest
         .split_first()
         .ok_or_else(|| "a video run request cut short before its flag".to_owned())?;
-    let last = match flag {
-        0 => false,
-        1 => true,
+    let run = match flag {
+        0 => VideoRun::Forward { last: false },
+        1 => VideoRun::Forward { last: true },
+        2 => VideoRun::Backward { ends: false },
+        3 => VideoRun::Backward { ends: true },
         other => {
-            return Err(format!(
-                "a video run request whose last-run flag is {other}"
-            ));
+            return Err(format!("a video run request whose flag is {other}"));
         }
     };
-    Ok((last, decode_units(units)?))
+    Ok((run, decode_units(units)?))
 }
 
 /// A picture item's bytes before its planes: the version, the width, the height, and its
@@ -1254,6 +1284,25 @@ mod tests {
         bits: 16,
         encoding: Encoding::Signed,
     };
+
+    /// Each of a video run's four requests crosses as itself, and a flag no build writes is
+    /// refused (ADR 3837).
+    #[test]
+    fn a_video_run_s_direction_crosses_whole() {
+        let unit: &[u8] = &[0, 0, 0, 1, 0x65];
+        for run in [
+            VideoRun::Forward { last: false },
+            VideoRun::Forward { last: true },
+            VideoRun::Backward { ends: false },
+            VideoRun::Backward { ends: true },
+        ] {
+            let bytes = encode_video_run(run, &[unit]);
+            assert_eq!(decode_video_run(&bytes), Ok((run, vec![unit])));
+        }
+        let mut bytes = encode_video_run(VideoRun::Forward { last: true }, &[unit]);
+        bytes[1] = 4;
+        assert!(decode_video_run(&bytes).is_err());
+    }
 
     #[test]
     fn a_request_crosses_whole() {

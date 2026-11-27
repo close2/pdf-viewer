@@ -17,7 +17,7 @@ use crate::wire::{
 };
 use crate::wire::{
     FRAME_INTERLACED, FRAME_PICTURES, FRAME_VIDEO_MOVIE, FRAME_VIDEO_TRACK, MAX_VIDEO_RUN_BYTES,
-    MAX_VIDEO_UNIT_BYTES, RunEnd, VideoTrack, decode_video_run, encode_picture_into,
+    MAX_VIDEO_UNIT_BYTES, RunEnd, VideoRun, VideoTrack, decode_video_run, encode_picture_into,
     encode_run_end, encode_video_track, picture_bytes,
 };
 use crate::{aac, mp4, sound, video, wave};
@@ -91,11 +91,15 @@ pub fn answer(kind: u8, payload: Option<Vec<u8>>) -> Result<(u8, Vec<u8>), Strin
 
 /// What a worker holds between requests: the decoder of the clip it is playing, from the clip's
 /// movie request to its last run (ADR 3381), the video track's H.264 session (ADR 3526), and the
-/// ring its pictures are written into (ADR 3513).
+/// ring its pictures are written into (ADR 3513); for a movie played backward, the track's NAL
+/// length size and parameter sets, from which each group's session begins, and the group being
+/// decoded (ADR 3837).
 #[derive(Debug, Default)]
 pub struct Worker {
     session: Option<aac::Session>,
     video: Option<video::Session>,
+    parameters: Option<(u8, Vec<Vec<u8>>)>,
+    group: Option<video::Group>,
     ring: Option<RingWriter>,
 }
 
@@ -165,6 +169,8 @@ impl Worker {
             }
             FRAME_VIDEO_MOVIE => {
                 self.video = None;
+                self.parameters = None;
+                self.group = None;
                 let (total, movie) = decode_movie_request(&payload)?;
                 self.video_movie(movie, total)
             }
@@ -230,6 +236,7 @@ impl Worker {
             edits: track.edits.clone(),
         });
         self.video = Some(session);
+        self.parameters = Some((track.length_size, track.parameter_sets));
         Ok((FRAME_VIDEO_TRACK, reply))
     }
 
@@ -285,19 +292,45 @@ impl Worker {
         input: &mut impl Read,
         output: &mut impl Write,
     ) -> Result<Option<RunEnd>, std::io::Error> {
-        let (last, units) = match decode_video_run(request) {
+        let (run, units) = match decode_video_run(request) {
             Ok(run) => run,
             Err(sentence) => return Ok(Some(RunEnd::Refused(sentence))),
         };
-        let (Some(session), Some(ring)) = (self.video.as_mut(), self.ring.as_mut()) else {
+        if self.ring.is_none() || self.parameters.is_none() {
             return Ok(Some(RunEnd::Refused(
                 "a video run before a video track's movie, or with no ring attached".to_owned(),
             )));
-        };
-        let slot = ring.shape().slot_len();
+        }
+        match run {
+            VideoRun::Forward { last } => self.forward(last, &units, emitter, input, output),
+            VideoRun::Backward { ends } => self.backward(ends, &units, emitter, input, output),
+        }
+    }
+
+    /// A forward run: each picture emitted as the session lets it out.
+    fn forward(
+        &mut self,
+        last: bool,
+        units: &[&[u8]],
+        emitter: &mut Emitter,
+        input: &mut impl Read,
+        output: &mut impl Write,
+    ) -> Result<Option<RunEnd>, std::io::Error> {
+        if self.group.is_some() {
+            self.group = None;
+            self.video = None;
+            return Ok(Some(RunEnd::Refused(
+                "a forward run inside a group of pictures being played backward".to_owned(),
+            )));
+        }
         let mut next = units.iter();
         let mut finished = !last;
         loop {
+            let Some(session) = self.video.as_mut() else {
+                return Ok(Some(RunEnd::Refused(
+                    "a video run after its session ended".to_owned(),
+                )));
+            };
             let answered = if let Some(unit) = next.next() {
                 session.sample(unit)
             } else if finished {
@@ -310,30 +343,128 @@ impl Worker {
                 Ok(pictures) => pictures,
                 Err(error) => {
                     self.video = None;
-                    return Ok(Some(match error {
-                        video::VideoError::Interlaced(_) => RunEnd::Interlaced(error.to_string()),
-                        video::VideoError::Refused(sentence) => RunEnd::Refused(sentence),
-                    }));
+                    return Ok(Some(ended(error)));
                 }
             };
-            for picture in &pictures {
-                let length = picture_bytes(picture.width, picture.height);
-                if length > slot {
-                    self.video = None;
-                    return Ok(Some(RunEnd::Refused(format!(
-                        "a picture of {} by {} in {length} bytes, past the ring's slot of {slot}",
-                        picture.width, picture.height
-                    ))));
-                }
-                let outcome = emitter.emit_in_ring(input, output, ring, |slot| {
-                    encode_picture_into(slot, picture).unwrap_or(usize::MAX)
-                })?;
-                if outcome == Emitted::Stopped {
-                    return Ok(None);
-                }
+            match self.emit(pictures, emitter, input, output)? {
+                Written::All => {}
+                Written::Stopped => return Ok(None),
+                Written::Refused(end) => return Ok(Some(end)),
             }
         }
         Ok(Some(RunEnd::Decoded))
+    }
+
+    /// A run of a group played backward (ISO 32000-2 §13.4, Table 307's negative `/Rate`; ADR
+    /// 3837): the group's first run begins a session of its own at the group's sync sample, every
+    /// picture is held in the [`video::Group`], and the run that ends the group emits the whole of
+    /// it last picture first. A group past [`video::MAX_GROUP_BYTES`] is refused before any of its
+    /// pictures is emitted.
+    fn backward(
+        &mut self,
+        ends: bool,
+        units: &[&[u8]],
+        emitter: &mut Emitter,
+        input: &mut impl Read,
+        output: &mut impl Write,
+    ) -> Result<Option<RunEnd>, std::io::Error> {
+        if self.group.is_none() {
+            let Some((length_size, sets)) = self.parameters.as_ref() else {
+                return Ok(Some(RunEnd::Refused(
+                    "a video run before a video track's movie".to_owned(),
+                )));
+            };
+            match video::Session::for_track(*length_size, sets) {
+                Ok(session) => self.video = Some(session),
+                Err(error) => return Ok(Some(ended(error))),
+            }
+            self.group = Some(video::Group::default());
+        }
+        let held = self.hold_group(ends, units);
+        if let Err(error) = held {
+            self.group = None;
+            self.video = None;
+            return Ok(Some(ended(error)));
+        }
+        if !ends {
+            return Ok(Some(RunEnd::Decoded));
+        }
+        let Some(group) = self.group.take() else {
+            return Ok(Some(RunEnd::Decoded));
+        };
+        match self.emit(group.reversed(), emitter, input, output)? {
+            Written::All => Ok(Some(RunEnd::Decoded)),
+            Written::Stopped => Ok(None),
+            Written::Refused(end) => Ok(Some(end)),
+        }
+    }
+
+    /// Decodes `units` into the group in hand, and the session's held pictures with them where the
+    /// run `ends` the group.
+    fn hold_group(&mut self, ends: bool, units: &[&[u8]]) -> Result<(), video::VideoError> {
+        let (Some(session), Some(group)) = (self.video.as_mut(), self.group.as_mut()) else {
+            return Err(video::VideoError::Refused(
+                "a backward run with no group in hand".to_owned(),
+            ));
+        };
+        for unit in units {
+            group.hold(session.sample(unit)?)?;
+        }
+        if ends {
+            group.hold(session.finish())?;
+        }
+        Ok(())
+    }
+
+    /// Writes each of `pictures` into its slot of the ring under the host's grants.
+    fn emit(
+        &mut self,
+        pictures: impl IntoIterator<Item = video::Picture>,
+        emitter: &mut Emitter,
+        input: &mut impl Read,
+        output: &mut impl Write,
+    ) -> Result<Written, std::io::Error> {
+        let Some(ring) = self.ring.as_mut() else {
+            return Ok(Written::Refused(RunEnd::Refused(
+                "a video run with no ring attached".to_owned(),
+            )));
+        };
+        let slot = ring.shape().slot_len();
+        for picture in pictures {
+            let length = picture_bytes(picture.width, picture.height);
+            if length > slot {
+                self.video = None;
+                return Ok(Written::Refused(RunEnd::Refused(format!(
+                    "a picture of {} by {} in {length} bytes, past the ring's slot of {slot}",
+                    picture.width, picture.height
+                ))));
+            }
+            let outcome = emitter.emit_in_ring(input, output, ring, |slot| {
+                encode_picture_into(slot, &picture).unwrap_or(usize::MAX)
+            })?;
+            if outcome == Emitted::Stopped {
+                return Ok(Written::Stopped);
+            }
+        }
+        Ok(Written::All)
+    }
+}
+
+/// How a run's pictures went into the ring.
+enum Written {
+    /// Every one.
+    All,
+    /// The host stopped the stream.
+    Stopped,
+    /// A picture past the ring's slot, which ends the run.
+    Refused(RunEnd),
+}
+
+/// How a run that the session refused ends.
+fn ended(error: video::VideoError) -> RunEnd {
+    match error {
+        video::VideoError::Interlaced(_) => RunEnd::Interlaced(error.to_string()),
+        video::VideoError::Refused(sentence) => RunEnd::Refused(sentence),
     }
 }
 

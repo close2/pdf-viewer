@@ -27,9 +27,10 @@ name wherever a configuration or an instance names them.
 
 ## 2. A movie played backward (estimated two rounds, ADR 3818)
 
-1. **The worker** decodes a group of pictures from its sync sample and writes it to the ring last
-   picture first; the clock runs a pass down. Bound: one group of decoded planes, refused by name
-   past it.
+1. **The worker** — **built** (ADR 3837): it decodes a group of pictures from its sync sample
+   and writes it to the ring last picture first, and the clock runs a pass down. Bound: 96 MiB of
+   decoded planes, thirty-two 1080-line pictures, refused by name past it; a longer 1080p group
+   needs the media worker's address-space ceiling raised, which ADR 3837 prices.
 2. **The sound and the modes** — the sound's blocks reversed in the same pass; Table 307's negative
    `/Rate` and `Palindrome`'s alternation; Table 212's sounds are not affected.
 

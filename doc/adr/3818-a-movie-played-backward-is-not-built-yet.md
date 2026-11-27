@@ -24,3 +24,12 @@ worker forward only, from a sync sample (ADR 3555); both statements were said as
    group: at 1920 by 1080 a sixty-picture group is about 190 MB of decoded planes (4:2:0, 3.1 MB a picture), so the ring holds
    a group and refuses by name a stream whose group is longer than the bound. Estimated at two
    rounds after the rich media plan's first.
+
+## Measured (session 2284)
+
+Step one is built (ADR 3837): the worker holds a group and lets it out last picture first, and a
+negative `/Rate` plays the pictures backward in silence. The bound measured is 96 MiB of planes, not
+the 190 MB estimated above: a sixty-picture 1080p group does not fit `Profile::Media`'s 256 MiB
+address space beside the session's references (a thirty-two-picture group peaks at 174 MiB), so
+such a group is refused by name until a round raises the ceiling. The sound's reversal and
+`Palindrome` remain.
