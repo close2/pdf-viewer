@@ -1,0 +1,36 @@
+{
+ "warning": "Audit failures are evidenced gaps, not waived defects. Compare exact test identities within each run scope.",
+ "tree": "round-2282 on main 585a90aef",
+ "failures": [
+  {
+   "binary": "pdf-archive::pdfa_clause_6_spec_audit",
+   "test": "a_forbidden_key_naming_no_object_states_nothing_spec_audit",
+   "finding": "2282-B01",
+   "log": "round-2282 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::pdfa_clause_6_spec_audit",
+   "test": "a_file_specification_written_in_place_is_held_to_the_embedded_file_rules_spec_audit",
+   "finding": "2282-B02",
+   "log": "round-2282 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::pdfa_clause_6_spec_audit",
+   "test": "colour_the_base_standard_ignores_is_no_device_colour_use_spec_audit",
+   "finding": "2282-B03",
+   "log": "round-2282 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::pdfa_clause_6_spec_audit",
+   "test": "a_page_metadata_stream_is_read_whether_or_not_it_names_its_type_spec_audit",
+   "finding": "2282-B04",
+   "log": "round-2282 nextest of pdf-archive"
+  },
+  {
+   "binary": "pdf-archive::pdfa_clause_6_spec_audit",
+   "test": "an_order_array_references_every_group_the_file_uses_spec_audit",
+   "finding": "2282-B05",
+   "log": "round-2282 nextest of pdf-archive"
+  }
+ ]
+}

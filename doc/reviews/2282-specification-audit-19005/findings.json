@@ -1,0 +1,106 @@
+[
+ {
+  "id": "2282-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "19005-2 6.1.7.1",
+   "19005-2 6.1.12",
+   "19005-2 6.2.6",
+   "19005-2 6.3.3",
+   "19005-2 6.4.1",
+   "19005-2 6.4.2",
+   "19005-2 6.5.2",
+   "19005-2 6.9",
+   "19005-2 6.10",
+   "19005-2 6.11",
+   "19005-4 6.1.6.1",
+   "19005-4 6.1.11",
+   "19005-4 6.3.3",
+   "19005-4 6.4.2",
+   "19005-4 6.11",
+   "19005-4 6.12",
+   "32000-1 7.3.10"
+  ],
+  "summary": "Twelve validator rules that forbid a key ask Dictionary::get(..).is_some() or list keys(..) rather than table::states, so a forbidden key whose value is a reference to an object the file does not hold is failed as the key: a stream's F/FFilter/FDecodeParms, the catalog's and a page's AA, Requirements, NeedsRendering, the form's XFA, the name dictionary's AlternatePresentations, a page's PresSteps, a configuration's AS, a widget's A and AA, an appearance dictionary's other keys, a permissions dictionary's keys, an image's Intent and a graphics state's RI. table::states' own comment says every rule that forbids a key asks through it.",
+  "source": "ISO 32000-1 §7.3.10 (32000-2 §7.3.10 in the same words): \"An indirect reference to an undefined object shall not be considered an error by a PDF processor; it shall be treated as a reference to the null object.\" ISO 32000-2 §7.3.7: \"A dictionary entry whose value is null (see 7.3.9, \\\"Null object\\\") shall be treated the same as if the entry does not exist.\" ISO 19005-2 sections 6.1.7.1, 6.1.12, 6.2.6, 6.3.3, 6.4.1, 6.4.2, 6.5.2, 6.9, 6.10 and 6.11 forbid the presence of these keys (paraphrased; ISO 19005 is not quoted in this tree).",
+  "code": "crates/pdf-archive/src/table/file_structure.rs:1085 (external data keys), :1267 (permissions keys), :1338 (DocMDP digest keys, by reading); crates/pdf-archive/src/table/interaction.rs:1057,1071 (catalog and page AA), :1664 (appearance keys), :1764 (A), :1794 (XFA), :1808 (NeedsRendering), :2218 (widget and field AA); crates/pdf-archive/src/table/document_level.rs:1020 (AS), :1037 (AlternatePresentations), :1054 (PresSteps), :1067 (Requirements); crates/pdf-archive/src/table/graphics.rs:2959 (Intent and RI)",
+  "change": "Ask table::states for each forbidden key, and list a dictionary's keys skipping those whose value resolves to null.",
+  "execution": "crates/pdf-archive/tests/pdfa_clause_6_spec_audit.rs::a_forbidden_key_naming_no_object_states_nothing_spec_audit fails on main listing eleven sites, each against a twin without the entry.",
+  "status": "open"
+ },
+ {
+  "id": "2282-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "19005-2 6.8",
+   "19005-4 6.9"
+  ],
+  "summary": "An embedded file whose file specification is written as a direct dictionary where it is used (a FileAttachment annotation's /FS, a GoToE action's /F) is never read: for_each_embedded_file_specification visits the indirect objects and the /EmbeddedFiles tree's direct leaves only. A direct /FS embedding a text/plain file and stating no UF passes embedded-file-is-itself-pdfa and file-and-unicode-names under 2b; the converter reports its output as conforming, and veraPDF 1.30 fails that output on 6.8 test 5 (evidence).",
+  "source": "ISO 19005-2 section 6.8 (paraphrased): a file specification dictionary may carry EF only where the embedded file conforms to ISO 19005-1 or ISO 19005-2, and the file specification of an embedded file states F and UF. ISO 32000-1 §12.5.6.15 Table 184: FS \"(Required) The file associated with this annotation.\" (a file specification, direct or indirect).",
+  "code": "crates/pdf-archive/src/table/document_level.rs:520-549 (for_each_embedded_file_specification), and every row that walks through it",
+  "change": "Visit every file specification carrying /EF wherever the examination reaches a dictionary (an annotation's /FS, an action's /F, an /AF element), direct or indirect.",
+  "execution": "crates/pdf-archive/tests/pdfa_clause_6_spec_audit.rs::a_file_specification_written_in_place_is_held_to_the_embedded_file_rules_spec_audit fails on main; its control (the same specification as an indirect object) fails both rules.",
+  "status": "open"
+ },
+ {
+  "id": "2282-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "19005-2 6.2.4.3",
+   "19005-4 6.2.4.3",
+   "32000-1 8.6.8",
+   "32000-1 8.7.3.3",
+   "32000-1 9.6.5"
+  ],
+  "summary": "Colour operators the base standard ignores are recorded as device colour uses: rg and cs /DeviceRGB after d1 in a Type 3 glyph, the same in an uncoloured (PaintType 2) tiling cell, and an uncoloured cell that sets no colour (recorded as the initial DeviceGray) each fail section 6.2.4.3's DeviceRGB or DeviceGray row. The survey carries State::uncoloured and hands it to the grammar only; set_device_colour, set_space and the initial-space record never read it. veraPDF 1.30 reports none of the five (evidence).",
+  "source": "ISO 32000-2 §9.6.4 Table 111, d1: \"A glyph description that begins with the d1 operator should not execute any operators that set the colour (or other colour-related parameters including transparency) in the graphics state; any use of such operators shall be ignored\" (ISO 32000-1 §9.6.5 Table 113 the same). §8.7.3.3: an uncoloured tiling pattern's cell is painted in the colour the pattern is selected with. ISO 19005-2 section 6.2.4.3 (paraphrased): a device colour space is used only where a default space or the output intent licenses it.",
+  "code": "crates/pdf-archive/src/survey/colour_spaces.rs:16-41 (set_device_colour), :48 (set_space); crates/pdf-archive/src/survey/painting.rs:23 (the initial colour space); crates/pdf-archive/src/survey/operators.rs:95,202 (State::uncoloured read for the grammar only)",
+  "change": "Record no device colour where State::uncoloured holds: the operators return early, and an uncoloured cell's paint is the pattern's colour space.",
+  "execution": "crates/pdf-archive/tests/pdfa_clause_6_spec_audit.rs::colour_the_base_standard_ignores_is_no_device_colour_use_spec_audit fails on main listing all five cases.",
+  "status": "open"
+ },
+ {
+  "id": "2282-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "19005-2 6.6.2.1",
+   "19005-4 6.7.2.1",
+   "32000-1 14.3.2"
+  ],
+  "summary": "A metadata stream known by where it stands is not read: for_each_metadata_stream and metadata_streams take streams stating /Type /Metadata only, so a page's /Metadata stream that omits that required entry, with a malformed packet and a deprecated bytes header attribute, passes xmp-packets-well-formed and xmp-packet-header-attributes, and no row reports the missing /Type.",
+  "source": "ISO 32000-1 Table 30, Metadata: \"(Optional; PDF 1.4) A metadata stream containing metadata for the page (see 14.3.2, \\\"Metadata Streams\\\").\" Table 315 makes /Type Metadata required. ISO 19005-2 section 6.6.2.1 (paraphrased): every metadata stream in the file conforms to the XMP specification and every packet is well-formed, its header without the bytes and encoding attributes.",
+  "code": "crates/pdf-archive/src/table/metadata.rs:512-526 (for_each_metadata_stream), :2490-2505 (metadata_streams)",
+  "change": "Add every stream a /Metadata entry names to the population, and report the missing /Type under a row (or adheres-to-the-base-standard).",
+  "execution": "crates/pdf-archive/tests/pdfa_clause_6_spec_audit.rs::a_page_metadata_stream_is_read_whether_or_not_it_names_its_type_spec_audit fails on main; its control (the same stream with /Type) fails both rows.",
+  "status": "open"
+ },
+ {
+  "id": "2282-B05",
+  "kind": "behavior-gap",
+  "clauses": [
+   "19005-2 6.9",
+   "19005-4 6.10",
+   "32000-1 8.11.4.2"
+  ],
+  "summary": "optional-content/order-lists-every-group takes the file's groups from /OCProperties /OCGs alone. A group the page's content selects through /OC that /OCGs and Order both leave out passes the row, and no row reports the base standard's rule that /OCGs lists every group.",
+  "source": "ISO 19005-2 section 6.9 (paraphrased): an Order array references every optional content group in the conforming file. ISO 32000-1 Table 100, OCGs: \"(Required) An array of indirect references to all the optional content groups in the document\".",
+  "code": "crates/pdf-archive/src/table/document_level.rs:982-1013 (order_lists_every_group)",
+  "change": "Take the census from /OCGs together with every group the survey's /OC route and the OCMDs reach, and report a group /OCGs leaves out.",
+  "execution": "crates/pdf-archive/tests/pdfa_clause_6_spec_audit.rs::an_order_array_references_every_group_the_file_uses_spec_audit fails on main; its control (the group listed in /OCGs) fails the row.",
+  "status": "open"
+ },
+ {
+  "id": "2282-D01",
+  "kind": "documentation",
+  "clauses": [
+   "19005-2 6.9",
+   "19005-4 6.10"
+  ],
+  "summary": "order_lists_every_group names the missing group with Rust's Debug form, so the report prints `ObjectId { number: 7, generation: 0 }` where every other row prints `object 7 0`.",
+  "source": "The report's own convention (finding::Where).",
+  "code": "crates/pdf-archive/src/table/document_level.rs:1008",
+  "change": "Name the group as Where::object does.",
+  "execution": "read in examples/one.rs output of a probe; no test.",
+  "status": "open"
+ }
+]
