@@ -366,3 +366,19 @@ copy. No Reserved Font Name is declared, so the faces keep the family's name.
     Copyright 2022 The Noto Project Authors
     (https://github.com/notofonts/latin-greek-cyrillic)
     Licensed under the SIL Open Font License, Version 1.1; data/lgc-pack/LICENSE.txt.
+
+
+-------------------------------------------------------------------------------
+9. The EPSG Geodetic Parameter Dataset
+-------------------------------------------------------------------------------
+
+`crates/pdf-model/src/geospatial/epsg/dataset.rs` is a subset of the EPSG Geodetic Parameter
+Dataset, version v13.102, written by tools/epsg-table.py from PROJ 9.9.0's export of it (ADR
+3821). ISO 32000-2 §12.10.3 lets a file name its coordinate system "as a numeric EPSG reference
+code", and this table is what such a code is read through. Its values are the Dataset's, unchanged.
+It is carried under IOGP's terms of use, not under the Apache License: LICENSE-EPSG holds them,
+and whoever provides this program to another person is obliged by them to pass them on.
+
+    The EPSG Geodetic Parameter Dataset is owned by the International Association of Oil and
+    Gas Producers (IOGP), and is used and distributed here under the EPSG Dataset Terms of Use
+    (revised 8 April 2016), reproduced in LICENSE-EPSG.

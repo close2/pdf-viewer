@@ -134,9 +134,9 @@ repository and its source** — none a candidate, and none re-read:
   `capycrypt`, `ciphersuite`, `purecrypto` and `static-dh-ecdh`. None is RustCrypto's and none
   names an audit; the re-check above is what would bring one back.
 
-- §12.10.3, §12.10.4 — a coordinate system named by `/EPSG` alone is refused by its number: the
-  registry is priced (ADR 3798, about 360 KB from PROJ's pinned EPSG v13.102) and its licence, IOGP's
-  terms with a non-commercial clause, is the owner's question `doc/questions/Q1095`. A1095 moves both.
+- §12.10.4 — a projected system whose method is past the thirteen built is refused by its number and
+  the method's name: 185 of the carried EPSG table's 5780 projected systems, over 34 methods, which
+  `doc/todo/79` orders (ADRs 3821 to 3823, the owner's `doc/questions/A1095`). Each built moves the row.
 
 ### 3. Hard rendering / architecture — a real build across several rounds
 
@@ -301,7 +301,7 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 "Aggregate of the rows below" and the reason is the owing row's. They are not independently actionable
 — do not brief a round to *take* one; they flip when the last binding row flips.
 
-§12.10 — over the two coordinate system rows, a system named by its EPSG code alone (ADR 3798).
+§12.10 — over the projected coordinate system row, the projection methods past the thirteen (ADR 3823).
 
 §13.2 — over the media play parameters row, Table 291's /F 3's scrolling interface (ADR 3553).
 

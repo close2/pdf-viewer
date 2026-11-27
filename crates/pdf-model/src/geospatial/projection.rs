@@ -32,6 +32,10 @@ use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 use super::Refusal;
 use super::ellipsoid::Ellipsoid;
 
+mod azimuthal;
+mod cassini;
+mod polar;
+
 /// How many times an iterated latitude is refined before the answer is refused.
 ///
 /// Guidance Note 7-2 expects its iterations to settle in three or four steps (section 3.1.1.1)
@@ -77,6 +81,21 @@ pub enum Method {
     AlbersEqualArea,
     /// Oblique and Equatorial Stereographic, EPSG method 9809, Guidance Note 7-2 section 3.3.1.1.
     ObliqueStereographic,
+    /// Cassini-Soldner, EPSG method 9806, Guidance Note 7-2 section 3.2.2.
+    CassiniSoldner,
+    /// Lambert Azimuthal Equal Area, EPSG method 9820, Guidance Note 7-2 section 3.3.2: its
+    /// oblique aspect, and its polar aspect at a latitude of natural origin of ±90°.
+    LambertAzimuthalEqualArea,
+    /// Polar Stereographic (variant A), EPSG method 9810, Guidance Note 7-2 section 3.3.1.2: the
+    /// scale stated at the pole.
+    PolarStereographicA,
+    /// Polar Stereographic (variant B), EPSG method 9829, section 3.3.1.2: the standard parallel
+    /// stated, in [`Parameters::parallel_1`], and the false grid coordinates at the pole.
+    PolarStereographicB,
+    /// Polar Stereographic (variant C), EPSG method 9830, section 3.3.1.2: the standard parallel
+    /// stated, in [`Parameters::parallel_1`], and the false grid coordinates where it crosses the
+    /// longitude of origin.
+    PolarStereographicC,
 }
 
 impl Method {
@@ -92,6 +111,11 @@ impl Method {
             Self::PseudoMercator => "Popular Visualisation Pseudo-Mercator",
             Self::AlbersEqualArea => "Albers Equal Area",
             Self::ObliqueStereographic => "Oblique Stereographic",
+            Self::CassiniSoldner => "Cassini-Soldner",
+            Self::LambertAzimuthalEqualArea => "Lambert Azimuthal Equal Area",
+            Self::PolarStereographicA => "Polar Stereographic (variant A)",
+            Self::PolarStereographicB => "Polar Stereographic (variant B)",
+            Self::PolarStereographicC => "Polar Stereographic (variant C)",
         }
     }
 }
@@ -244,6 +268,34 @@ impl Projection {
             Method::PseudoMercator => {
                 required(p.origin_longitude, method, "longitude of natural origin")?;
             }
+            Method::CassiniSoldner | Method::LambertAzimuthalEqualArea => {
+                required(p.origin_latitude, method, "latitude of natural origin")?;
+                required(p.origin_longitude, method, "longitude of natural origin")?;
+            }
+            Method::PolarStereographicA => {
+                let origin = required(p.origin_latitude, method, "latitude of natural origin")?;
+                required(p.origin_longitude, method, "longitude of natural origin")?;
+                required(p.scale, method, "scale factor at natural origin")?;
+                // Section 3.3.1.2's note 1: the latitude of natural origin only names the pole,
+                // and "the only valid entries are ±90°".
+                if (origin.abs() - FRAC_PI_2).abs() > 1e-12 {
+                    return Err(Refusal::Unsupported {
+                        method: method.name(),
+                        reason: "a latitude of natural origin other than a pole",
+                    });
+                }
+            }
+            Method::PolarStereographicB | Method::PolarStereographicC => {
+                let parallel = required(p.parallel_1, method, "latitude of standard parallel")?;
+                required(p.origin_longitude, method, "longitude of origin")?;
+                // Note 2 takes the pole from the parallel's hemisphere, which the equator has not.
+                if parallel.abs() < f64::MIN_POSITIVE {
+                    return Err(Refusal::Unsupported {
+                        method: method.name(),
+                        reason: "a standard parallel on the equator",
+                    });
+                }
+            }
         }
         if method == Method::ObliqueStereographic && p.origin_latitude.is_some_and(|v| v < 0.0) {
             return Err(Refusal::Unsupported {
@@ -310,6 +362,11 @@ impl Projection {
             Method::PseudoMercator => self.pseudo_mercator_forward(latitude, delta)?,
             Method::AlbersEqualArea => self.albers_forward(latitude, delta),
             Method::ObliqueStereographic => self.oblique_stereographic_forward(latitude, delta)?,
+            Method::CassiniSoldner => self.cassini_forward(latitude, delta),
+            Method::LambertAzimuthalEqualArea => self.azimuthal_forward(latitude, delta),
+            Method::PolarStereographicA
+            | Method::PolarStereographicB
+            | Method::PolarStereographicC => self.polar_forward(latitude, delta),
         };
         // not a repair: this evaluates a reading logged where the string is read; an offset it
         // does not state is `super::system`'s WKT_FALSE_ORIGIN_ABSENT.
@@ -347,6 +404,11 @@ impl Projection {
             Method::PseudoMercator => self.pseudo_mercator(x, y),
             Method::AlbersEqualArea => self.albers(x, y),
             Method::ObliqueStereographic => self.oblique_stereographic(x, y)?,
+            Method::CassiniSoldner => self.cassini(x, y),
+            Method::LambertAzimuthalEqualArea => self.azimuthal(x, y),
+            Method::PolarStereographicA
+            | Method::PolarStereographicB
+            | Method::PolarStereographicC => self.polar(x, y),
         };
         let within_method =
             self.method != Method::PseudoMercator || answer.latitude.abs() <= PSEUDO_MERCATOR_LIMIT;

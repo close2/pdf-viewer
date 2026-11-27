@@ -481,11 +481,11 @@ fn role(name: &str, code: Option<i64>) -> Option<Role> {
     if let Some(code) = code {
         return match code {
             8801 | 8821 => Some(Role::OriginLatitude),
-            8802 | 8822 => Some(Role::OriginLongitude),
+            8802 | 8822 | 8833 => Some(Role::OriginLongitude),
             8805 => Some(Role::Scale),
             8806 | 8826 => Some(Role::FalseEasting),
             8807 | 8827 => Some(Role::FalseNorthing),
-            8823 => Some(Role::Parallel1),
+            8823 | 8832 => Some(Role::Parallel1),
             8824 => Some(Role::Parallel2),
             _ => None,
         };
@@ -504,7 +504,9 @@ fn role(name: &str, code: Option<i64>) -> Option<Role> {
         "scalefactor" | "scalefactoratnaturalorigin" => Some(Role::Scale),
         "falseeasting" | "eastingatfalseorigin" => Some(Role::FalseEasting),
         "falsenorthing" | "northingatfalseorigin" => Some(Role::FalseNorthing),
-        "standardparallel1" | "latitudeof1ststandardparallel" => Some(Role::Parallel1),
+        "standardparallel1" | "latitudeof1ststandardparallel" | "latitudeofstandardparallel" => {
+            Some(Role::Parallel1)
+        }
         "standardparallel2" | "latitudeof2ndstandardparallel" => Some(Role::Parallel2),
         "auxiliaryspheretype" => Some(Role::AuxiliarySphere),
         _ => None,
@@ -536,6 +538,11 @@ fn named(name: &str, code: Option<i64>) -> Option<Named> {
             1024 => Some(Named::Exact(Method::PseudoMercator)),
             9822 => Some(Named::Exact(Method::AlbersEqualArea)),
             9809 => Some(Named::Exact(Method::ObliqueStereographic)),
+            9806 => Some(Named::Exact(Method::CassiniSoldner)),
+            9820 => Some(Named::Exact(Method::LambertAzimuthalEqualArea)),
+            9810 => Some(Named::Exact(Method::PolarStereographicA)),
+            9829 => Some(Named::Exact(Method::PolarStereographicB)),
+            9830 => Some(Named::Exact(Method::PolarStereographicC)),
             _ => None,
         };
     }
@@ -561,6 +568,11 @@ fn named(name: &str, code: Option<i64>) -> Option<Named> {
         "obliquestereographic" | "doublestereographic" => {
             Named::Exact(Method::ObliqueStereographic)
         }
+        "cassinisoldner" => Named::Exact(Method::CassiniSoldner),
+        "lambertazimuthalequalarea" => Named::Exact(Method::LambertAzimuthalEqualArea),
+        "polarstereographicvarianta" => Named::Exact(Method::PolarStereographicA),
+        "polarstereographicvariantb" => Named::Exact(Method::PolarStereographicB),
+        "polarstereographicvariantc" => Named::Exact(Method::PolarStereographicC),
         _ => return None,
     })
 }

@@ -21,14 +21,15 @@
 //! - [`Ellipsoid`] is Guidance Note 7-2 section 1.1's shared quantities, and section 4.1.1's
 //!   conversion to and from earth-centred coordinates.
 //!
-//! # The registry this tree does not carry
+//! # The registry this tree carries
 //!
-//! Table 270 lets a file name its system by `/EPSG` or by `/WKT`, and the first needs the IOGP's
-//! registry carried into this tree while the second carries every parameter inline. **No registry
-//! is carried**: a dictionary that states only a code is refused by that code
-//! ([`Refusal::EpsgWithoutWkt`]), and one that states both is read from its WKT. That refusal is a
-//! gap §12.10.3 owes, not a reading of it; ADR 3798 prices the registry and `doc/questions/Q1095`
-//! asks the owner about its licence.
+//! Table 270 lets a file name its system by `/EPSG` or by `/WKT`; the first needs IOGP's registry,
+//! the second carries every parameter inline. [`epsg`] carries the registry's subset §12.10 needs,
+//! on the owner's answer `doc/questions/A1095` (ADR 3821): a dictionary stating only a code is
+//! read through it, and one stating both is read from its WKT, which states the system the file's
+//! producer meant in full. A code the table does not hold, or one whose projection method this
+//! tree does not evaluate, is refused by its number ([`Refusal::EpsgNotCarried`],
+//! [`Refusal::EpsgMethod`]).
 //!
 //! # What is not done, and why it is the clause's line
 //!
@@ -54,6 +55,7 @@
 
 pub mod datum;
 pub mod ellipsoid;
+pub mod epsg;
 pub mod projection;
 pub mod registration;
 pub mod system;
@@ -74,9 +76,27 @@ pub enum Refusal {
     /// The dictionary states neither `/EPSG` nor `/WKT`, which §12.10.3 requires one of.
     #[error("the coordinate system states neither an EPSG code nor a WKT string")]
     NotStated,
-    /// The dictionary names its system by EPSG code alone, and no registry is carried.
-    #[error("EPSG {0} is stated without a WKT string, and this program carries no EPSG registry")]
-    EpsgWithoutWkt(i64),
+    /// The dictionary names its system by an EPSG code alone, and the code names no geographic or
+    /// projected system of the EPSG Dataset this program carries ([`epsg::VERSION`]).
+    #[error(
+        "EPSG {0} is stated without a WKT string, and it names no geographic or projected system \
+         of the EPSG Dataset this program carries"
+    )]
+    EpsgNotCarried(i64),
+    /// The dictionary names a projected system by an EPSG code alone, and the system's projection
+    /// method is not one this program evaluates.
+    #[error(
+        "EPSG {code} is projected by {method} (EPSG method {method_code}), which this program does \
+         not evaluate"
+    )]
+    EpsgMethod {
+        /// The system's code, as the file states it.
+        code: i64,
+        /// The method's name in the EPSG Dataset.
+        method: &'static str,
+        /// The method's code.
+        method_code: i64,
+    },
     /// The `/WKT` string is not Well Known Text.
     #[error("the WKT string is not Well Known Text: {0}")]
     Wkt(wkt::WktError),
@@ -240,16 +260,18 @@ fn projected_system(system: &CoordinateSystem) -> Result<ProjectedSystem, Refusa
 }
 
 impl CoordinateSystem {
-    /// The system this dictionary states, read from its `/WKT`.
+    /// The system this dictionary states: read from its `/WKT` where it states one, and
+    /// otherwise looked up by its `/EPSG` code (§12.10.3).
     ///
     /// # Errors
     ///
-    /// [`Refusal::EpsgWithoutWkt`] where only a code is stated, [`Refusal::NotStated`] where
-    /// neither is, and whatever [`system::from_wkt`] refuses of the string.
+    /// [`Refusal::NotStated`] where neither a code nor a string is stated, whatever
+    /// [`system::from_wkt`] refuses of the string, and, where only a code is stated, whatever
+    /// [`epsg::system`] refuses of it.
     pub fn reference_system(&self) -> Result<ReferenceSystem, Refusal> {
         match (&self.wkt, self.epsg) {
             (Some(text), _) => system::from_wkt(text),
-            (None, Some(code)) => Err(Refusal::EpsgWithoutWkt(code)),
+            (None, Some(code)) => epsg::system(code),
             (None, None) => Err(Refusal::NotStated),
         }
     }
@@ -497,19 +519,67 @@ mod tests {
     }
 
     #[test]
-    fn a_code_alone_is_refused_by_the_code_and_both_read_the_wkt() {
+    fn a_code_alone_is_read_through_the_registry_and_both_read_the_wkt() {
+        // §12.10.3 as corrected: "as a numeric EPSG reference code, or as a Well Known Text (WKT)
+        // string". The code alone and the string alone are one system: the registration points
+        // come back as the same degrees from either.
         let code_only = CoordinateSystem {
             projected: true,
             epsg: Some(25832),
             wkt: None,
         };
-        assert_eq!(
-            code_only.reference_system(),
-            Err(Refusal::EpsgWithoutWkt(25832))
-        );
+        let wkt_only = CoordinateSystem {
+            epsg: None,
+            ..utm_32n()
+        };
+        let points = vec![
+            [500_000.0, 0.0],
+            [500_000.0, 5_000_000.0],
+            [700_000.0, 6_000_000.0],
+        ];
+        let degrees = |system: CoordinateSystem| {
+            Geospatial {
+                coordinate_system: Some(system),
+                geographic_points: points.clone(),
+                ..Geospatial::default()
+            }
+            .registration_geographic()
+            .expect("the points as degrees")
+        };
+        for ((by_code, _), (by_wkt, _)) in degrees(code_only).iter().zip(degrees(wkt_only)) {
+            assert!(
+                (by_code.latitude - by_wkt.latitude).abs() < 1e-9,
+                "{by_code:?}"
+            );
+            assert!(
+                (by_code.longitude - by_wkt.longitude).abs() < 1e-9,
+                "{by_code:?}"
+            );
+        }
         assert!(matches!(
             utm_32n().reference_system(),
             Ok(ReferenceSystem::Projected(_))
+        ));
+    }
+
+    #[test]
+    fn a_code_alone_is_refused_by_its_number_where_the_registry_cannot_answer() {
+        let alone = |code| CoordinateSystem {
+            projected: true,
+            epsg: Some(code),
+            wkt: None,
+        };
+        assert_eq!(
+            alone(4978).reference_system(),
+            Err(Refusal::EpsgNotCarried(4978))
+        );
+        assert!(matches!(
+            alone(2056).reference_system(),
+            Err(Refusal::EpsgMethod {
+                code: 2056,
+                method_code: 9815,
+                ..
+            })
         ));
     }
 

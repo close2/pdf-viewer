@@ -1112,8 +1112,8 @@ code point; executing a face's `GSUB` instead is priced in ADR 1414 and not buil
 
 §12.10.3 names two things outside ISO 32000-2 for a coordinate system: an EPSG code, whose
 registry the IOGP administers, and a WKT string whose format ISO 19162 specifies. The owner's answer
-`doc/questions/A171` has the projection built of this tree's own, and ADR 1586's census decided that
-no registry is carried (every system stating `/EPSG` states `/WKT` beside it). Two free texts were
+`doc/questions/A171` has the projection built of this tree's own, and the owner's answer
+`doc/questions/A1095` has the registry carried (ADR 3821, below). Two free texts were
 fetched on 2026-10-06 into a round's scratch directory, never under `doc/` (trap 43), prepared with
 `python3 tools/spec-md.py <pdf> --out doc/md/IOGP-373-07-02.md` and `--out doc/md/OGC-18-010r11.md`
 into the ignored `doc/md/`, and kept at `/home/AI/specs/` on the agent's machine:
@@ -1130,8 +1130,19 @@ copies with their notices intact, but the quotation gate reads a quotation mark 
 all three are cited by section — "Guidance Note 7-2 section 3.2.3.1", "ISO 19162 section 6.4" — and
 paraphrased in source and in the ledger alike. What `crates/pdf-model/src/geospatial/` carries from
 the Note is its formulas, which are the method rather than prose about it, and its worked examples'
-numbers as test inputs (ADR 1587). Nothing from the EPSG Dataset is carried: the parameter and
-method codes `system.rs` recognises are the identifiers the Note itself prints beside each method.
+numbers as test inputs (ADR 1587).
+
+**The EPSG Dataset is carried, under IOGP's terms and not Apache-2.0** (`doc/questions/A1095`, ADR
+3821). `crates/pdf-model/src/geospatial/epsg/dataset.rs` is the subset §12.10.3 resolves a code
+through — geographic 2D and 3D systems, the projected systems over them, and their datums,
+ellipsoids, prime meridians, conversions, units and method names, deprecated codes included —
+written by `tools/epsg-table.py` from PROJ 9.9.0's `data/sql` (EPSG v13.102), whose release archive
+`https://download.osgeo.org/proj/proj-9.9.0.tar.gz` has SHA-256
+`791a0610547eeabb17006cfd49cdbd2034f3240f47ed5e88a1031811f4e2bcf3`. The terms (revised 8 April 2016,
+read at `https://epsg.org/terms-of-use.html` on 2026-11-27) permit subsets with IOGP's ownership
+acknowledged and values unchanged, forbid distribution for profit, and oblige a distributor to pass
+them on; `LICENSE-EPSG` carries them and `NOTICE` section 9 the acknowledgement. ADR 3798 priced the
+choice and the owner took it.
 
 ## Apple's TrueType Reference Manual and Microsoft's OpenType font file chapter, read online
 

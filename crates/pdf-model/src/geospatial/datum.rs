@@ -183,7 +183,9 @@ impl DatumShift {
 ///
 /// **WGS 84 is the one datum known by name**, because it is the one every `TOWGS84` clause is
 /// stated into: the three spellings the census's strings and ISO 19162's examples write it —
-/// `WGS_1984`, `WGS84`, `World Geodetic System 1984` — are one datum where the ellipsoid is WGS
+/// `WGS_1984`, `WGS84`, `World Geodetic System 1984` — and the EPSG Dataset's name for datum 6326,
+/// `World Geodetic System 1984 ensemble` (the ensemble of WGS 84's realisations, which is what
+/// `GEOGCS["WGS 84"]` has always named; ADR 3821) — are one datum where the ellipsoid is WGS
 /// 84's, `a` = 6378137 m and `1/f` = 298.257223563, so that a string naming the datum on another
 /// figure is not taken for it (ADR 1958).
 #[derive(Debug, Clone, PartialEq)]
@@ -216,7 +218,7 @@ impl Datum {
         let wgs84 = on_wgs84_figure
             && matches!(
                 plain.as_str(),
-                "wgs1984" | "wgs84" | "worldgeodeticsystem1984"
+                "wgs1984" | "wgs84" | "worldgeodeticsystem1984" | "worldgeodeticsystem1984ensemble"
             );
         Self {
             name: if wgs84 { "wgs84".to_owned() } else { plain },
