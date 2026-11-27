@@ -83,18 +83,7 @@ impl Datasets {
         let target = template.resolve(field)?;
         // not a repair: a binding this module does not follow declines (None): no data value is
         //   read, and nothing is put in place of one.
-        let binding = template.binding(target).ok()?;
-        let record = self.record()?;
-        let found = match binding {
-            Binding::Direct(steps) => self.walk(record, &steps),
-            Binding::Global(steps, name) => self
-                .walk(record, &steps)
-                .or_else(|| self.global(record, &name)),
-            Binding::Explicit { steps, from_data } => {
-                self.walk(if from_data { self.data? } else { record }, &steps)
-            }
-            Binding::Nothing => None,
-        }?;
+        let found = self.bound(template, target).ok()??;
         let element = self.tree.get(found)?;
         if element.children.is_empty() {
             return Some(element.text.clone());
@@ -106,6 +95,42 @@ impl Datasets {
             .map(|child| child.text.as_str())
             .collect();
         Some(values.join("\n"))
+    }
+
+    /// The element of the packet that the template's container `target` binds, as chapter 4
+    /// binds it: `Ok(None)` where the packet holds no data for it — no record, a binding to
+    /// nothing, or no node on the path — and the reason where the binding is one this module does
+    /// not follow.
+    pub(crate) fn bound(
+        &self,
+        template: &Template,
+        target: usize,
+    ) -> Result<Option<usize>, super::template::Unbindable> {
+        let binding = template.binding(target)?;
+        let Some(record) = self.record() else {
+            return Ok(None);
+        };
+        Ok(match binding {
+            Binding::Direct(steps) => self.walk(record, &steps),
+            Binding::Global(steps, name) => self
+                .walk(record, &steps)
+                .or_else(|| self.global(record, &name)),
+            Binding::Explicit { steps, from_data } => match self.data {
+                Some(data) => self.walk(if from_data { data } else { record }, &steps),
+                None => None,
+            },
+            Binding::Nothing => None,
+        })
+    }
+
+    /// The packet's text, which every element's ranges are offsets into.
+    pub(crate) fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// The packet's elements.
+    pub(crate) fn tree(&self) -> &Tree {
+        &self.tree
     }
 
     /// The record: the first data group under `xfa:data`, which the root subform binds whatever

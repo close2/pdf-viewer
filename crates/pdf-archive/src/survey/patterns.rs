@@ -27,10 +27,17 @@ impl Walk<'_> {
                 let own = self.document.get_key(&stream.dict, "Resources");
                 let stated = own.as_dict().is_some();
                 let resources = own.as_dict().cloned().unwrap_or_default();
-                // A `PaintType` of 2 is §8.7.3.3's uncoloured tiling pattern, whose cell's colour
-                // operators §8.6.8 has ignored, which the grammar is told (ADR 3629).
-                let mut cell = state.clone();
-                cell.spaces = state.began_in;
+                // §8.7.3.1's step b): the cell starts from the state its parent stream began
+                // in, not the one in force at `scn`, so a `ca` set and restored before the fill
+                // is not the cell's (ADR 3790). What is not graphics state stays the caller's:
+                // the route, the group's blending space, and colour operators ignored by an
+                // enclosing uncoloured cell or a `d1`. A `PaintType` of 2 is §8.7.3.3's
+                // uncoloured tiling pattern, whose cell's colour operators §8.6.8 has ignored,
+                // which the grammar is told (ADR 3629).
+                let mut cell = state.began.as_deref().cloned().unwrap_or_default();
+                cell.within = state.within;
+                cell.blending = state.blending.clone();
+                cell.uncoloured = state.uncoloured;
                 cell.uncoloured |= self
                     .document
                     .get_key(&stream.dict, "PaintType")

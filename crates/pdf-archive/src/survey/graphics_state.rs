@@ -6,7 +6,7 @@ use pdf_syntax::ObjectId;
 
 use pdf_model::content::ledger::Route as Via;
 
-use super::{Context, State, Transparency, Walk, below_one, blends};
+use super::{Context, State, Transparency, Walk, Within, below_one, blends};
 
 impl Walk<'_> {
     /// A `gs` operator: Annex Q.2's four conditions on the graphics state it sets.
@@ -83,7 +83,10 @@ impl Walk<'_> {
             group,
             context.page,
             context.depth,
-            &State::default(),
+            &State {
+                within: Within::MaskGroup,
+                ..State::default()
+            },
             Via::SoftMask,
             false,
         );

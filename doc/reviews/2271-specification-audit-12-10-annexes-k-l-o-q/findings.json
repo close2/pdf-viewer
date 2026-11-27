@@ -12,7 +12,7 @@
   "code": "crates/pdf-archive/src/survey/fonts.rs:20-33 (show's font_set_by_gs branch returns before type3), :260 (type3)",
   "change": "In the font_set_by_gs branch, call self.type3(font, state, context) as the Tf branch does (and note_type3_glyphs where the font is indirect).",
   "execution": "crates/pdf-archive/tests/annex_q_routes_spec_audit.rs::a_type3_font_a_graphics_state_selects_has_its_glyphs_processed_spec_audit fails on main at the gs assertion; the Tf control passes.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2271-B02",
@@ -27,7 +27,7 @@
   "code": "crates/pdf-archive/src/survey/graphics_state.rs:69-89 (soft_mask: walk, then take back `transparent` only); crates/pdf-archive/src/survey/xobjects.rs:139-151 (nested's (page, id) visited check)",
   "change": "Take back the visited entries the mask walk added along with the transparency it found (snapshot and restore), or key visited by the route as well, so a stream reached as page content is opened for the page whatever a mask's walk opened first.",
   "execution": "crates/pdf-archive/tests/annex_q_routes_spec_audit.rs::a_form_a_soft_mask_group_also_draws_is_still_processed_for_the_page_spec_audit fails on main at its last assertion; both controls pass (the page alone, and a mask group drawing a copy of the form, which isolates the visited set as the cause).",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2271-B03",
@@ -41,7 +41,7 @@
   "code": "crates/pdf-archive/src/survey/patterns.rs:9-50 (pattern: cell = state.clone() at scn)",
   "change": "Walk the cell from the transparency state at the start of its parent content stream (the page's initial state, or the invoking form's state at its Do), keeping the colour-space fields the cell already resets; the element painted with the pattern is still judged at its own operator.",
   "execution": "crates/pdf-archive/tests/annex_q_routes_spec_audit.rs::a_pattern_cell_is_judged_in_its_own_graphics_state_spec_audit fails on main at its last assertion; the opaque control and the ca 0.5 fill control pass.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2271-B04",
@@ -55,7 +55,7 @@
   "code": "crates/pdf-transform/src/redact/traces.rs:15 and :185 (a removed widget's field loses its value entries); no reference to /XFA anywhere under crates/pdf-transform/src/redact*",
   "change": "Where a redaction removes a field's value, remove that field's data node from the datasets packet through pdf_model::xfa's datasets writer (K.2 kept), or remove /XFA whole and name it in a warning as the archive converter's XfaRemoved does; a question to the owner if the fix round is not to choose. Add an /XFA place to redaction_leaves_no_trace's fixture.",
   "execution": "crates/pdf-transform/tests/annex_k_xfa_spec_audit.rs::a_redacted_fields_xfa_value_does_not_survive_spec_audit fails on main: the value is found only in the decoded /XFA stream (object 5 of the output), /Fields still holding the field; the control finds it in the source's XFA stream.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2271-D01",

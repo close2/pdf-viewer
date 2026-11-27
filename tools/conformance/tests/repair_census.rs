@@ -21,16 +21,15 @@
 //! The window stands in for ADR 3477's "the function logs": a line count is what a census can
 //! check without a parser, and twelve lines is the reach of one statement and its guard here.
 //!
-//! # Why a ratchet, and why it is per file
+//! # A ratchet at zero
 //!
 //! Most of the sites the rule finds are on values that are no file's (an iterator's maximum, a
 //! slice's bound), and each needs a reading before it may be marked — a marker written without one is the census lying
-//! in the other direction, and a site read as a repair is left counted until its class is logged.
-//! `tools/state.sh` does not print the count; this test does, on every run. So `HELD` keeps each
-//! file's count of sites not yet accounted for, and the test fails when a file has **more** (a
-//! new default arrived silent) and when it has **fewer** (the bound must fall with the change
-//! that earned it, so it can only fall). A file not in `HELD` holds zero. The message prints the
-//! table as it should read.
+//! in the other direction, and a site read as a repair is logged with its class. The census held
+//! each file's count of sites not yet read, falling with the change that read them, until none was
+//! left (ADR 3777, ADR 3792). It now holds none: every site is accounted for, and the test fails
+//! naming each line that is not, so a new default arrives with its class or its marker. There is no
+//! table to add a line to, which is what would let a silent default back in.
 //!
 //! # What it cannot see
 //!
@@ -45,7 +44,7 @@
               reporting that as one would be worse than stopping"
 )]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -77,17 +76,6 @@ const MARKER: &str = "// not a repair:";
 
 /// The calls that record a class on the channel.
 const RECORDERS: [&str; 4] = ["record_repair", "note_repair", "noted(", "record_repairs"];
-
-/// Each file's sites not yet accounted for, which may only fall (path under `crates/`, count).
-const HELD: &[(&str, usize)] = &[
-    ("pdf-model/src/content/transparency/into_parent.rs", 2),
-    ("pdf-model/src/content/transparency.rs", 2),
-    ("pdf-model/src/content/transparency/soft_mask.rs", 1),
-    ("pdf-model/src/content/pattern/tiling.rs", 1),
-    ("pdf-model/src/content/pattern/lattice.rs", 1),
-    ("pdf-model/src/content/pattern.rs", 1),
-    ("pdf-model/src/content/marked.rs", 1),
-];
 
 /// Whether `relative` (under `crates/`) is test code or a writer.
 fn outside_the_population(relative: &str) -> bool {
@@ -189,9 +177,10 @@ fn accounted_for(lines: &[&str], at: usize, items: &BTreeSet<String>) -> bool {
         })
 }
 
-/// Each file's sites not accounted for (path under `crates/`), and the total population.
-fn census(root: &Path, items: &BTreeSet<String>) -> (BTreeMap<String, usize>, usize) {
-    let mut silent = BTreeMap::new();
+/// Every site not accounted for, as `path:line: code` (path under `crates/`), and the total
+/// population.
+fn census(root: &Path, items: &BTreeSet<String>) -> (Vec<String>, usize) {
+    let mut silent = Vec::new();
     let mut population: usize = 0;
     for krate in CRATES {
         let mut files = Vec::new();
@@ -215,8 +204,11 @@ fn census(root: &Path, items: &BTreeSet<String>) -> (BTreeMap<String, usize>, us
                 }
                 population = population.saturating_add(1);
                 if !accounted_for(&lines, at, items) {
-                    let count = silent.entry(relative.clone()).or_insert(0_usize);
-                    *count = count.saturating_add(1);
+                    silent.push(format!(
+                        "{relative}:{}: {}",
+                        at.saturating_add(1),
+                        line.trim()
+                    ));
                 }
             }
         }
@@ -234,44 +226,17 @@ fn every_default_is_beside_a_class_or_says_why_it_is_none() {
         items.len()
     );
     let (silent, population) = census(&root, &items);
-    let held: BTreeMap<&str, usize> = HELD.iter().copied().collect();
-    let total: usize = silent.values().sum();
     println!(
-        "{population} sites in the three reader crates, {} accounted for, {total} held",
-        population.saturating_sub(total)
+        "{population} sites in the three reader crates, {} accounted for",
+        population.saturating_sub(silent.len())
     );
-    let mut wrong = Vec::new();
-    for file in silent
-        .keys()
-        .map(String::as_str)
-        .chain(held.keys().copied())
-        .collect::<BTreeSet<_>>()
-    {
-        let found = silent.get(file).copied().unwrap_or(0);
-        let bound = held.get(file).copied().unwrap_or(0);
-        if found > bound {
-            wrong.push(format!(
-                "{file}: {found} sites with no class and no `{MARKER}`, {bound} held — log the \
-                 new default's class or mark it"
-            ));
-        } else if found < bound {
-            wrong.push(format!(
-                "{file}: {found} sites held at {bound} — lower the ratchet with the change that \
-                 earned it"
-            ));
-        }
-    }
-    if !wrong.is_empty() {
-        let table: Vec<String> = silent
-            .iter()
-            .map(|(file, count)| format!("    (\"{file}\", {count}),"))
-            .collect();
-        panic!(
-            "ADR 3477's census:\n  {}\n\nHELD as it reads now:\n{}",
-            wrong.join("\n  "),
-            table.join("\n")
-        );
-    }
+    assert!(
+        silent.is_empty(),
+        "ADR 3477's census: each of these sites has no class within {WINDOW} lines and no \
+         `{MARKER}` above it — log the default's class, or mark it with the clause that makes it \
+         the specification's own:\n  {}",
+        silent.join("\n  ")
+    );
 }
 
 /// Trap 13: a planted silent default is counted, a marker or a logged class beside it accounts

@@ -86,7 +86,9 @@ impl Walk<'_> {
         // where they are invoked, a pattern's cell in those its parent began in, and a page in
         // §8.4.1's initial state; [`State`] carries which.
         let mut grammar = Grammar::starting_in(state.spaces);
-        state.began_in = state.spaces;
+        let mut at_start = state.clone();
+        at_start.began = None;
+        state.began = Some(std::sync::Arc::new(at_start));
         if let Some(record) = origin.record.and_then(|at| self.survey.streams.get_mut(at)) {
             record.began_in = state.spaces;
         }

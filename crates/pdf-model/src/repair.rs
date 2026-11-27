@@ -246,6 +246,12 @@ classes! {
         "ISO 32000-2 §8.10.2",
         "a form's /Resources that is not a dictionary was read as the dictionary of a stream, or \
          else as absent, the form's names then looked up in the page's resources";
+    /// A tiling pattern's required `/BBox` or `/Resources` absent or of a shape Table 74 does not
+    /// give it.
+    TILING_PATTERN_ENTRY_UNUSABLE = "model/tiling-pattern-entry-unusable", "ISO 32000-2 §8.7.3.1",
+        "a tiling pattern whose /BBox is not four finite numbers was tiled from a cell of its step's \
+         size at the origin, unclipped, and one whose /Resources is absent or no dictionary was \
+         read as the dictionary of a stream, or else as defining nothing";
     /// A graphics state's `/CA` or `/ca` outside the range 0.0 to 1.0.
     ALPHA_CONSTANT_OUT_OF_RANGE = "model/alpha-constant-out-of-range", "ISO 32000-2 §11.3.7.2",
         "an alpha constant outside the range 0.0 to 1.0 was read as the nearer end of the range";

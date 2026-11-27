@@ -344,6 +344,8 @@ impl Interpreter<'_> {
         // (`reach.rs`), so a site whose cell box the interior never touches is not copied — a
         // hatched wall is a few per cent of its own hull. A stroke's outline is not a region
         // that scan can take, and its hull is kept whole.
+        // not a repair: a cell box's absence is logged where the pattern is read
+        //   (`TILING_PATTERN_ENTRY_UNUSABLE`).
         let box_extent = tiling
             .bbox
             .unwrap_or([0.0, 0.0, tiling.step.0, tiling.step.1]);

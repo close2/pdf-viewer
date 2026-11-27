@@ -494,6 +494,8 @@ impl<'a> Interpreter<'a> {
     /// blending space — which §11.4.4's NOTE 5 then draws inline wherever the `Do` composites
     /// trivially, and as one object wherever it does not.
     pub(super) fn imported_page_group(&mut self, page: &Dictionary) -> TransparencyGroup {
+        // not a repair: §11.4.7's page is a group whether or not it states one, under Table
+        //   145's defaults.
         self.transparency_group(page).unwrap_or(TransparencyGroup {
             isolated: false,
             knockout: false,
@@ -528,6 +530,7 @@ impl<'a> Interpreter<'a> {
     /// group colour space is specified, the group colour space shall be inherited from the
     /// parent group or page" — and [`group_blending`] already applies exactly that test.
     pub(super) fn appearance_group(&mut self, dict: &Dictionary) -> TransparencyGroup {
+        // not a repair: §12.5.5's own default, "a non-isolated, non-knockout transparency group".
         self.transparency_group(dict).unwrap_or(TransparencyGroup {
             isolated: false,
             knockout: false,

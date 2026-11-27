@@ -634,6 +634,10 @@ const A_GRAPHICS_STATE_DICTIONARY: &str = "an entry of the dictionary a gs names
      names reads are facts about that object, which no token states";
 
 /// Why the classes of a form `XObject`'s dictionary are the interpreter's.
+const A_TILING_PATTERN_DICTIONARY: &str = "an entry of the tiling pattern a scn names (Table 74), \
+     read where the interpreter paints with it: its BBox and Resources are facts about that object, \
+     which no token states";
+
 const A_FORM_DICTIONARY: &str = "an entry of the form XObject a Do names (Table 93), read where \
      the interpreter invokes it: its Matrix, BBox and Resources are facts about that object, which \
      no token states";
@@ -720,6 +724,10 @@ pub static COVERAGE: &[(&RepairClass, Reading)] = &[
     (
         &repair::FORM_BBOX_UNUSABLE,
         Reading::Interpreter(A_FORM_DICTIONARY),
+    ),
+    (
+        &repair::TILING_PATTERN_ENTRY_UNUSABLE,
+        Reading::Interpreter(A_TILING_PATTERN_DICTIONARY),
     ),
     (
         &repair::FORM_RESOURCES_NOT_A_DICTIONARY,

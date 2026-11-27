@@ -257,6 +257,7 @@ mod shading;
 mod text;
 mod traces;
 mod type3;
+mod xfa;
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -3106,7 +3107,15 @@ fn write_document(
     // copied, so that its `/PieceInfo` is never walked and nothing only it reached is written.
     let catalog = document.get(root).as_dict().cloned().unwrap_or_default();
     let catalog_pieces = !applied.is_empty() && catalog.get("PieceInfo").is_some();
-    let replaced_root = catalog_pieces
+    // §12.5.6.23 and §K.2: a removed widget's field value leaves the XFA packets too, or `/XFA`
+    // goes whole (`xfa`, ADR 3789). Where it goes whole from an interactive form dictionary the
+    // catalog states directly, or the catalog asks for pages generated from it, the catalog is
+    // restated without them.
+    let xfa = xfa::reach(document, &removed_annotations(applied));
+    let needs_rendering = xfa.is_whole() && catalog.get("NeedsRendering").is_some();
+    let direct_form =
+        xfa.is_whole() && matches!(catalog.get("AcroForm"), Some(Object::Dictionary(_)));
+    let replaced_root = (catalog_pieces || needs_rendering || direct_form)
         .then(|| assembly.replace(0, root))
         .transpose()
         .map_err(|error| Refusal::Assembly(error.to_string()))?;
@@ -3115,8 +3124,43 @@ fn write_document(
             .replace(0, page.page_id)
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
     }
-    let (mut replaced, restated_slots) = cut_traces(&mut assembly, document, &catalog, applied)?;
+    let (mut replaced, mut restated_slots) =
+        cut_traces(&mut assembly, document, &catalog, applied)?;
     replaced.extend(replaced_root.map(|_| root));
+    let mut xfa_details = Vec::new();
+    let mut packet_slots = Vec::new();
+    match xfa {
+        xfa::Reach::Untouched => {}
+        xfa::Reach::Whole(reason) => {
+            let detail = xfa::whole_detail(&reason, needs_rendering);
+            match xfa::indirect_form(document, &catalog, detail.clone()) {
+                Some(form) => {
+                    if replaced.contains(&form.id) {
+                        return Err(xfa::already_replaced(form.id));
+                    }
+                    let slot = assembly
+                        .replace(0, form.id)
+                        .map_err(|error| Refusal::Assembly(error.to_string()))?;
+                    replaced.insert(form.id);
+                    restated_slots.push((slot, form));
+                }
+                None => xfa_details.push(detail),
+            }
+        }
+        xfa::Reach::Spliced(streams) => {
+            for (stream, text, detail) in streams {
+                if replaced.contains(&stream) {
+                    return Err(xfa::already_replaced(stream));
+                }
+                let slot = assembly
+                    .replace(0, stream)
+                    .map_err(|error| Refusal::Assembly(error.to_string()))?;
+                replaced.insert(stream);
+                packet_slots.push((slot, stream, text));
+                xfa_details.push(detail);
+            }
+        }
+    }
     let Slots {
         replacements,
         private,
@@ -3125,7 +3169,13 @@ fn write_document(
     // The reachable closure, pruned: a replaced page short-circuits the walk, so its old content
     // and its removed annotations are reached from nowhere else and never copied.
     let mapped_root = match replaced_root {
-        Some(placed) => place_catalog(&mut assembly, document, &catalog, placed)?,
+        Some(placed) => place_catalog(
+            &mut assembly,
+            document,
+            &catalog,
+            placed,
+            needs_rendering || direct_form,
+        )?,
         None => copy_closure(&mut assembly, document, root, true)
             .map_err(|error| Refusal::Assembly(error.to_string()))?,
     };
@@ -3141,6 +3191,7 @@ fn write_document(
     assembly.set_info(carried);
 
     place_restated(&mut assembly, document, &restated_slots)?;
+    xfa::place_packets(&mut assembly, document, &packet_slots)?;
 
     let placed_located = place_located(&mut assembly, document, applied, &private)?;
     for (index, page) in applied.iter().enumerate() {
@@ -3216,6 +3267,7 @@ fn write_document(
         restated: restated_slots
             .into_iter()
             .map(|(_, item)| item.detail)
+            .chain(xfa_details)
             .collect(),
         survivors,
     })
@@ -3252,6 +3304,14 @@ fn place_restated(
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
     }
     Ok(())
+}
+
+/// Every annotation the removal took, on any page.
+fn removed_annotations(applied: &[AppliedPage]) -> HashSet<ObjectId> {
+    applied
+        .iter()
+        .flat_map(|page| page.removed.annotations.iter().copied())
+        .collect()
 }
 
 /// What [`cut_traces`] replaced, and each slot it reserved with what goes into it.
@@ -3312,18 +3372,27 @@ fn cut_traces(
 }
 
 /// Writes the catalog into the slot `placed` with every entry but `/PieceInfo` carried (§14.5,
-/// ADR 3717), and answers the slot.
+/// ADR 3717), and answers the slot. Where `without_xfa`, Table 29's `/NeedsRendering` is left out
+/// and a directly stated interactive form dictionary is written without its `/XFA` (`xfa`, ADR
+/// 3789).
 fn place_catalog(
     assembly: &mut Assembly<'_>,
     document: &Document,
     catalog: &Dictionary,
     placed: ObjectId,
+    without_xfa: bool,
 ) -> Result<ObjectId, Refusal> {
     let mut written = Dictionary::new();
     for (key, value) in catalog.iter() {
-        if key.as_bytes() != b"PieceInfo" {
-            written.insert(key.clone(), carry(assembly, document, value, 0));
-        }
+        let value = match (key.as_bytes(), value) {
+            (b"PieceInfo", _) => continue,
+            (b"NeedsRendering", _) if without_xfa => continue,
+            (b"AcroForm", Object::Dictionary(form)) if without_xfa => {
+                Object::Dictionary(xfa::without_xfa(form))
+            }
+            _ => value.clone(),
+        };
+        written.insert(key.clone(), carry(assembly, document, &value, 0));
     }
     assembly
         .place(placed, Object::Dictionary(written))

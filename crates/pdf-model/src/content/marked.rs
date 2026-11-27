@@ -239,13 +239,13 @@ impl Interpreter<'_> {
         {
             return Arc::clone(map);
         }
-        // not a repair: a colour this reader computed, clamped to a byte, not a value the file
-        // states.
         #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
             reason = "clamped to 0..=255 before the cast, and NaN clamps to the low bound"
         )]
+        // not a repair: a colour this reader computed, clamped to a byte, not a value the file
+        // states.
         let byte = |out: f32| (out * 255.0).clamp(0.0, 255.0).round() as u8;
         let mut additive = [[0_u8; 256]; 3];
         let mut process = [[0_u8; 256]; 4];

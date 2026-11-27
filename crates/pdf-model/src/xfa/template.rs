@@ -419,6 +419,9 @@ pub(crate) struct Container {
     pub(crate) parent: Option<usize>,
     /// Its own containers, in document order.
     pub(crate) children: Vec<usize>,
+    /// The element of the packet it was read from, which a writer that empties its `value`
+    /// splices at (ADR 3789).
+    pub(crate) element: usize,
 }
 
 impl Container {
@@ -553,6 +556,7 @@ impl Template {
                 events: Vec::new(),
                 parent,
                 children: Vec::new(),
+                element: index,
             };
             read_properties(&mut container, tree, element, &mut noted);
             match parent.and_then(|parent| template.containers.get_mut(parent)) {

@@ -137,8 +137,9 @@ impl Walk<'_> {
         }
         // A stream reached twice on one page draws the same marks twice, and following it once
         // is what stops a `/Resources` cycle from becoming an unbounded walk.
+        let within = state.within;
         if let Some(id) = id {
-            if let Some(earlier) = self.visited.get(&(page, id)) {
+            if let Some(earlier) = self.visited.get(&(page, id, within)) {
                 // The second route to the stream is not followed again, but it is remembered:
                 // a stream also reached some other way has another name for it to be changed at.
                 if !through_page_table
@@ -148,7 +149,7 @@ impl Walk<'_> {
                 }
                 return;
             }
-            self.visited.insert((page, id), None);
+            self.visited.insert((page, id, within), None);
         }
         let Ok(content) = NestedContent::of(self.document, stream, description.to_owned()) else {
             return;
@@ -164,7 +165,7 @@ impl Walk<'_> {
             through_page_table,
         );
         if let Some(id) = id {
-            self.visited.insert((page, id), origin.record);
+            self.visited.insert((page, id, within), origin.record);
         }
         // A run like `12pt` is read whole, as the keyword ISO 32000-2 §7.2.3 makes it: section
         // 6.2.2 asks which operators the stream uses, not what a renderer salvages (ADR 2619).

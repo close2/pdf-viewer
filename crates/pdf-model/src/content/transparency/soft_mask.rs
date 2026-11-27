@@ -7,7 +7,7 @@ use pdf_render::{
     BlackHalf, BlendMode, ClipId, Color, Command, FillRule, Paint, Path, PathCommand, Point,
     SoftMaskId, SoftMaskKind, Transform,
 };
-use pdf_syntax::Dictionary;
+use pdf_syntax::{Dictionary, Object};
 
 use crate::colour::{ColourSpace, Compositing, InkScale};
 
@@ -242,6 +242,21 @@ impl Interpreter<'_> {
         )
     }
 
+    /// The resources a soft mask's group is run against. The group is a form `XObject`
+    /// (§11.6.5.1's `/G`), so its `/Resources` is read as a form's is (`content/xobject.rs`, ADR
+    /// 0255): inherited from the page on the entry's absence, and one Table 93 does not allow, a
+    /// dictionary, read as a stream's dictionary or else as absent, and logged (ADR 3792).
+    fn mask_group_resources(&mut self, group: &Dictionary) -> Dictionary {
+        let stated = self.document.get_key(group, "Resources");
+        if !matches!(stated, Object::Null | Object::Dictionary(_)) {
+            self.record_repair(&crate::repair::FORM_RESOURCES_NOT_A_DICTIONARY);
+        }
+        stated
+            .as_dict()
+            .cloned()
+            .unwrap_or_else(|| self.page_resources.as_ref().clone())
+    }
+
     /// Evaluates a soft mask's transparency group and registers it (§11.5, §11.6.5.1).
     ///
     /// Returns `None` when the group draws nothing at all, which §11.5.2's NOTE 2 makes a
@@ -328,12 +343,7 @@ impl Interpreter<'_> {
             }
         }
 
-        let group_resources = self
-            .document
-            .get_key(&request.group.dict, "Resources")
-            .as_dict()
-            .cloned()
-            .unwrap_or_else(|| self.page_resources.as_ref().clone());
+        let group_resources = self.mask_group_resources(&request.group.dict);
 
         for detail in &request.departures {
             self.note(Unsupported::TransparencyGroup {

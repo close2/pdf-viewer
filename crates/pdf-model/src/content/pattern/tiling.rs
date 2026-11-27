@@ -186,12 +186,12 @@ impl Interpreter<'_> {
         // and what the cell draws without a name is still drawn (trap 5). Reading the invoking
         // stream's dictionary instead would be a fallback the clause does not state, and it is
         // the reading `pdf-archive`'s survey had until ADR 1059 (ADR 1055 section 5).
-        let resources = self
-            .document
-            .get_key(dict, "Resources")
-            .as_dict()
-            .cloned()
-            .unwrap_or_default();
+        // Either is a defect of the file Table 74 names, and logged (ADR 3792).
+        let stated = self.document.get_key(dict, "Resources");
+        if !matches!(stated, Object::Dictionary(_)) {
+            self.record_repair(&crate::repair::TILING_PATTERN_ENTRY_UNUSABLE);
+        }
+        let resources = stated.as_dict().cloned().unwrap_or_default();
 
         // `/PaintType 2` describes a stencil rather than a picture: the cell carries no
         // colour and the current colour is poured through it.
@@ -223,6 +223,11 @@ impl Interpreter<'_> {
             }
             _ => None,
         };
+        if cell_box.is_none() {
+            // Table 74 makes `/BBox` "(Required)"; where it is not four finite numbers the cell is
+            // tiled from the origin at the step's size and left unclipped (`lattice::spans`).
+            self.record_repair(&crate::repair::TILING_PATTERN_ENTRY_UNUSABLE);
+        }
 
         // §8.7.2: the pattern matrix "maps the pattern's internal coordinate system to the
         // default coordinate system of the pattern's parent content stream", which `base` holds.

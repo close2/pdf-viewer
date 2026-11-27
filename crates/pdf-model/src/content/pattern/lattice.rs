@@ -58,6 +58,8 @@ pub(super) fn bounds_of(path: &Path, transform: Transform) -> Option<(f32, f32, 
 /// Where the cell itself is matters, which is [`span`]'s subject. Table 74 makes `/BBox`
 /// required, and a pattern that states none is tiled as though its cell began at the origin.
 pub(super) fn spans(tiling: &Tiling, bounds: (f32, f32, f32, f32)) -> ((i32, i32), (i32, i32)) {
+    // not a repair: a cell box's absence is logged where the pattern is read
+    //   (`TILING_PATTERN_ENTRY_UNUSABLE`).
     let cell = tiling
         .bbox
         .unwrap_or([0.0, 0.0, tiling.step.0, tiling.step.1]);

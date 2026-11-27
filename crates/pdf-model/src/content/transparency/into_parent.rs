@@ -260,6 +260,8 @@ fn sampled_grid<const AXES: usize>(
         .map(|index| {
             let mut point = [0.0f32; AXES];
             let mut rest = index;
+            // not a repair: the digits of this reader's own grid index; `side` is never zero
+            //   where `points` is not.
             for coordinate in &mut point {
                 *coordinate = at(rest.checked_rem(side).unwrap_or(0));
                 rest = rest.checked_div(side).unwrap_or(0);

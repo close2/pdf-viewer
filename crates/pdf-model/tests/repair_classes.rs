@@ -267,6 +267,59 @@ fn a_form_with_no_bbox_and_a_short_matrix_is_logged_at_the_content() {
     );
 }
 
+/// Table 74 makes a tiling pattern's `/BBox` and `/Resources` "(Required)": one of them absent or
+/// of another shape is read past — the cell tiled from the origin at the step's size, the names
+/// looked up in nothing — and logged at the content that painted with it (ADR 3792).
+#[test]
+fn a_tiling_pattern_without_its_required_entries_is_logged_at_the_content() {
+    let painted = |entries: &str| {
+        let cell = "0 0 1 1 re f";
+        logged(&file(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R /Resources << \
+             /Pattern << /P0 5 0 R >> >> >>"
+                .to_owned(),
+            "<< /Length 32 >>\nstream\n/Pattern cs /P0 scn 0 0 9 9 re f\nendstream".to_owned(),
+            format!(
+                "<< /PatternType 1 /PaintType 1 /TilingType 1 /XStep 2 /YStep 2 {entries} \
+                 /Length {} >>\nstream\n{cell}\nendstream",
+                cell.len()
+            ),
+        ]))
+    };
+    let unusable = (
+        repair::TILING_PATTERN_ENTRY_UNUSABLE.name,
+        Site::Content(Some(PAGE)),
+    );
+    assert!(painted("/Resources << >>").contains(&unusable));
+    assert!(painted("/BBox [0 0 1 1]").contains(&unusable));
+    assert!(painted("/BBox [0 0 1] /Resources << >>").contains(&unusable));
+    assert_eq!(painted("/BBox [0 0 1 1] /Resources << >>"), []);
+}
+
+/// §11.6.5.1's `/G` is a form `XObject`, so a soft mask's group with a `/Resources` Table 93 does
+/// not allow is read as a form's is — as absent, the page's names in force — and logged as a
+/// form's is (ADR 3792).
+#[test]
+fn a_soft_mask_group_with_resources_of_the_wrong_type_is_logged() {
+    let masked = |resources: &str| {
+        logged(&page_with_resources(
+            "/GS0 gs 0 0 m 1 1 l S",
+            "<< /SMask << /S /Luminosity /G 5 0 R >> >>",
+            &format!("/BBox [0 0 1 1] /Group << /S /Transparency /CS /DeviceGray >> {resources}"),
+        ))
+    };
+    assert!(
+        masked("/Resources 7")
+            .iter()
+            .any(|(class, _)| *class == repair::FORM_RESOURCES_NOT_A_DICTIONARY.name),
+        "{:?}",
+        masked("/Resources 7")
+    );
+    assert_eq!(masked("/Resources << >>"), []);
+}
+
 /// Table 93: a form's `/Resources` is a dictionary. An integer there is read as absent, the form's
 /// names then looked up in the page's, and logged at the content that invoked it.
 #[test]

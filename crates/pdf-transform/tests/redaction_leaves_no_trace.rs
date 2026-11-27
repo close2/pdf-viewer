@@ -15,8 +15,9 @@
 //!   sequence the removal took, the `/ActualText`, `/Alt`, `/E` and `/T` of the structure element
 //!   that sequence belongs to and of its ancestors, the page's own `/Metadata` packet, every
 //!   annotation whose rectangle meets the region with its `/Contents`, `/RC` and appearance, a
-//!   field whose widget is there with its `/V`, and the `/Redact` annotation itself, which a
-//!   popup's `/Parent` would otherwise carry back in;
+//!   field whose widget is there with its `/V`, the same field's value in the XFA resource — its
+//!   `datasets` data value, its `form` packet value and its template default (§K.2, ADR 3789) —
+//!   and the `/Redact` annotation itself, which a popup's `/Parent` would otherwise carry back in;
 //! - **elsewhere**, carried and named in a [`pdf_transform::Warning`]: an outline item's title, a
 //!   named destination, an embedded file, an optional content group's name, the document's own
 //!   XMP packet, its information dictionary and an annotation outside the region. None of these
@@ -82,18 +83,25 @@ fn utf16(text: &str) -> String {
 /// names, with a `/Redact` annotation over the line that shows it. Each place's copy is preceded
 /// by a label, so a hit says which place it is.
 fn fixture() -> Vec<u8> {
+    fixture_with("name")
+}
+
+/// [`fixture`], its XFA template's field named `template_field`: the PDF field is `name`, so any
+/// other name is a template that does not name the field, whose places cannot be found.
+fn fixture_with(template_field: &str) -> Vec<u8> {
     let content = format!(
         "/P <</MCID 0>> BDC BT /F1 12 Tf 20 150 Td (KEEP) Tj ET EMC\n\
          /Span <</MCID 1 /ActualText (bdc-actual {SECRET})>> BDC \
          BT /F1 12 Tf 20 100 Td ({SECRET}) Tj ET EMC\n\
          BT /F1 12 Tf 20 92 Td ({SECRET}) Tj ET"
     );
-    let objects = vec![
+    let mut objects = vec![
         // 1
         "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 9 0 R /MarkInfo << /Marked true >> \
          /Metadata 12 0 R /Outlines 13 0 R /Names << /Dests 15 0 R /EmbeddedFiles 16 0 R >> \
          /OCProperties << /OCGs [18 0 R] /D << /Order [18 0 R] >> >> /AcroForm << /Fields \
-         [20 0 R] >> >>"
+         [20 0 R] /XFA [(xdp:xdp) 28 0 R (template) 29 0 R (datasets) 30 0 R (form) 31 0 R \
+         (</xdp:xdp>) 32 0 R] >> >>"
             .to_owned(),
         // 2
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
@@ -188,7 +196,40 @@ fn fixture() -> Vec<u8> {
         // 27
         format!("<< /Subject (info {SECRET}) >>"),
     ];
+    objects.extend(xfa_objects(template_field));
     assemble(&objects, "/Info 27 0 R")
+}
+
+/// Objects 28 to 32: §K.2's array form of the XFA resource, the field's value in three packets —
+/// the template's default, the `datasets` data value and the `form` packet's value.
+fn xfa_objects(template_field: &str) -> Vec<String> {
+    vec![
+        stream("", "<xdp:xdp xmlns:xdp=\"http://ns.adobe.com/xdp/\">"),
+        stream(
+            "",
+            &format!(
+                "<template xmlns=\"http://www.xfa.org/schema/xfa-template/3.3/\"><subform>\
+                 <field name=\"{template_field}\"><ui><textEdit/></ui><value><text>xfa-default \
+                 {SECRET}</text></value></field></subform></template>"
+            ),
+        ),
+        stream(
+            "",
+            &format!(
+                "<xfa:datasets xmlns:xfa=\"http://www.xfa.org/schema/xfa-data/1.0/\"><xfa:data>\
+                 <form1><name>xfa-data {SECRET}</name></form1></xfa:data></xfa:datasets>"
+            ),
+        ),
+        stream(
+            "",
+            &format!(
+                "<form xmlns=\"http://www.xfa.org/schema/xfa-form/2.8/\"><subform><field \
+                 name=\"name\"><value><text>xfa-form {SECRET}</text></value></field></subform>\
+                 </form>"
+            ),
+        ),
+        stream("", "</xdp:xdp>"),
+    ]
 }
 
 /// The report and the bytes of the one output.
@@ -417,10 +458,88 @@ fn what_the_removal_took_is_reported() {
         "marked-content",
         "annotation",
         "field",
+        "XFA packet",
     ] {
         assert!(
             details.iter().any(|detail| detail.contains(phrase)),
             "no departure names {phrase}: {details:#?}"
         );
     }
+}
+
+/// The XFA packets of the written file's interactive form dictionary, each decoded, by name.
+fn xfa_packets(bytes: &[u8]) -> Option<Vec<(String, String)>> {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    let form = document.get_key(&catalog, "AcroForm");
+    let Object::Array(packets) = document.get_key(form.as_dict()?, "XFA") else {
+        return None;
+    };
+    Some(
+        packets
+            .chunks(2)
+            .filter_map(|pair| {
+                let [Object::String(name), value] = pair else {
+                    return None;
+                };
+                let stream = match value {
+                    Object::Reference(id) => document.get(*id),
+                    other => other.clone(),
+                };
+                let data = document
+                    .decoded_stream_data(stream.as_stream()?)
+                    .expect("a packet decodes");
+                Some((
+                    String::from_utf8_lossy(name).into_owned(),
+                    String::from_utf8_lossy(&data).into_owned(),
+                ))
+            })
+            .collect(),
+    )
+}
+
+/// §K.2's consistency kept, not only the value gone: every packet stays, each value's element
+/// stays with its content emptied, so a later field of the same name still binds by its index
+/// (ADR 3789).
+#[test]
+fn the_xfa_packets_stay_with_the_value_emptied() {
+    let (_, out) = redact(fixture());
+    let packets = xfa_packets(&out).expect("the XFA resource is carried");
+    let packet = |wanted: &str| {
+        packets
+            .iter()
+            .find(|(name, _)| name == wanted)
+            .map(|(_, text)| text.as_str())
+            .expect("the packet is carried")
+    };
+    assert!(packet("datasets").contains("<name></name>"), "{packets:#?}");
+    assert!(
+        packet("form").contains("<value><text></text></value>"),
+        "{packets:#?}"
+    );
+    assert!(
+        packet("template").contains("<value><text></text></value>"),
+        "{packets:#?}"
+    );
+}
+
+/// Where the template does not name the field, the places of its value cannot be found with
+/// certainty, and `/XFA` goes whole and is said (ADR 3789): never left with the value in it.
+#[test]
+fn an_xfa_resource_whose_places_cannot_be_found_goes_whole() {
+    let (report, out) = redact(fixture_with("other"));
+    assert!(xfa_packets(&out).is_none(), "the /XFA entry is carried");
+    let found = hits(&out);
+    assert!(
+        !found.iter().any(|hit| hit.contains("xfa-")),
+        "the output still holds {found:#?}"
+    );
+    assert!(
+        report
+            .departures
+            .iter()
+            .any(|departure| departure.detail.contains("/XFA not written")),
+        "no departure names the /XFA: {:#?}",
+        report.departures
+    );
 }

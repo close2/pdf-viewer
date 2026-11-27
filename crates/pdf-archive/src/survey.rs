@@ -1188,6 +1188,9 @@ impl Survey {
 /// The part of the graphics state this walk needs.
 #[derive(Clone, Default)]
 struct State {
+    /// Whether the stream is being walked inside a soft mask's group, every stream that group
+    /// invokes included: the route [`Walk::visited`] keys by (ADR 3790).
+    within: Within,
     /// Whether §8.6.8's colour operators are ignored: in an uncoloured tiling pattern's cell,
     /// after a `d1`, and in every stream either invokes.
     uncoloured: bool,
@@ -1221,10 +1224,22 @@ struct State {
     /// The current colour spaces' components, as the grammar counts them, which a form `XObject`
     /// and a Type 3 glyph description start in (ISO 32000-2 §8.10.1, §9.6.4).
     spaces: Spaces,
-    /// The spaces the stream being walked began in, which a tiling pattern's cell starts in:
+    /// The state the stream being walked began in, which a tiling pattern's cell starts in:
     /// §8.7.3.1's step b) "\[i]nstalls the graphics state that was in effect at the beginning of
-    /// the pattern's parent content stream".
-    began_in: Spaces,
+    /// the pattern's parent content stream" — its colour spaces, and Annex Q.2's conditions with
+    /// the rest of it (ADR 3790). `None` before a stream has begun.
+    began: Option<Arc<State>>,
+}
+
+/// Which walk a stream is reached in: the page's own, or the one inside a soft mask's group whose
+/// findings are taken back from the page (ADR 2994, ADR 3790).
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+enum Within {
+    /// Painted on the page, directly or through what the page invokes.
+    #[default]
+    Page,
+    /// Evaluated inside a soft mask's group.
+    MaskGroup,
 }
 
 /// ISO 32000-2 Annex Q.2's four conditions, each as the last `gs` that stated its key left it.
@@ -1669,7 +1684,12 @@ struct Walk<'a> {
     /// Keyed by page as well as by object, because a form placed on two pages puts its
     /// transparency and its colours on *both* of them, and a set keyed by object alone would
     /// report the second page as if the form were not there.
-    visited: BTreeMap<(usize, ObjectId), Option<usize>>,
+    ///
+    /// Keyed by route as well — whether the stream was reached inside a soft mask's group — because
+    /// the two are different walks of the same stream: what the mask's walk finds is taken back
+    /// from the page (ADR 2994), so a form it opened and the page then draws itself must be walked
+    /// again for the page, or its content is never the page's (ADR 3790).
+    visited: BTreeMap<(usize, ObjectId, Within), Option<usize>>,
     /// How many nested streams have been opened.
     opened: usize,
     /// How many more tokens may be read.
@@ -2636,6 +2656,91 @@ mod tests {
             rgb("0 g 0 0 1 1 re f"),
             0,
             "no mask is set, so none is walked"
+        );
+    }
+
+    /// A stream with its `/Length` stated, its dictionary's other entries `entries`.
+    fn stream_object(entries: &str, data: &str) -> String {
+        format!(
+            "<< {entries} /Length {} >> stream\n{data}\nendstream",
+            data.len()
+        )
+    }
+
+    /// Annex Q.5 on the route Table 57's `/Font` opens (2271-B01, ADR 3790): a Type 3 font a
+    /// `gs` selects is used for rendering like one `Tf` selects, so a glyph procedure painting
+    /// at `ca` 0.5 makes the page transparent on either route.
+    #[test]
+    fn a_type3_font_a_graphics_state_selects_has_its_glyphs_walked() {
+        let font = "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1 1] /FontMatrix [1 0 0 1 0 0] \
+                    /CharProcs << /a 6 0 R >> /Encoding << /Differences [97 /a] >> /FirstChar 97 \
+                    /LastChar 97 /Widths [1] /Resources << /ExtGState << /H << /ca 0.5 >> >> >> >>";
+        let glyph = stream_object("", "1 0 0 0 0 0 d0 /H gs 0 0 1 1 re f");
+        let resources = "/Resources << /ExtGState << /GS0 << /Font [5 0 R 12] >> >> /Font << \
+                         /F1 5 0 R >> >>";
+        for content in ["/GS0 gs BT (a) Tj ET", "BT /F1 12 Tf (a) Tj ET"] {
+            let document = page_with(content, resources, &[font, &glyph]);
+            assert!(
+                Survey::of(&document).page_is_transparent(0),
+                "the glyph procedure is not walked after {content}"
+            );
+        }
+    }
+
+    /// Annex Q.3 for a form a soft mask's group draws and the page then draws itself (2271-B02,
+    /// ADR 3790): the mask's walk takes back what it found, so the page's own walk of the form
+    /// must still happen, and the form's `ca` 0.5 makes the page transparent.
+    #[test]
+    fn a_form_a_mask_group_drew_is_walked_again_for_the_page() {
+        let group = stream_object(
+            "/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Group << /S /Transparency /CS \
+             /DeviceGray >> /Resources << /XObject << /Fm 6 0 R >> >>",
+            "/Fm Do",
+        );
+        let form = stream_object(
+            "/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Resources << /ExtGState << /T << \
+             /ca 0.5 >> >> >>",
+            "/T gs 0 0 1 1 re f",
+        );
+        let resources = "/Resources << /ExtGState << /GS0 << /SMask << /S /Luminosity /G 5 0 R \
+                         >> >> >> /XObject << /Fm 6 0 R >> >>";
+        let masked_first = page_with("q /GS0 gs Q /Fm Do", resources, &[&group, &form]);
+        assert!(Survey::of(&masked_first).page_is_transparent(0));
+        let only_the_mask = page_with("q /GS0 gs Q", resources, &[&group, &form]);
+        assert!(
+            !Survey::of(&only_the_mask).page_is_transparent(0),
+            "a mask set and nothing painted under it marks no element (ADR 2994)"
+        );
+    }
+
+    /// §8.7.3.1's step b) for Annex Q.2's pattern route (2271-B03, ADR 3790): a tiling cell is
+    /// painted under the state its parent stream began in, so a `ca` 0.5 in force at `scn` and
+    /// restored to 1 before the fill leaves no element transparent; one in force when the
+    /// parent began is the cell's.
+    #[test]
+    fn a_tiling_cell_is_judged_from_the_state_its_parent_began_in() {
+        let pattern = stream_object(
+            "/PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 1 1] /XStep 1 /YStep 1 \
+             /Resources << >>",
+            "0 0 1 1 re f",
+        );
+        let form = stream_object(
+            "/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Resources << /Pattern << /P0 5 0 R \
+             >> /ExtGState << /Whole << /ca 1 >> >> >>",
+            "/Pattern cs /P0 scn /Whole gs 0 0 1 1 re f",
+        );
+        let resources = "/Resources << /ExtGState << /Half << /ca 0.5 >> /Whole << /ca 1 >> >> \
+                         /Pattern << /P0 5 0 R >> /XObject << /Fm 6 0 R >> >>";
+        let restored = page_with(
+            "/Half gs /Pattern cs /P0 scn /Whole gs 0 0 1 1 re f",
+            resources,
+            &[&pattern, &form],
+        );
+        assert!(!Survey::of(&restored).page_is_transparent(0));
+        let inherited = page_with("/Half gs /Fm Do", resources, &[&pattern, &form]);
+        assert!(
+            Survey::of(&inherited).page_is_transparent(0),
+            "the form began at ca 0.5, and so does its pattern's cell"
         );
     }
 

@@ -211,6 +211,7 @@ pub static MAPPING: &[Mapped] = &[
     // refusing by the class's name (ADR 3749).
     base("model/optional-content-entry-unusable"),
     base("model/file-specification-entry-unusable"),
+    base("model/tiling-pattern-entry-unusable"),
     base("model/alpha-constant-out-of-range"),
     base("model/halftone-unreadable"),
     // A `/BM` name outside Tables 134 and 135, logged at the content site as the alpha constants

@@ -30,6 +30,13 @@ impl Walk<'_> {
             let fills = matches!(state.mode, 0 | 2 | 4 | 6);
             let strokes = matches!(state.mode, 1 | 2 | 5 | 6);
             self.paint(fills, strokes, state, context);
+            // The font is used for rendering like one a `Tf` selects, so a Type 3 font's glyph
+            // procedures are Annex Q.5's content on this route too (ADR 3790).
+            let (font, id) = (font.clone(), *id);
+            if let Some(id) = id {
+                self.note_type3_glyphs(&font, id, operands, context.page);
+            }
+            self.type3(&font, state, context);
             return;
         }
         let Some(name) = state.font.clone() else {
