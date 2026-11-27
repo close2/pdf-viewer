@@ -66,6 +66,7 @@ fn shown(file: Arc<[u8]>) -> Shown {
         controls: false,
         fit: pdf_model::media::Fit::PlayersDefault,
         window: None,
+        quarter_turns: 0,
     }
 }
 

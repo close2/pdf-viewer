@@ -766,8 +766,12 @@ impl Builder<'_, '_> {
             Some("mulaw") => {
                 dict.insert(Name::new(&b"E"[..]), name("muLaw"));
             }
-            // The text lists a fourth, `alaw` (page 82); Table 305 as this tree holds it lists
-            // Raw, Signed and muLaw, so there is no name to write for it.
+            // The text lists a fourth, `alaw` (page 82), and ISO 32000-2's printed Table 305 lists
+            // `ALaw`, "A-law–encoded samples", beside `muLaw` (ADR 2398: `doc/md/`'s extraction
+            // drops the row; `media::Encoding::ALaw` reads it).
+            Some("alaw") => {
+                dict.insert(Name::new(&b"E"[..]), name("ALaw"));
+            }
             Some(_) => owe(
                 self.owed,
                 "encoding on <sound>: a value Table 305's /E does not list",

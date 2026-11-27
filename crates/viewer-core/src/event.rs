@@ -286,6 +286,9 @@ pub enum Event {
         /// How the picture is fitted to the rectangle: the fit the movie plays with, so the poster
         /// stands where the movie's first picture will.
         fit: pdf_model::media::Fit,
+        /// Table 306's `/Rotate` in clockwise quarter turns, which turns the poster as it turns
+        /// the movie (`pdf_model::media::Playing::quarter_turns`, ADR 3817).
+        quarter_turns: u8,
     },
     /// An operation was not performed, because the document restricts it and this reader is
     /// obeying (§7.6.4.2, §12.8.2.2, §12.8.6).

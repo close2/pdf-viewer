@@ -188,6 +188,9 @@ published pairs (`doc/questions/A308`, ADR 1916).
 - §13.2.5 — Table 291's /F 3, "A scrolling user interface shall be provided": no window provides
   one over a screen annotation, so it is non-viable in MH and set aside in BE; the other values fit
   the picture (ADR 3553).
+- §13.4 — Table 307's negative `/Rate`, "the movie shall be played backward with respect to Start
+  and Duration", and `Palindrome`'s backward half: the media worker decodes forward only, and each is
+  said; `doc/todo/80` section 2 plans them (ADR 3818). Table 306's `/Rotate` is built (ADR 3817).
 
 §13.2.6.2 and §13.2.6.3 are `implemented`: `pdf_model::media::judge` reads an offset and
 its timespan, a section's `/B` and `/E` and a `BE` media duration's `/T` alike, and an unrecognised Table 296
@@ -278,11 +281,11 @@ ISO 19162's bound CRS — and refused by both datums' names where it states none
 departed from is Table 269's eastings and northings, read as the base system's degrees on
 `doc/questions/A271` (ADR 1918). §12.10 above it is `implemented` with it.
 
-§13.4 was here as `implemented` while the playing rested on the clause 13 entry; with video opened
-it is in bucket 4 (ADR 3545), and it is `implemented`: the movie plays in place, told Table 307 (ADRs 3594, 3595),
-Table 306's boolean poster is the movie's first picture decoded beside the window and drawn in `/Rect` until it plays
-(ADR 3609), and its stream `/Poster` is drawn in `/Rect` at a placement this program chose (ADR 1561). Two sentences of
-Table 307 stay set aside, each said: `Palindrome`'s backward half and a `/Rate` other than 1 (ADR 3594).
+§13.4 was here while the playing rested on the clause 13 entry; with video opened it is in bucket 4
+(ADRs 3545, 3818): the movie plays in place, told Table 307 (ADRs 3594, 3595) and turned by Table 306's
+`/Rotate` (ADR 3817), Table 306's boolean poster is the movie's first picture decoded beside the window and drawn in
+`/Rect` until it plays (ADR 3609), and its stream `/Poster` is drawn in `/Rect` at a placement this program chose (ADR
+1561).
 
 §12.6.4.6 was here, and is `departed`: a launch whose Table 207 `/F` is a
 PDF opens under the reader's remote-documents level, and one that names an application is the one

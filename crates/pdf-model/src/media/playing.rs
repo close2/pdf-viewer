@@ -148,11 +148,19 @@ pub struct Playing {
     /// interface when playing": a bar this program draws over the clip's pictures (ADRs 3594,
     /// 3610).
     pub controls: bool,
+    /// ISO 32000-2 §13.4, Table 306's `/Rotate`, for a movie this program shows itself, in
+    /// clockwise quarter turns from 0 to 3 (ADR 3817):
+    ///
+    /// > The number of degrees by which the movie shall be rotated clockwise relative to the page.
+    /// > The value shall be a multiple of 90.
+    ///
+    /// Zero for every other clip, whose player states its own orientation.
+    pub quarter_turns: u8,
 }
 
 impl Default for Playing {
     /// Each table's default: `/V` 100, `/D` intrinsic, `/RC` 1.0, `/A` true, `/F` 5,
-    /// `/Synchronous`, `/Mix` and `/ShowControls` false.
+    /// `/Synchronous`, `/Mix` and `/ShowControls` false, `/Rotate` 0.
     fn default() -> Self {
         Self {
             level: 1.0,
@@ -164,6 +172,7 @@ impl Default for Playing {
             section: Section::WHOLE,
             fit: Fit::PlayersDefault,
             controls: false,
+            quarter_turns: 0,
         }
     }
 }

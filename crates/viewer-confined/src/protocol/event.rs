@@ -377,13 +377,15 @@ pub(super) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
             annotation,
             movie,
             fit,
+            quarter_turns,
         } => {
             writer
                 .u8(k::POSTER)
                 .document(*document)
                 .object(*annotation)
                 .bytes(movie)
-                .u8(fit.value());
+                .u8(fit.value())
+                .u8(*quarter_turns);
         }
         Event::Console { document, request } => {
             let command = match request.command {
@@ -682,6 +684,7 @@ pub(super) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
             let annotation = reader.object("the movie annotation a poster is drawn in")?;
             let movie = reader.owned_bytes("a poster's movie file")?;
             let fit = reader.u8("a poster's fit")?;
+            let quarter_turns = quarter_turns(reader.u8("a poster's quarter turns")?)?;
             Event::Poster {
                 document,
                 annotation,
@@ -692,6 +695,7 @@ pub(super) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
                         value: u32::from(fit),
                     },
                 )?,
+                quarter_turns,
             }
         }
         k::OPERATE_MEDIA => {
@@ -980,7 +984,20 @@ fn write_playing(writer: &mut Writer, playing: &pdf_model::media::Playing) {
         .f64(playing.section.begin)
         .f64(playing.section.end.unwrap_or(-1.0))
         .u8(playing.fit.value())
-        .bool(playing.controls);
+        .bool(playing.controls)
+        .u8(playing.quarter_turns);
+}
+
+/// Table 306's `/Rotate` as `pdf_model::media::Playing::quarter_turns` promises it: 0 to 3.
+fn quarter_turns(turns: u8) -> Result<u8, ProtocolError> {
+    if turns < 4 {
+        Ok(turns)
+    } else {
+        Err(ProtocolError::Unrecognised {
+            what: "a clip's clockwise quarter turns",
+            value: u32::from(turns),
+        })
+    }
 }
 
 /// [`write_playing`]'s other half. The confined side is the less trusted one, so each number is
@@ -1042,6 +1059,7 @@ fn read_playing(reader: &mut Reader<'_>) -> Result<pdf_model::media::Playing, Pr
             })?
         },
         controls: reader.bool("whether a clip shows a controller bar")?,
+        quarter_turns: quarter_turns(reader.u8("a clip's clockwise quarter turns")?)?,
     })
 }
 

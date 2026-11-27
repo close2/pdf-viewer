@@ -186,7 +186,7 @@ impl App {
             .filter_map(|poster| {
                 let quad = self.annotation_quad(poster.document, poster.annotation)?;
                 let placed = poster.placed(quad)?;
-                Some((placed.part_of(poster.raster), placed.quad))
+                Some((placed.part_of(poster.raster), placed.part_quad()))
             })
             .peekable();
         posters.peek()?;
@@ -262,7 +262,7 @@ impl App {
             reason = "window dimensions are far below f32's exact integer range"
         )]
         let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
-        list.push(picture_command(&part, placed.quad));
+        list.push(picture_command(&part, placed.part_quad()));
         Some(list)
     }
 }

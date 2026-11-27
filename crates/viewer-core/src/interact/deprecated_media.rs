@@ -20,10 +20,14 @@ use pdf_syntax::{Dictionary, Document, ObjectId};
 use super::Outcome;
 use crate::open::Open;
 
-/// What activating a movie or a sound annotation hands over, and `None` for every other subtype.
+/// What activating a movie or a sound annotation hands over, what activating a 3D or a rich media
+/// annotation says, and `None` for every other subtype.
 ///
 /// §12.5.6.17: "When the annotation is activated, the movie shall be played." And §12.5.6.16, of a
-/// sound annotation: "When the annotation is activated, the sound shall be played."
+/// sound annotation: "When the annotation is activated, the sound shall be played." A 3D or rich
+/// media annotation is activated by default by "an explicit user action" (Table 310's `/A` `XA`,
+/// Table 335's `/Condition`), and activation shows artwork this program does not render: the
+/// press is answered by [`artwork_not_rendered`] (trap 5, ADR 3819).
 pub(crate) fn exhibited(open: &Open, annotation: ObjectId) -> Option<Outcome> {
     let object = open.document.get(annotation);
     let dict = object.as_dict()?;
@@ -47,9 +51,33 @@ pub(crate) fn exhibited(open: &Open, annotation: ObjectId) -> Option<Outcome> {
             &mut outcome,
             None,
         ),
+        kind @ (b"3D" | b"RichMedia") => outcome.notes.push(artwork_not_rendered(kind == b"3D")),
         _ => return None,
     }
     Some(outcome)
+}
+
+/// The sentence a press on a 3D annotation (`three_d`) or on a rich media annotation is answered
+/// with: the artwork activation would show is not rendered, and the annotation stays in §13.6.2's
+/// first state — "Inactive (the default initial state): the annotation displays the annotation's
+/// normal appearance", which §13.7.2.1 gives a rich media annotation too.
+///
+/// Rendering U3D and PRC artwork is excluded (`CLAUDE.md`'s clause 13 entry,
+/// `doc/scope-ratifications.md`); a rich media annotation's `Sound` and `Video` configurations
+/// follow the audio and video players and are not built yet (`doc/todo/80`, ADR 3820).
+fn artwork_not_rendered(three_d: bool) -> String {
+    if three_d {
+        "this 3D annotation's artwork is not shown — rendering U3D and PRC artwork is excluded \
+         from this program (ISO 32000-2 clause 13), so the annotation keeps its normal appearance, \
+         §13.6.2's inactive state"
+            .to_owned()
+    } else {
+        "this rich media annotation's content is not shown — its 3D artwork is excluded from this \
+         program and its Sound and Video configurations are not built yet (ISO 32000-2 §13.7), so \
+         the annotation keeps its normal appearance, §13.7.2.1's inactive state; the press hands its \
+         assets over as files to save (ADR 2399)"
+            .to_owned()
+    }
 }
 
 /// §13.4's Table 306 `/Poster` `true` of each movie annotation among `annotations`, on pages that
@@ -96,7 +124,7 @@ pub(crate) fn posters(
                 pdf_model::media::Data::Embedded(file) => open
                     .document
                     .decoded_stream_data(&file.stream)
-                    .map(|bytes| (bytes.to_vec(), clip.playing.fit))
+                    .map(|bytes| (bytes.to_vec(), clip.playing.fit, clip.playing.quarter_turns))
                     .ok_or_else(|| {
                         "its movie file states a filter or an encryption this program cannot \
                          undo"
@@ -114,11 +142,12 @@ pub(crate) fn posters(
             Err(why) => Err(why),
         };
         match movie {
-            Ok((movie, fit)) => events.push(crate::Event::Poster {
+            Ok((movie, fit, quarter_turns)) => events.push(crate::Event::Poster {
                 document: id,
                 annotation,
                 movie,
                 fit,
+                quarter_turns,
             }),
             Err(why) => events.push(crate::Event::Reported {
                 document: id,

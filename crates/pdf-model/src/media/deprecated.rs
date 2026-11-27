@@ -16,8 +16,10 @@
 //! player shows video (ADR 3594) — is played in the movie annotation's rectangle, or in a floating
 //! window where Table 307's `/FWScale` asks for one, and is told the activation entries this
 //! player honours: `/Start` and `/Duration` as §13.2.4.3's section, `/Volume`, `/ShowControls`,
-//! `/Mode`'s `Once`, `Open` and `Repeat`, `/FWScale` and `/FWPosition`. Those it cannot honour are
-//! said, as for the hand-off.
+//! `/Mode`'s `Once`, `Open` and `Repeat`, `/FWScale` and `/FWPosition` — and Table 306's
+//! `/Rotate`, the pictures and the poster turned clockwise by it (ADR 3817). Those it cannot honour
+//! are said, as for the hand-off: a negative `/Rate` and `Palindrome`'s backward half are not built
+//! yet (ADR 3818, `doc/todo/80`).
 //!
 //! **What the hand-off cannot carry is said, never dropped** (trap 5): Table 307's activation
 //! entries and Table 212's playing parameters are each something a player would have to be *told*,
@@ -134,12 +136,13 @@ fn movie_clip(
         .map(|key| format!("Table 307's /{key}"))
         .collect();
     // Table 306's /Aspect describes the movie and asks nothing of a player; /Rotate asks for the
-    // picture to be turned, which a player handed the file is not told.
-    if let Some(degrees) = document
+    // picture to be turned, which a player handed the file is not told, and which this program's
+    // own player is (below).
+    let rotate = document
         .get_key(movie, "Rotate")
         .as_integer()
-        .filter(|degrees| *degrees != 0)
-    {
+        .filter(|degrees| *degrees != 0);
+    if let Some(degrees) = rotate {
         unhonoured.push(format!("Table 306's /Rotate {degrees}"));
     }
     let mut clip = Clip {
@@ -178,11 +181,38 @@ fn movie_clip(
             .retain(|entry| !entry.starts_with("Table 307's /"));
         clip.unhonoured.extend(told.set_aside);
         clip.playing = told.playing;
+        if let Some(degrees) = rotate {
+            clip.unhonoured
+                .retain(|entry| !entry.starts_with("Table 306's /Rotate"));
+            match quarter_turns(degrees) {
+                Some(turns) => clip.playing.quarter_turns = turns,
+                None => clip.unhonoured.push(format!(
+                    "Table 306's /Rotate {degrees}, because the table says the value shall be a \
+                     multiple of 90, so the pictures stand at the page's orientation"
+                )),
+            }
+        }
         clip.window = told.window;
         clip.background = Some(Background::default());
         clip.played_here = true;
     }
     Ok(clip)
+}
+
+/// Table 306's `/Rotate` as clockwise quarter turns from 0 to 3: "The number of degrees by which
+/// the movie shall be rotated clockwise relative to the page. The value shall be a multiple of 90."
+/// A negative multiple turns anticlockwise, which is the same as the clockwise turn that completes
+/// it to a whole turn. `None` for a value that is no multiple of 90.
+fn quarter_turns(degrees: i64) -> Option<u8> {
+    if degrees % 90 != 0 {
+        return None;
+    }
+    Some(match (degrees / 90).rem_euclid(4) {
+        0 => 0,
+        1 => 1,
+        2 => 2,
+        _ => 3,
+    })
 }
 
 /// What this program's own player is told of a movie it shows: the play parameters, the floating
@@ -282,9 +312,16 @@ fn told(
         .as_number()
         .filter(|rate| (rate - 1.0).abs() >= f64::EPSILON)
     {
+        // A negative rate is "the movie shall be played backward with respect to Start and
+        // Duration", which the worker's forward-only decoding does not yet do (ADR 3818).
+        let backward = if rate < 0.0 {
+            ", and forward, because this program's media worker decodes pictures forward only"
+        } else {
+            ""
+        };
         told.set_aside.push(format!(
             "Table 307's /Rate {rate}, because this program's player plays a movie at its \
-             recorded speed, its pictures following the sound device's clock"
+             recorded speed, its pictures following the sound device's clock{backward}"
         ));
     }
     if matches!(stated("Synchronous"), Object::Boolean(true)) {
@@ -733,12 +770,40 @@ mod tests {
         }
     }
 
+    /// Table 306's `/Rotate` "shall be a multiple of 90": a clockwise multiple turns the pictures
+    /// clockwise, a negative one the other way, and a value that is no multiple is said.
+    #[test]
+    fn a_rotation_is_read_as_clockwise_quarter_turns() {
+        assert_eq!(super::quarter_turns(90), Some(1));
+        assert_eq!(super::quarter_turns(180), Some(2));
+        assert_eq!(super::quarter_turns(-90), Some(3));
+        assert_eq!(super::quarter_turns(450), Some(1));
+        assert_eq!(super::quarter_turns(45), None);
+        let doc = document(&[
+            "<< /Type /Catalog >>",
+            "<< /Type /Annot /Subtype /Movie /Rect [0 0 10 10] /Movie << /F 3 0 R /Rotate 45 >> \
+             >>",
+            "<< /Type /Filespec /F (clip.mp4) /EF << /F 4 0 R >> >>",
+            "<< /Type /EmbeddedFile /Subtype /video#2Fmp4 /Length 4 >>\nstream\nmoov\nendstream",
+        ]);
+        let clip = movie(&doc, &dict(&doc, 2), None, shows_video(false)).expect("shown");
+        assert_eq!(clip.playing.quarter_turns, 0);
+        assert!(
+            clip.unhonoured
+                .iter()
+                .any(|said| said.contains("/Rotate 45") && said.contains("multiple of 90")),
+            "{:?}",
+            clip.unhonoured
+        );
+    }
+
     /// An embedded MP4 movie shown here is told Table 307's entries (ADR 3594): `/Start` 600 and
     /// `/Duration` 1200 in a stated scale of 600 a second are the section from 1 s to 3 s;
     /// `/Volume` 0.5 the level; `/ShowControls` the bar; `/Mode /Repeat` a count of zero; `/FWScale`
     /// [1 2] over an `/Aspect` of [320 240] a floating window of 160 by 120 pixels, `/FWPosition`
     /// [0 1] Table 295's lower-left. The action's `/Volume` overrides the activation's (§12.6.4.10).
-    /// What it cannot honour — `/Rate`, `/Rotate` — is still said.
+    /// Table 306's `/Rotate` 90 is one clockwise quarter turn (ADR 3817); what it cannot honour —
+    /// `/Rate` — is still said.
     #[test]
     fn a_movie_shown_here_is_told_table_307() {
         let doc = document(&[
@@ -767,9 +832,9 @@ mod tests {
             }
             crate::media::WindowKind::FullScreen => panic!("not full screen"),
         }
-        assert_eq!(clip.unhonoured.len(), 2, "{:?}", clip.unhonoured);
-        assert!(clip.unhonoured[0].starts_with("Table 306's /Rotate 90"));
-        assert!(clip.unhonoured[1].starts_with("Table 307's /Rate 2"));
+        assert_eq!(clip.playing.quarter_turns, 1, "Table 306's /Rotate 90");
+        assert_eq!(clip.unhonoured.len(), 1, "{:?}", clip.unhonoured);
+        assert!(clip.unhonoured[0].starts_with("Table 307's /Rate 2"));
         // The same movie for a host that opens no window plays in the annotation's rectangle, and
         // for one that shows no video is handed on as before.
         let in_place = movie(&doc, &dict(&doc, 2), None, shows_video(false)).expect("shown");

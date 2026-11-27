@@ -83,6 +83,9 @@ that disagrees with what was decoded is refused. Byte strings (`/F` of the file 
 
 ## 4. Where ISO 32000-2 overrides the text
 
+> **Amended in round 2279 (ADR 2398's reading): the `encoding="alaw"` row below rested on `doc/md/`'s
+> extraction of Table 305, which drops the printed `ALaw` row (ADR 2398); it is written as `/E /ALaw`.**
+
 | The text | ISO 32000-2 | Here |
 |---|---|---|
 | the polyline subtype spelled `Polyline` (page 94) | Table 171: `PolyLine` | `PolyLine` |

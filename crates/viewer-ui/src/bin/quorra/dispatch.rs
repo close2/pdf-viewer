@@ -946,11 +946,13 @@ answers in two places"
                 annotation,
                 movie,
                 fit,
+                quarter_turns,
             } => self.ask_for_the_poster(viewer_host::video::poster::Asked {
                 document,
                 annotation,
                 movie,
                 fit,
+                quarter_turns,
             }),
             // Withdrawn while held, it leaves the hold and is said withdrawn as one on the card is
             // (ADR 2329).

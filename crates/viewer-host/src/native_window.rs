@@ -978,6 +978,7 @@ pub trait NativeWindow {
                 annotation,
                 movie,
                 fit,
+                quarter_turns,
             } => {
                 let wake = self.picture_wake();
                 self.state_mut().pictures.poster(
@@ -986,6 +987,7 @@ pub trait NativeWindow {
                         annotation,
                         movie,
                         fit,
+                        quarter_turns,
                     },
                     || wake,
                 );

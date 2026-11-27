@@ -92,6 +92,7 @@ impl Host {
             right: raster.width,
             bottom: raster.height,
             quad: covered,
+            quarter_turns: 0,
         }
         .bounding_box();
         Some(Shown {
@@ -193,6 +194,7 @@ pub(super) fn bounding_box(quad: [f32; 8]) -> ((f32, f32), (u32, u32)) {
         right: 0,
         bottom: 0,
         quad,
+        quarter_turns: 0,
     }
     .bounding_box()
 }

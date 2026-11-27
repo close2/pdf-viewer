@@ -1362,6 +1362,15 @@ impl Walk<'_> {
                 }
                 let criteria = document.resolve(value);
                 let Some(criteria) = criteria.as_dict() else {
+                    // §13.2.2: an unrecognised value for a recognised key in MH makes the object
+                    // non-viable; §13.2.3.1 excepts only an unrecognised entry in BE.
+                    if must {
+                        reasons.push(
+                            "its rendition MH's /C is no media criteria dictionary, an \
+                             unrecognised value §13.2.2 makes non-viable"
+                                .to_owned(),
+                        );
+                    }
                     continue;
                 };
                 for (entry, value) in criteria.iter() {
@@ -1399,8 +1408,21 @@ impl Walk<'_> {
                 "Table 279's /{entry} needs a monitor's {}, which a host has not stated",
                 if entry == "D" { "depth" } else { "size" }
             ),
+            // Table 279's /V and /P are arrays, /L an array of text strings: a value of another
+            // type is §13.2.2's "unrecognised value for a recognised key", non-viable in MH and
+            // read past in BE, which §13.2.3.1 excepts.
+            "V" | "P" | "L" if value.as_array().is_none() => {
+                if !must {
+                    self.media_criterion_unusable();
+                    return None;
+                }
+                format!(
+                    "its media criteria's MH holds a /{entry} that is no array, an unrecognised \
+                     value §13.2.2 makes non-viable"
+                )
+            }
             // Table 279's /V and /P each bind only "[i]f this entry is present and non-empty".
-            "V" | "P" if value.as_array().is_none_or(<[Object]>::is_empty) => return None,
+            "V" | "P" if value.as_array().is_some_and(<[Object]>::is_empty) => return None,
             // "If this entry is present and non-empty, the interactive PDF processor shall be
             // identified by one or more of the objects in the array". §13.2.7.4.3's names are
             // registered second-class names, and this program has none.
@@ -1408,11 +1430,14 @@ impl Walk<'_> {
                     identified by no software name"
                 .to_owned(),
             // "the version of multimedia constructs fully supported by the interactive PDF
-            // processor shall be within the specified range", and this program plays none of them.
+            // processor shall be within the specified range". This program plays §13.2's
+            // renditions, sounds and movies, but supports no version of them fully (the 13.2.5 row
+            // is partial), so no range is met.
             "P" => "Table 279's /P asks for a processor that fully supports a version of the \
-                    multimedia constructs, and this program plays none"
+                    multimedia constructs, and this program plays them but supports no version \
+                    of them fully"
                 .to_owned(),
-            "L" => return self.language_criterion(value),
+            "L" => return self.language_criterion(value, must),
             _ if must => {
                 format!("its media criteria's MH holds /{entry}, which Table 279 does not define")
             }
@@ -1424,18 +1449,23 @@ impl Walk<'_> {
     /// exactly match a language identifier, or consist only of a primary code that matches the
     /// primary code of an identifier".
     ///
-    /// An `/L` that is no array, or an element that is no text string, is read as absent and
-    /// logged (`MEDIA_CRITERION_UNUSABLE`); an empty array is the clause's own "present and
-    /// non-empty" condition unmet, and decides nothing.
-    fn language_criterion(&self, value: &Object) -> Option<String> {
-        let Some(items) = value.as_array() else {
-            self.media_criterion_unusable();
-            return None;
-        };
+    /// An element that is no text string is §13.2.2's unrecognised value: in `MH` (`must`) it makes
+    /// the rendition non-viable, in `BE` it is read past and logged (`MEDIA_CRITERION_UNUSABLE`).
+    /// An empty array is the clause's own "present and non-empty" condition unmet, and decides
+    /// nothing. The caller has already judged an `/L` that is no array.
+    fn language_criterion(&self, value: &Object, must: bool) -> Option<String> {
+        let items = value.as_array().unwrap_or_default();
         let mut tags = Vec::with_capacity(items.len());
         for item in items {
             match self.document.resolve(item) {
                 Object::String(bytes) => tags.push(pdf_syntax::text_string(&bytes)),
+                _ if must => {
+                    return Some(
+                        "its media criteria's MH holds an /L element that is no text string, an \
+                         unrecognised value §13.2.2 makes non-viable"
+                            .to_owned(),
+                    );
+                }
                 _ => self.media_criterion_unusable(),
             }
         }
@@ -2324,6 +2354,36 @@ mod tests {
         assert!(judged(Some("de-AT")));
         assert!(!judged(Some("fr")));
         assert!(!judged(None));
+    }
+
+    /// §13.2.2: "an object shall be considered non-viable if its MH dictionary contains an
+    /// unrecognised key or an unrecognised value for a recognised key". Table 279's `/V`, `/P` and
+    /// `/L` are arrays and a rendition's `/C` a media criteria dictionary, so a value of another type
+    /// in `MH` makes the rendition non-viable; in `BE` §13.2.3.1 lets it be read past.
+    #[test]
+    fn a_criterion_of_the_wrong_type_is_non_viable_in_must_honour_only() {
+        let viable = |options: &str| {
+            let doc = document(&[
+                "<< /Type /Catalog >>",
+                &format!("<< /S /MR {options} /C << /S /MCD /CT (video/mp4) /D {EMBEDDED} >> >>"),
+                "null",
+                FILE,
+            ]);
+            judge(&doc, &rendition(2), Processor::default())
+                .chosen()
+                .is_some()
+        };
+        assert!(viable(""));
+        for value in [
+            "/C << /V 5 >>",
+            "/C << /P /2.0 >>",
+            "/C << /L (en) >>",
+            "/C << /L [5] >>",
+            "/C 5",
+        ] {
+            assert!(!viable(&format!("/MH << {value} >>")), "MH {value}");
+            assert!(viable(&format!("/BE << {value} >>")), "BE {value}");
+        }
     }
 
     /// Table 285's form `XObject` clip is named rather than handed: its player is this processor.

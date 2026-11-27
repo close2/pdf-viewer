@@ -217,6 +217,7 @@ fn every_carried_event_round_trips() {
                     synchronous: true,
                     fit: pdf_model::media::Fit::Slice,
                     controls: true,
+                    quarter_turns: 3,
                     ..pdf_model::media::Playing::default()
                 },
                 screen: None,
@@ -303,6 +304,7 @@ fn every_carried_event_round_trips() {
             annotation: ObjectId::new(6, 0),
             movie: b"ftypmoov".to_vec(),
             fit: pdf_model::media::Fit::Meet,
+            quarter_turns: 1,
         },
         // §12.6.4.14's three operations on an associated rendition (ADR 3433).
         Event::OperateMedia {

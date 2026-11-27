@@ -50,6 +50,8 @@ pub struct Asked {
     pub movie: Vec<u8>,
     /// How the picture is fitted to the rectangle: the fit the movie plays with.
     pub fit: pdf_model::media::Fit,
+    /// Table 306's `/Rotate` in clockwise quarter turns, the movie's and so its poster's.
+    pub quarter_turns: u8,
 }
 
 /// One poster shown: the picture, and where and how it goes.
@@ -63,14 +65,21 @@ pub struct Poster<'a> {
     pub raster: &'a pdf_render::Raster,
     /// How it is fitted to the annotation's rectangle.
     pub fit: pdf_model::media::Fit,
+    /// How it is turned in it: Table 306's `/Rotate` in clockwise quarter turns (ADR 3817).
+    pub quarter_turns: u8,
 }
 
 impl Poster<'_> {
     /// Where the poster goes inside `quad`, the annotation's rectangle in window pixels
-    /// ([`super::placed`]).
+    /// ([`super::placed_turned`]).
     #[must_use]
     pub fn placed(&self, quad: [f32; 8]) -> Option<super::Placed> {
-        super::placed(self.fit, (self.raster.width, self.raster.height), quad)
+        super::placed_turned(
+            self.fit,
+            (self.raster.width, self.raster.height),
+            quad,
+            self.quarter_turns,
+        )
     }
 }
 
@@ -80,6 +89,7 @@ struct Held {
     document: DocumentId,
     annotation: ObjectId,
     fit: pdf_model::media::Fit,
+    quarter_turns: u8,
     raster: Option<pdf_render::Raster>,
 }
 
@@ -165,6 +175,7 @@ impl Posters {
             document: asked.document,
             annotation: asked.annotation,
             fit: asked.fit,
+            quarter_turns: asked.quarter_turns,
             raster: None,
         });
     }
@@ -230,6 +241,7 @@ impl Posters {
                 annotation: held.annotation,
                 raster: held.raster.as_ref()?,
                 fit: held.fit,
+                quarter_turns: held.quarter_turns,
             })
         })
     }

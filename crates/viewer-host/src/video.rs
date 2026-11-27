@@ -157,6 +157,8 @@ pub struct Shown {
     /// Table 294's floating or full-screen window the pictures are shown in instead of a
     /// rectangle of the page — `/W` 0 or 1 — for a window that opens one (ADR 3587).
     pub window: Option<pdf_model::media::Window>,
+    /// Table 306's `/Rotate` in clockwise quarter turns, for a movie (ADR 3817).
+    pub quarter_turns: u8,
 }
 
 impl Shown {
@@ -187,6 +189,7 @@ impl Shown {
             controls: playing.controls,
             fit: playing.fit,
             window: sound.window.clone(),
+            quarter_turns: playing.quarter_turns,
         })
     }
 }
@@ -280,7 +283,8 @@ fn signal_of(signal: pdf_media_worker::video::Signal) -> pdf_render::video::Sign
 /// A picture placed in its rectangle: the part of it shown, in samples, and the quadrilateral in
 /// window pixels that part covers, its corners clockwise from the part's top-left — the window
 /// maps the part's top-left sample corner to `quad`'s first corner, its rows along the first edge
-/// and its columns down the last.
+/// and its columns down the last. A movie turned by Table 306's `/Rotate` ([`placed_turned`])
+/// starts `quad` at the rectangle's corner the turn carries the picture's top-left to.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Placed {
     /// The first column of the picture shown.
@@ -293,6 +297,9 @@ pub struct Placed {
     pub bottom: u32,
     /// Where the part goes, `[x0, y0, … x3, y3]`.
     pub quad: [f32; 8],
+    /// Clockwise quarter turns of the picture relative to the rectangle, 0 to 3: Table 306's
+    /// `/Rotate` (ADR 3817). [`Self::part_of`] turns its samples by them.
+    pub quarter_turns: u8,
 }
 
 impl Placed {
@@ -321,9 +328,35 @@ impl Placed {
         [a, b, c, d, x0 - a * left - c * top, y0 - b * left - d * top]
     }
     /// The samples of `raster` — the picture converted, RGBA as `render-cpu`'s conversion answers
-    /// it — that this placement shows, for a window that draws the part as an image of its own.
+    /// it — that this placement shows, for a window that draws the part as an image of its own:
+    /// turned clockwise by [`Self::quarter_turns`], so that the part drawn upright over
+    /// [`Self::bounding_box`], or over [`Self::part_quad`], stands as the movie is turned.
+    ///
+    /// A turned movie costs this copy for each picture (one pass over the part's samples); an
+    /// unturned one costs only the crop, and none where [`Self::is_whole`] lets a window skip it.
     #[must_use]
     pub fn part_of(&self, raster: &pdf_render::Raster) -> pdf_render::Raster {
+        turned(self.cropped(raster), self.quarter_turns)
+    }
+
+    /// [`Self::quad`] begun at the corner [`Self::part_of`]'s first sample goes to: the rectangle
+    /// the turned part covers, its corners clockwise from that part's top-left.
+    #[must_use]
+    pub fn part_quad(&self) -> [f32; 8] {
+        // Each corner is two coordinates; turning back by k corners is turning on by 4 − k.
+        let back = match self.quarter_turns % 4 {
+            0 => 0,
+            1 => 6,
+            2 => 4,
+            _ => 2,
+        };
+        let mut quad = self.quad;
+        quad.rotate_left(back);
+        quad
+    }
+
+    /// The samples this placement shows, as the picture holds them.
+    fn cropped(&self, raster: &pdf_render::Raster) -> pdf_render::Raster {
         let width = usize::try_from(raster.width).unwrap_or(usize::MAX);
         let to = |value: u32| usize::try_from(value).unwrap_or(usize::MAX);
         let (left, right) = (to(self.left).min(width), to(self.right).min(width));
@@ -349,11 +382,12 @@ impl Placed {
         }
     }
 
-    /// Whether the part shown is the whole of `raster`: meet, fill and the default show all of
-    /// it, and a window then hands the picture on without [`Self::part_of`]'s copy.
+    /// Whether the part shown is the whole of `raster`, unturned: meet, fill and the default show
+    /// all of it, and a window then hands the picture on without [`Self::part_of`]'s copy.
     #[must_use]
     pub const fn is_whole(&self, raster: &pdf_render::Raster) -> bool {
-        self.left == 0
+        self.quarter_turns.is_multiple_of(4)
+            && self.left == 0
             && self.top == 0
             && self.right >= raster.width
             && self.bottom >= raster.height
@@ -383,6 +417,67 @@ impl Placed {
         );
         ((left, top), extent)
     }
+}
+
+/// `raster`'s samples turned clockwise by `quarter_turns`: a quarter or three swap its sides.
+fn turned(raster: pdf_render::Raster, quarter_turns: u8) -> pdf_render::Raster {
+    let turns = quarter_turns % 4;
+    if turns == 0 {
+        return raster;
+    }
+    let (width, height) = (raster.width, raster.height);
+    let to = |value: u32| usize::try_from(value).unwrap_or(usize::MAX);
+    let mut data = Vec::with_capacity(raster.data.len());
+    let mut take = |x: u32, y: u32| {
+        let at = to(y)
+            .saturating_mul(to(width))
+            .saturating_add(to(x))
+            .saturating_mul(4);
+        data.extend_from_slice(raster.data.get(at..at.saturating_add(4)).unwrap_or(&[0; 4]));
+    };
+    // The turned picture is written row by row. Clockwise, a quarter's rows are the columns read
+    // from the bottom up, a half's the rows read backwards from the last, and three quarters' the
+    // columns from the last, read from the top down.
+    match turns {
+        1 => (0..width).for_each(|x| (0..height).rev().for_each(|y| take(x, y))),
+        2 => (0..height)
+            .rev()
+            .for_each(|y| (0..width).rev().for_each(|x| take(x, y))),
+        _ => (0..width)
+            .rev()
+            .for_each(|x| (0..height).for_each(|y| take(x, y))),
+    }
+    let (width, height) = if turns == 2 {
+        (width, height)
+    } else {
+        (height, width)
+    };
+    pdf_render::Raster {
+        width,
+        height,
+        format: raster.format,
+        data,
+    }
+}
+
+/// [`placed`] for a picture turned clockwise by `quarter_turns` relative to the rectangle `quad` —
+/// Table 306's `/Rotate`: "The number of degrees by which the movie shall be rotated clockwise
+/// relative to the page" (ADR 3817). The picture's top-left goes to the corner `quarter_turns`
+/// places clockwise from the rectangle's, its rows run along the next side, and the fit measures
+/// the picture's sides against the sides they now lie on.
+#[must_use]
+pub fn placed_turned(
+    fit: pdf_model::media::Fit,
+    size: (u32, u32),
+    quad: [f32; 8],
+    quarter_turns: u8,
+) -> Option<Placed> {
+    let turns = quarter_turns % 4;
+    let mut corners = quad;
+    corners.rotate_left(usize::from(turns).saturating_mul(2));
+    let mut placed = placed(fit, size, corners)?;
+    placed.quarter_turns = turns;
+    Some(placed)
 }
 
 /// A picture of `size` samples fitted to the rectangle `quad` (corners clockwise from its
@@ -465,6 +560,7 @@ pub fn placed(fit: pdf_model::media::Fit, size: (u32, u32), quad: [f32; 8]) -> O
         right,
         bottom,
         quad: [q0.0, q0.1, q1.0, q1.1, q2.0, q2.1, q3.0, q3.1],
+        quarter_turns: 0,
     })
 }
 
@@ -843,7 +939,7 @@ impl VideoPlayer {
         let mut list = DisplayList::new(Size::new(inner.0 as f32, inner.1 as f32));
         if let Some((raster, placed)) = raster.zip(self.placed(screens::whole(inner))) {
             let part = placed.part_of(raster);
-            let [x0, y0, x1, y1, _, _, x3, y3] = placed.quad;
+            let [x0, y0, x1, y1, _, _, x3, y3] = placed.part_quad();
             list.push(Command::Image {
                 image: ImageSource::Decoded(Image {
                     width: part.width,
@@ -1048,11 +1144,12 @@ impl VideoPlayer {
 
     /// Where the clip's picture goes inside `quad`, the screen annotation in window pixels: the
     /// part of the picture shown and the quadrilateral it covers, by the clip's Table 291 `/F`
-    /// ([`placed`]); `None` before the first picture or where nothing of it is shown.
+    /// turned by Table 306's `/Rotate` ([`placed_turned`]); `None` before the first picture or
+    /// where nothing of it is shown.
     #[must_use]
     pub fn placed(&self, quad: [f32; 8]) -> Option<Placed> {
         let hand = self.in_hand.as_ref()?;
-        placed(hand.shown.fit, hand.size?, quad)
+        placed_turned(hand.shown.fit, hand.size?, quad, hand.shown.quarter_turns)
     }
 
     /// What the controller bar shows at `now`, for a clip in hand that asks for one — Table 307's

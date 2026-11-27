@@ -11,7 +11,7 @@
   "code": "crates/pdf-model/src/media.rs:1363-1366 (a non-dictionary /C skipped), :1403 (/V and /P that are no array read as met), :1431-1434 (/L that is no array read as absent)",
   "change": "Pass the MH flag to every value-type check: in MH a /V, /P or /L that is no array, and a /C that is no dictionary, is a reason; in BE each is ignored.",
   "execution": "crates/pdf-model/tests/clause_13_multimedia_spec_audit.rs::an_unrecognised_value_in_a_rendition_must_honour_makes_it_non_viable_spec_audit fails on main listing all four; the controls (a plain rendition viable, an unrecognised MH key non-viable) pass.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2278-B02",
@@ -24,7 +24,7 @@
   "code": "crates/pdf-model/src/media/deprecated.rs:136-144 (set aside), :175-177 (kept for the movie shown here); crates/viewer-host/src/video.rs, video/poster.rs (no rotation applied)",
   "change": "Carry the rotation on Playing (or Clip) for a movie shown here and turn the pictures and the decoded poster clockwise by it where the window places them.",
   "execution": "crates/pdf-model/tests/clause_13_multimedia_spec_audit.rs::a_movie_shown_here_is_rotated_as_its_movie_dictionary_states_spec_audit fails on main at /Rotate 90; the control without /Rotate passes.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2278-B03",
@@ -37,7 +37,7 @@
   "code": "crates/pdf-model/src/xfdf/annotations.rs:757-773 (alaw owed, no /E written)",
   "change": "Write /E /ALaw for encoding=\"alaw\" and restate the comment against the printed table.",
   "execution": "crates/pdf-model/tests/clause_13_multimedia_spec_audit.rs::an_xfdf_a_law_sound_is_written_with_table_305_s_alaw_spec_audit fails on main at alaw; the mulaw control passes.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2278-B04",
@@ -51,7 +51,7 @@
   "code": "crates/viewer-core/src/interact/deprecated_media.rs:27-52 (exhibited: _ => return None), crates/viewer-core/src/viewer/pointer.rs:321",
   "change": "For a 3D or RichMedia annotation pressed, report once that its artwork is not rendered by this program (the clause 13 exclusion) and that its normal appearance stays.",
   "execution": "crates/viewer-core/tests/clause_13_activation_spec_audit.rs::activating_3d_or_rich_media_artwork_is_refused_by_name_spec_audit fails on main at the 3D press (events: one Damage); the movie control hands its movie over.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2278-D01",
@@ -64,7 +64,7 @@
   "code": "doc/conformance/ledger.toml (13.4); crates/pdf-model/src/media/deprecated.rs:203-216",
   "change": "Restate the row as partial, or argue each as a departure in an ADR.",
   "execution": "read only",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2278-D02",
@@ -77,7 +77,7 @@
   "code": "crates/pdf-model/src/media.rs:1410-1414",
   "change": "Say that this program does not fully support any version's multimedia constructs (13.2.5 partial), not that it plays none.",
   "execution": "read only",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2278-D03",
@@ -92,6 +92,6 @@
   "code": "doc/conformance/ledger.toml (13.7, 13.7.1, 13.7.2, 13.7.2.1, 13.7.2.2 to 13.7.2.2.6, 13.7.2.3, 13.7.2.3.3 to 13.7.2.3.6)",
   "change": "Restate the reasons: Sound and Video configurations unblocked by A946 and A1006 and owed, 3D configurations and the run time excluded; add a todo for RFC 0015 section 10.1's rounds.",
   "execution": "read only",
-  "status": "open"
+  "status": "fixed"
  }
 ]

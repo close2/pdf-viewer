@@ -30,6 +30,7 @@ fn shown(repeat: f64) -> Shown {
         controls: false,
         fit: pdf_model::media::Fit::PlayersDefault,
         window: None,
+        quarter_turns: 0,
     }
 }
 
@@ -257,6 +258,84 @@ fn a_turned_rectangle_is_fitted_along_its_own_edges() {
     assert_eq!(meet.quad, [0.0, 0.0, 0.0, 50.0, -50.0, 50.0, -50.0, 0.0]);
 }
 
+/// ISO 32000-2 Table 306's `/Rotate`: "The number of degrees by which the movie shall be rotated
+/// clockwise relative to the page." A 40 by 20 picture turned a quarter clockwise in a 50 wide,
+/// 100 tall rectangle at the origin meets it 50 tall: its top-left sample at the rectangle's
+/// top-right corner, its rows running down the right side and its columns leftward; the part a
+/// window draws upright is 20 wide and 40 tall, its first sample the picture's bottom-left.
+#[test]
+fn a_movie_turned_by_its_rotate_is_placed_turned_clockwise() {
+    use pdf_model::media::Fit;
+    let quad = [0.0, 0.0, 50.0, 0.0, 50.0, 100.0, 0.0, 100.0];
+    let turned = placed_turned(Fit::Meet, (40, 20), quad, 1).expect("placed");
+    assert_eq!(turned.quarter_turns, 1);
+    assert_eq!((turned.right, turned.bottom), (40, 20));
+    // Scale 50 ÷ 20 = 2.5 across the rectangle's width, which the picture's height now lies on.
+    assert_eq!(turned.quad, [50.0, 0.0, 50.0, 100.0, 0.0, 100.0, 0.0, 0.0]);
+    let affine = turned.affine();
+    let map = |x: f32, y: f32| {
+        (
+            affine[0] * x + affine[2] * y + affine[4],
+            affine[1] * x + affine[3] * y + affine[5],
+        )
+    };
+    assert_eq!(map(0.0, 0.0), (50.0, 0.0), "the top-left at the top-right");
+    assert_eq!(
+        map(40.0, 0.0),
+        (50.0, 100.0),
+        "the top row down the right side"
+    );
+    assert_eq!(map(0.0, 20.0), (0.0, 0.0), "the left column leftward");
+    // The samples, numbered by position, as a window that draws upright gets them.
+    let picture = pdf_render::Raster {
+        width: 40,
+        height: 20,
+        format: pdf_render::RasterFormat::Rgba8,
+        data: (0..40 * 20)
+            .flat_map(|index: u32| index.to_le_bytes())
+            .collect(),
+    };
+    assert!(
+        !turned.is_whole(&picture),
+        "a turned part is never handed on as it is"
+    );
+    let part = turned.part_of(&picture);
+    assert_eq!((part.width, part.height), (20, 40));
+    let sample = |raster: &pdf_render::Raster, x: u32, y: u32| {
+        let at = usize::try_from((y * raster.width + x) * 4).expect("small");
+        u32::from_le_bytes(raster.data[at..at + 4].try_into().expect("four bytes"))
+    };
+    assert_eq!(
+        sample(&part, 0, 0),
+        19 * 40,
+        "the picture's bottom-left sample"
+    );
+    assert_eq!(
+        sample(&part, 19, 0),
+        0,
+        "the picture's top-left sample at the top-right"
+    );
+    assert_eq!(
+        sample(&part, 19, 39),
+        39,
+        "the top row's end at the bottom-right"
+    );
+    assert_eq!(
+        turned.part_quad(),
+        quad,
+        "the upright part covers the rectangle from its corner"
+    );
+    // A half turn and three quarters keep the corners going clockwise; none is the unturned fit.
+    assert_eq!(
+        placed_turned(Fit::Fill, (40, 20), quad, 2).map(|placed| placed.quad),
+        Some([50.0, 100.0, 0.0, 100.0, 0.0, 0.0, 50.0, 0.0])
+    );
+    assert_eq!(
+        placed_turned(Fit::Fill, (40, 20), quad, 0),
+        placed(Fit::Fill, (40, 20), quad)
+    );
+}
+
 /// The part of a raster a placement shows: hidden's top-left corner of a picture wider than its
 /// rectangle.
 #[test]
@@ -273,6 +352,7 @@ fn the_part_shown_is_cut_from_the_picture_s_top_left() {
         right: 2,
         bottom: 1,
         quad: [0.0; 8],
+        quarter_turns: 0,
     }
     .part_of(&raster);
     assert_eq!((part.width, part.height), (2, 1));
