@@ -3109,6 +3109,7 @@ static READINGS: &[Reading] = &[
             Sentence {
                 says: "every metadata stream in the file conforms to the XMP Specification",
                 carried: Carried::By(&[
+                    "metadata/metadata-streams-state-their-type",
                     "metadata/xmp-packets-state-one-rdf-element",
                     "metadata/xmp-packets-meet-the-xmp-data-model",
                     "metadata/xmp-packets-describe-one-resource",
@@ -5383,6 +5384,7 @@ static READINGS: &[Reading] = &[
                 says: "all content of every XMP packet in any metadata stream is well-formed \
                        as ISO 16684-1 defines well-formedness",
                 carried: Carried::By(&[
+                    "metadata/metadata-streams-state-their-type",
                     "metadata/xmp-packets-well-formed",
                     "metadata/xmp-packets-state-one-rdf-element",
                     "metadata/xmp-character-data-only-in-simple-values",

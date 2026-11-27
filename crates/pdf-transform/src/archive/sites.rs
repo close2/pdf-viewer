@@ -1492,11 +1492,33 @@ pub(super) fn findings_at_no_object(input: &pdf_archive::Report, requirement: &s
         .count()
 }
 
+/// The metadata streams `metadata/metadata-streams-state-their-type` failed at, which state the
+/// `/Type` ISO 32000-2 §14.3.2's Table 347 requires (ADR 3835).
+///
+/// # Errors
+///
+/// [`CHECKER_CUT_SHORT`] where the row named more objects than it keeps, and
+/// [`UNTYPED_METADATA_ELSEWHERE`] where a place named no object.
+pub(super) fn untyped_metadata(input: &pdf_archive::Report) -> Result<Sites, Because> {
+    let (at, elsewhere) = objects_named(input, &["metadata/metadata-streams-state-their-type"])?;
+    if elsewhere {
+        return Err(Because::NotBuiltYet(UNTYPED_METADATA_ELSEWHERE));
+    }
+    Ok(Sites {
+        at,
+        ..Sites::default()
+    })
+}
+
+/// Why a metadata stream's `/Type` could not be stated.
+const UNTYPED_METADATA_ELSEWHERE: &str = "a metadata stream stating no /Type was reported at a \
+     place naming no object, and this conversion states the entry in an object's own dictionary";
+
 /// Why an `/Order` array could not be completed.
 const ORDER_NOT_REACHABLE: &str = "an optional content configuration here states an Order array \
-     that does not reference every group the file lists in OCProperties/OCGs, and the \
-     configuration is not in a place this conversion can rewrite — the catalog states it, or the \
-     OCProperties dictionary holding it, in a shape whose object this walk does not reach";
+     that does not reference every group the file holds, or OCProperties/OCGs leaves one out, \
+     and the configuration is not in a place this conversion can rewrite — the catalog states it, \
+     or the OCProperties dictionary holding it, in a shape whose object this walk does not reach";
 
 /// The `/Order` arrays to complete, and where each one goes.
 #[derive(Debug, Default)]
@@ -1532,16 +1554,35 @@ pub(super) fn completed_orders(document: &Document) -> Result<CompletedOrders, B
     else {
         return Err(Because::NotBuiltYet(ORDER_NOT_REACHABLE));
     };
-    let groups: Vec<Object> = document
+    // The validator's census (`pdf_archive::optional_content_groups`): `/OCGs` and every other
+    // group the file references, which ISO 32000-2 §8.11.4.2's Table 98 requires `/OCGs` to
+    // include. The groups it left out are appended to it in the same step, so the two arrays and
+    // the census agree afterwards (ADR 3836).
+    let listed: Vec<Object> = document
         .get_key(&properties, "OCGs")
         .as_array()
-        .map_or_default(<[Object]>::to_vec)
-        .into_iter()
-        .filter(|entry| entry.as_reference().is_some())
-        .collect();
+        .map_or_default(<[Object]>::to_vec);
+    let census = pdf_archive::optional_content_groups(document);
+    let groups: Vec<Object> = census.iter().copied().map(Object::Reference).collect();
     let mut found = CompletedOrders::default();
     let mut rebuilt = properties.clone();
     let mut any_direct = false;
+    let unlisted: Vec<Object> = census
+        .iter()
+        .filter(|id| {
+            !listed
+                .iter()
+                .any(|entry| entry.as_reference() == Some(**id))
+        })
+        .copied()
+        .map(Object::Reference)
+        .collect();
+    if !unlisted.is_empty() {
+        let mut completed = listed;
+        completed.extend(unlisted);
+        rebuilt.insert(Name::new(&b"OCGs"[..]), Object::Array(completed));
+        any_direct = true;
+    }
     for key in ["D", "Configs"] {
         let Some(entry) = properties.get(key) else {
             continue;
@@ -3263,8 +3304,24 @@ pub(super) fn embedded_files(
         // validator meant.
         return Err(Because::NotBuiltYet(EMBEDDED_FILE_WRITTEN_IN_PLACE));
     }
+    // A place naming an object that is not itself a file specification names the object a
+    // specification is written in place inside (`pdf_archive`'s embedded-file walk reports it so).
+    // Where that holder is an annotation section 6.3.1's removal takes off the page, the
+    // specification leaves with it; anywhere else there is no reference to remove.
+    let mut specifications = BTreeSet::new();
+    for id in at {
+        let object = document.get(id);
+        let is_specification = object
+            .as_dict()
+            .is_some_and(|dict| document.get_key(dict, "EF").as_dict().is_some());
+        if is_specification {
+            specifications.insert(id);
+        } else if !removed_annotations.is_some_and(|removed| removed.contains(&id)) {
+            return Err(Because::NotBuiltYet(EMBEDDED_FILE_WRITTEN_IN_PLACE));
+        }
+    }
     let mut found = EmbeddedFiles {
-        at,
+        at: specifications,
         ..EmbeddedFiles::default()
     };
     if found.at.is_empty() {
@@ -3432,11 +3489,11 @@ const EMBEDDED_FILE_ROWS: [&str; 2] = [
 ];
 
 /// Why an embedded file whose specification a name tree holds in place is not removed.
-const EMBEDDED_FILE_WRITTEN_IN_PLACE: &str = "this document writes a file specification directly \
-     inside its EmbeddedFiles name tree rather than as an object of its own, and this verb \
-     removes references to objects — so the entry the validator reported has no object number \
-     for the removal to match on, and taking a guess at which name-tree entry it was would be \
-     this converter deciding what the report meant";
+const EMBEDDED_FILE_WRITTEN_IN_PLACE: &str = "this document writes the file specification of an \
+     embedded file this target does not admit directly inside another object — its EmbeddedFiles \
+     name tree, an annotation's FS, an action's F or an AF array — rather than as an object of \
+     its own, and this verb removes references to objects: the specification has no object \
+     number for the removal to match on, and the object holding it is not the file";
 
 /// Why an embedded file something else in the document still reaches is not removed.
 const EMBEDDED_FILE_STILL_REACHED: &str = "an embedded file this target does not admit is named \

@@ -45,7 +45,7 @@
 use pdf_syntax::{Dictionary, Document, Lexer, Location, Name, Object, ObjectId, Stream, Token};
 
 use crate::Examination;
-use crate::table::states_name;
+use crate::table::{stated_keys, states, states_name};
 use crate::target::{Flavour, Part};
 
 use crate::finding::{Findings, Where};
@@ -850,7 +850,7 @@ fn document_information_dictionary_holds_only_a_modification_date(
     let Object::Dictionary(info) = document.get_key(document.trailer(), "Info") else {
         return;
     };
-    for name in keys(&info) {
+    for name in stated_keys(document, &info) {
         if name != "ModDate" {
             findings.record(
                 Where::file().named(name),
@@ -1082,7 +1082,7 @@ fn crypt_filter_is_identity(exam: &Examination<'_>, findings: &mut Findings) {
 fn no_external_stream_data(exam: &Examination<'_>, findings: &mut Findings) {
     for_each_stream(exam, |id, stream| {
         for key in EXTERNAL_DATA_KEYS {
-            if stream.dict.get(key).is_some() {
+            if states(exam.document, &stream.dict, key) {
                 findings.record(
                     Where::object(id).named(key),
                     "a stream dictionary points at data outside the file",
@@ -1264,7 +1264,7 @@ fn permissions_dictionary_keys(exam: &Examination<'_>, findings: &mut Findings) 
     let Object::Dictionary(permissions) = document.get_key(&catalog, "Perms") else {
         return;
     };
-    for name in keys(&permissions) {
+    for name in stated_keys(document, &permissions) {
         if name != "UR3" && name != "DocMDP" {
             findings.record(
                 Where::file().named(name),
@@ -1335,7 +1335,7 @@ fn document_signature_states_no_digest(exam: &Examination<'_>, findings: &mut Fi
             continue;
         };
         for key in ["DigestLocation", "DigestMethod", "DigestValue"] {
-            if reference.get(key).is_some() {
+            if states(document, reference, key) {
                 findings.record(
                     Where::file().named(key),
                     "a signature reference dictionary of the DocMDP signature states a digest \
@@ -1344,14 +1344,6 @@ fn document_signature_states_no_digest(exam: &Examination<'_>, findings: &mut Fi
             }
         }
     }
-}
-
-/// One dictionary's keys, as strings a report can print.
-fn keys(dictionary: &Dictionary) -> Vec<String> {
-    dictionary
-        .iter()
-        .map(|(key, _)| String::from_utf8_lossy(key.as_bytes()).into_owned())
-        .collect()
 }
 
 /// How deep a value is followed when a rule looks inside every object in the file.

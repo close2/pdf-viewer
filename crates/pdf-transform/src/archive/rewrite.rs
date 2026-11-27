@@ -289,6 +289,14 @@ pub enum Rewrite {
     /// producer's metadata. What the producer wrote is kept where the configuration asked for it
     /// — `super::preserve`'s appended page — and lost where it did not.
     FreshMetadataPacket,
+    /// A metadata stream known by the `/Metadata` entry naming it, and stating no `/Type
+    /// /Metadata`, states it.
+    ///
+    /// ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1, by way of ISO 32000-2
+    /// §14.3.2's Table 347, which makes the entry required: the stream already is the metadata
+    /// stream its holder's entry says it is, and the name is what the table requires it to say of
+    /// itself. Nothing of its packet changes (ADR 3835).
+    MetadataStreamType,
     /// Every XMP packet loses the properties whose own predefined schema does not define them.
     ///
     /// ISO 19005-2 section 6.6.2.3.1, and the one route of the three
@@ -1477,6 +1485,10 @@ impl Rewrite {
                 "a metadata property whose predefined schema does not define the value it holds \
                  is cut out of the packet, leaving every other byte of it as its producer wrote it"
             }
+            Self::MetadataStreamType => {
+                "a metadata stream a /Metadata entry names, and stating no /Type, states /Type \
+                 /Metadata"
+            }
             Self::FreshMetadataPacket => {
                 "a metadata stream whose packet breaks the XMP grammar or data model carries a \
                  packet this conversion composed instead, stating no property of its own — the \
@@ -2016,6 +2028,7 @@ impl Rewrite {
             Self::ToUnicode => "to-unicode",
             Self::PropertyOutsideItsSchema => "property-outside-its-schema",
             Self::FreshMetadataPacket => "fresh-metadata-packet",
+            Self::MetadataStreamType => "metadata-stream-type",
             Self::ExtensionSchemaPrefixes => "extension-schema-prefixes",
             Self::ExtensionContainerDiscarded => "extension-container-discarded",
             Self::AmendmentIdentifierRemoved => "amendment-identifier-removed",
@@ -2238,6 +2251,7 @@ impl<'a> Rewriter<'a> {
             rendering_intents: prepared.owed.rendering_intents.as_ref().ok(),
             transfers: prepared.owed.transfers.as_ref().ok(),
             blend_modes: prepared.owed.blend_modes.as_ref().ok(),
+            untyped_metadata: prepared.owed.untyped_metadata.as_ref().ok(),
             halftone_names: prepared.owed.halftone_names.as_ref().ok(),
             media_types: prepared.owed.media_types.as_ref().ok(),
             halftone_defaults: prepared.owed.halftone_defaults.as_ref().ok(),
@@ -3269,6 +3283,8 @@ struct Rewriter<'a> {
     transfers: Option<&'a super::transfer::TransferFunctions>,
     /// The dictionaries whose `/BM` array is restated.
     blend_modes: Option<&'a sites::Sites>,
+    /// The metadata streams that state their `/Type`.
+    untyped_metadata: Option<&'a sites::Sites>,
     /// The halftones whose `HalftoneName` goes.
     halftone_names: Option<&'a sites::Sites>,
     /// The associated files' streams given §14.13.2's unknown media type (`doc/adr/3357`).
@@ -3583,6 +3599,7 @@ impl Rewriter<'_> {
             changed = true;
         }
         changed |= self.file_in_the_name_dictionary(id, &mut out);
+        changed |= self.state_the_metadata_type(id, &mut out, applied);
         if self.sites.pages.contains(&id)
             && self.wants(Rewrite::PresentationSteps)
             && out.remove("PresSteps").is_some()
@@ -3676,6 +3693,28 @@ impl Rewriter<'_> {
         }
         changed |= self.last_steps(id, &mut out, applied);
         changed.then_some(out)
+    }
+
+    /// A metadata stream known by the entry naming it states `/Type /Metadata` (ADR 3835).
+    fn state_the_metadata_type(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::MetadataStreamType)
+            || !self
+                .untyped_metadata
+                .is_some_and(|sites| sites.at.contains(&id))
+        {
+            return false;
+        }
+        out.insert(
+            Name::new(&b"Type"[..]),
+            Object::Name(Name::new(&b"Metadata"[..])),
+        );
+        count(applied, Rewrite::MetadataStreamType);
+        true
     }
 
     /// The two steps that must see what every other step wrote into the dictionary.

@@ -20,6 +20,13 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "metadata/catalog-metadata-stream",
         answer: Answer::Mechanical(Rewrite::IdentificationSchema),
     },
+    // ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1 by way of ISO 32000-2 §14.3.2's
+    // Table 347: a metadata stream known by the entry naming it states the `/Type` the table
+    // requires, and nothing else of it changes (ADR 3835).
+    Remedy {
+        requirement: "metadata/metadata-streams-state-their-type",
+        answer: Answer::Mechanical(Rewrite::MetadataStreamType),
+    },
     // ISO 19005-2 section 6.6.4 and ISO 19005-4 section 6.7.3: the identification schema, which
     // is the file's own claim to be PDF/A. `doc/pdf-a-conversion-limits.md` section 4.2 calls it
     // **Mechanical**, "and the one place the converter states a claim about its own output" — the

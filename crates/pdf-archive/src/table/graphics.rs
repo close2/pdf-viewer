@@ -2956,7 +2956,7 @@ fn rendering_intent_entries_name_one_of_four(exam: &Examination<'_>, findings: &
         } else {
             return;
         };
-        if site.dict.get(key).is_none() {
+        if !states(document, site.dict, key) {
             return;
         }
         let stated = name_of(document, site.dict, key);

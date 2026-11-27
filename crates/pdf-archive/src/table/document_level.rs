@@ -62,6 +62,7 @@ use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 use crate::Examination;
 use crate::finding::{Findings, Where};
 use crate::requirement::{Applies, Check, Clauses, Requirement};
+use crate::table::states;
 use crate::target::{Flavour, Level};
 
 /// The rows this module contributes, which `super::TRANCHES` concatenates.
@@ -504,73 +505,115 @@ fn catalog_language_identifier(exam: &Examination<'_>, findings: &mut Findings) 
     }
 }
 
-/// Every file specification in the document that carries an embedded file.
+/// Every file specification in the document that carries an embedded file, wherever it stands.
 ///
-/// The population is the indirect objects the cross-reference table names — the same bound
-/// `file_structure.rs` walks under, and the same one both parts' own exemption for an object no
-/// cross-reference section names describes — plus any specification the `/EmbeddedFiles` tree
-/// files as a *direct* dictionary, which no object number would reach.
+/// ISO 19005-2 section 6.8 states its rules of the file specification of an embedded file
+/// wherever it is, and ISO 32000-2 lets one be written directly where it is used: §12.5.6.15's
+/// Table 184 makes a file attachment annotation's `/FS` "the file associated with this
+/// annotation", a file specification direct or indirect, and §12.6.4.4's embedded go-to action,
+/// §14.13.1's `/AF` arrays, §7.11.6's collection items and §7.9.6's name-tree leaves are the same.
+/// So the population is every dictionary carrying `/EF` that the cross-referenced objects state,
+/// an object itself or a dictionary written inside one — the same bound `file_structure.rs` walks
+/// under, and the one both parts' exemption for an object no cross-reference section names
+/// describes. References are not followed, because each object is visited by the loop itself.
 ///
-/// It is the union of the two populations the two parts describe: part 2 states its rule of the
-/// file specification of an embedded file wherever it is, and part 4 states its rules of the
+/// A specification written in place has no object number of its own, so its report names the
+/// object it is written in: a converter reading the place finds no `/EF` there and knows the
+/// specification is that object's direct value. `associated` says such a specification stands in
+/// an `/AF` array, which is what makes it an associated file (§14.13.1) without a number for
+/// [`associated_specifications`] to have collected.
+///
+/// It is the union of the populations the two parts describe: part 2 states its rule of the file
+/// specification of an embedded file wherever it is, and part 4 states its rules of the
 /// specifications the `/EmbeddedFiles` tree names. The union is what part 2 asks for, and part 4's
 /// own opening sentence puts requirements on embedded files rather than on the tree, so holding
 /// the wider population to it is the reading that does not depend on where a producer filed the
 /// file.
 fn for_each_embedded_file_specification(
     exam: &Examination<'_>,
-    mut visit: impl FnMut(Where, &Dictionary),
+    mut visit: impl FnMut(Where, &Dictionary, Standing),
 ) {
     let document = exam.document;
     for (id, object) in exam.objects() {
         let id = *id;
-        if let Object::Dictionary(specification) = object
-            && document.get_key(specification, "EF").as_dict().is_some()
-        {
-            visit(Where::object(id), specification);
-        }
-    }
-
-    for (key, value) in embedded_files_entries(document) {
-        // The indirect ones are the loop above; what is left is a leaf the producer wrote out in
-        // place, which has no object number for a report to name.
-        if value.as_reference().is_some() {
-            continue;
-        }
-        if let Some(specification) = value.as_dict()
-            && document.get_key(specification, "EF").as_dict().is_some()
-        {
-            visit(
-                Where::file().named(pdf_syntax::text_string(&key)),
-                specification,
-            );
+        let entries = match object {
+            Object::Dictionary(specification) => {
+                if document.get_key(specification, "EF").as_dict().is_some() {
+                    visit(Where::object(id), specification, Standing::Object);
+                }
+                specification
+            }
+            Object::Stream(stream) => &stream.dict,
+            Object::Array(items) => {
+                for item in items {
+                    in_place_specifications(document, item, id, false, 0, &mut visit);
+                }
+                continue;
+            }
+            _ => continue,
+        };
+        for (key, value) in entries.iter() {
+            let in_af = key.as_bytes() == b"AF";
+            in_place_specifications(document, value, id, in_af, 0, &mut visit);
         }
     }
 }
 
-/// The `/EmbeddedFiles` name tree's leaves, each as the leaf states it.
+/// Where a file specification [`for_each_embedded_file_specification`] reached stands.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Standing {
+    /// It is a cross-referenced object of its own.
+    Object,
+    /// It is written in place inside another object; `associated` where in an `/AF` array.
+    InPlace {
+        /// Whether the array it stands in is an `/AF` array.
+        associated: bool,
+    },
+}
+
+/// The file specifications written in place inside one value of object `holder`.
 ///
-/// Unresolved, because [`for_each_embedded_file_specification`] needs to tell a reference from a
-/// dictionary written in place, and resolving would throw that distinction away.
-fn embedded_files_entries(document: &Document) -> Vec<(Vec<u8>, Object)> {
-    let Ok(catalog) = document.catalog() else {
-        return Vec::new();
-    };
-    let names = document.get_key(&catalog, "Names");
-    let Some(names) = names.as_dict() else {
-        return Vec::new();
-    };
-    let embedded = document.get_key(names, "EmbeddedFiles");
-    let Some(embedded) = embedded.as_dict() else {
-        return Vec::new();
-    };
-    pdf_syntax::tree::name_entries(embedded, &|object| document.resolve(object))
+/// Bounded by [`MAX_ORDER_DEPTH`], because a document controls how deeply its own arrays and
+/// dictionaries nest; reaching the bound stops the descent.
+fn in_place_specifications(
+    document: &Document,
+    value: &Object,
+    holder: ObjectId,
+    in_af: bool,
+    depth: usize,
+    visit: &mut impl FnMut(Where, &Dictionary, Standing),
+) {
+    if depth > MAX_ORDER_DEPTH {
+        return;
+    }
+    let deeper = depth.saturating_add(1);
+    match value {
+        Object::Array(items) => {
+            for item in items {
+                in_place_specifications(document, item, holder, in_af, deeper, visit);
+            }
+        }
+        Object::Dictionary(dict) => {
+            if document.get_key(dict, "EF").as_dict().is_some() {
+                visit(
+                    Where::object(holder),
+                    dict,
+                    Standing::InPlace { associated: in_af },
+                );
+            }
+            for (key, entry) in dict.iter() {
+                let in_af = key.as_bytes() == b"AF";
+                in_place_specifications(document, entry, holder, in_af, deeper, visit);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// ISO 19005-2 section 6.8, ISO 19005-4 section 6.9.
 fn file_and_unicode_names(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    for_each_embedded_file_specification(exam, |place, specification| {
+    for_each_embedded_file_specification(exam, |place, specification, _| {
         for key in ["F", "UF"] {
             if document.get_key(specification, key).is_null() {
                 findings.record(
@@ -611,8 +654,12 @@ fn file_and_unicode_names(exam: &Examination<'_>, findings: &mut Findings) {
 fn associated_file_media_type(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let associated = associated_specifications(exam);
-    for_each_embedded_file_specification(exam, |place, specification| {
-        if !place.object.is_some_and(|id| associated.contains(&id)) {
+    for_each_embedded_file_specification(exam, |place, specification, standing| {
+        let is_associated = match standing {
+            Standing::Object => place.object.is_some_and(|id| associated.contains(&id)),
+            Standing::InPlace { associated } => associated,
+        };
+        if !is_associated {
             return;
         }
         let files = document.get_key(specification, "EF");
@@ -689,7 +736,7 @@ fn associated_specifications(exam: &Examination<'_>) -> BTreeSet<ObjectId> {
 /// ISO 19005-4 section 6.9.
 fn relationship_stated(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    for_each_embedded_file_specification(exam, |place, specification| {
+    for_each_embedded_file_specification(exam, |place, specification, _| {
         if document
             .get_key(specification, "AFRelationship")
             .as_name()
@@ -792,7 +839,7 @@ impl Drop for Descent {
 /// encrypted.
 fn embedded_file_is_itself_pdfa(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
-    for_each_embedded_file_specification(exam, |place, specification| {
+    for_each_embedded_file_specification(exam, |place, specification, _| {
         let files = document.get_key(specification, "EF");
         let Some(files) = files.as_dict() else {
             return;
@@ -977,8 +1024,18 @@ fn order_references(
 
 /// ISO 19005-2 section 6.9, ISO 19005-4 section 6.10.
 ///
-/// The groups a file has are the ones `/OCProperties /OCGs` lists: the base standard requires that
-/// array to name every one, and this crate has no better census of them than the document's own.
+/// The census is every optional content group in the file, which is wider than the document's own
+/// list of them: [`optional_content_groups`] takes `/OCProperties /OCGs` together with every
+/// group an object of the file references — through content's `/OC` property, an `XObject`'s or an
+/// annotation's `/OC` entry, an optional content membership dictionary's `/OCGs`, or anywhere
+/// else. A group that `/OCGs` leaves out is reported here too, against ISO 32000-2 §8.11.4.2's
+/// Table 98, whose `/OCGs` entry says:
+///
+/// > Every optional content group shall be included in this array.
+///
+/// The `Order` rule is read over that array's population, so a group outside it is a group the
+/// rule could not otherwise count, and the conversion that completes `Order` completes `/OCGs` in
+/// the same step (ADR 3836).
 fn order_lists_every_group(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let Ok(catalog) = document.catalog() else {
@@ -988,12 +1045,20 @@ fn order_lists_every_group(exam: &Examination<'_>, findings: &mut Findings) {
     let Some(properties) = properties.as_dict() else {
         return;
     };
-    let groups: BTreeSet<ObjectId> = document
+    let listed: BTreeSet<ObjectId> = document
         .get_key(properties, "OCGs")
         .as_array()
         .map_or_default(|array| array.iter().filter_map(Object::as_reference).collect());
+    let groups: BTreeSet<ObjectId> = optional_content_groups(document).into_iter().collect();
     if groups.is_empty() {
         return;
+    }
+    for missing in groups.difference(&listed) {
+        findings.record(
+            Where::file().named(format!("object {} {}", missing.number, missing.generation)),
+            "the OCProperties dictionary's OCGs array does not list an optional content group the \
+             file references",
+        );
     }
 
     for_each_configuration(document, |place, configuration| {
@@ -1005,11 +1070,131 @@ fn order_lists_every_group(exam: &Examination<'_>, findings: &mut Findings) {
         order_references(document, order, 0, &mut referenced);
         for missing in groups.difference(&referenced) {
             findings.record(
-                place.clone().named(format!("{missing:?}")),
+                place
+                    .clone()
+                    .named(format!("object {} {}", missing.number, missing.generation)),
                 "an Order array does not reference every optional content group in the file",
             );
         }
     });
+}
+
+/// Every optional content group in a document, in object order: the groups `/OCProperties /OCGs`
+/// lists, then every other object stating `/Type /OCG` that a reference names **where a group
+/// stands**.
+///
+/// ISO 32000-2 §8.11.2.1 makes a group a dictionary whose `/Type` is `OCG`, and §8.11.4.2's
+/// `/OCGs` the list of them all; a group the content uses through §8.11.3's routes and the list
+/// leaves out is still a group of the file. The positions are the ones the clauses give a group:
+/// an `/OC` entry (§8.11.3.2, §8.11.3.3, Table 166's annotation entry), an entry of a resource
+/// dictionary's `/Properties` (which a content stream's `/OC /name BDC` names), an optional
+/// content membership dictionary's `/OCGs` (§8.11.2.2), and a configuration's `/ON`, `/OFF`,
+/// `/Order`, `/RBGroups` and `/Locked` (§8.11.4.3). A reference anywhere else names something
+/// else whatever its target states: a producer that writes a group's `/Usage` dictionary with
+/// `/Type /OCG` has written a usage dictionary, and counting it would put a nameless layer in
+/// every panel that lists the groups. A direct group dictionary is not counted, because `Order`
+/// can reference only an indirect object. Public so that a converter completing `/OCGs` and
+/// `Order` reads the census the validator reads.
+#[must_use]
+pub fn optional_content_groups(document: &Document) -> Vec<ObjectId> {
+    let mut out: Vec<ObjectId> = Vec::new();
+    let mut seen = BTreeSet::new();
+    if let Ok(catalog) = document.catalog() {
+        let properties = document.get_key(&catalog, "OCProperties");
+        if let Some(listed) = properties.as_dict().and_then(|properties| {
+            document
+                .get_key(properties, "OCGs")
+                .as_array()
+                .map(<[Object]>::to_vec)
+        }) {
+            for id in listed.iter().filter_map(Object::as_reference) {
+                if seen.insert(id) {
+                    out.push(id);
+                }
+            }
+        }
+    }
+    let mut referenced = BTreeSet::new();
+    for number in document.xref().object_numbers() {
+        let object = document.get(document.defined_id(number));
+        group_references(&object, GroupStanding::Elsewhere, 0, &mut referenced);
+    }
+    for id in referenced {
+        if seen.contains(&id) {
+            continue;
+        }
+        let object = document.get(id);
+        if object.as_dict().is_some_and(|dict| {
+            document
+                .get_key(dict, "Type")
+                .as_name()
+                .is_some_and(|name| name.as_bytes() == b"OCG")
+        }) {
+            seen.insert(id);
+            out.push(id);
+        }
+    }
+    out
+}
+
+/// The entries whose value, or whose array's elements, stand where a group does (§8.11.2.2's
+/// `/OCGs`, §8.11.3's `/OC`, §8.11.4.3's configuration arrays).
+const GROUP_POSITIONS: [&[u8]; 7] = [
+    b"OC",
+    b"OCGs",
+    b"ON",
+    b"OFF",
+    b"Order",
+    b"RBGroups",
+    b"Locked",
+];
+
+/// Where a value [`group_references`] meets stands.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GroupStanding {
+    /// Where a group stands: under one of [`GROUP_POSITIONS`], or as an entry of `/Properties`.
+    Group,
+    /// As the value of a resource dictionary's `/Properties`, whose entries are property lists.
+    PropertyLists,
+    /// Anywhere else.
+    Elsewhere,
+}
+
+/// Every reference inside `value` that stands where a group does, its own nesting followed and
+/// references not, bounded by [`MAX_ORDER_DEPTH`] for the reason [`in_place_specifications`] is.
+fn group_references(value: &Object, at: GroupStanding, depth: usize, out: &mut BTreeSet<ObjectId>) {
+    if depth > MAX_ORDER_DEPTH {
+        return;
+    }
+    let deeper = depth.saturating_add(1);
+    let dict = match value {
+        Object::Reference(id) => {
+            if at == GroupStanding::Group {
+                out.insert(*id);
+            }
+            return;
+        }
+        Object::Array(items) => {
+            for item in items {
+                group_references(item, at, deeper, out);
+            }
+            return;
+        }
+        Object::Dictionary(dict) => dict,
+        Object::Stream(stream) => &stream.dict,
+        _ => return,
+    };
+    for (key, entry) in dict.iter() {
+        let standing =
+            if at == GroupStanding::PropertyLists || GROUP_POSITIONS.contains(&key.as_bytes()) {
+                GroupStanding::Group
+            } else if key.as_bytes() == b"Properties" {
+                GroupStanding::PropertyLists
+            } else {
+                GroupStanding::Elsewhere
+            };
+        group_references(entry, standing, deeper, out);
+    }
 }
 
 /// ISO 19005-2 section 6.9, and part 2's alone: ISO 19005-4 section 6.10 permits the entry and has
@@ -1017,7 +1202,7 @@ fn order_lists_every_group(exam: &Examination<'_>, findings: &mut Findings) {
 fn no_automatic_states(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_configuration(document, |place, configuration| {
-        if configuration.get("AS").is_some() {
+        if states(document, configuration, "AS") {
             findings.record(
                 place.named("AS"),
                 "an optional content configuration states an AS key",
@@ -1034,7 +1219,7 @@ fn no_alternate_presentations(exam: &Examination<'_>, findings: &mut Findings) {
     };
     let names = document.get_key(&catalog, "Names");
     if let Some(names) = names.as_dict()
-        && names.get("AlternatePresentations").is_some()
+        && states(document, names, "AlternatePresentations")
     {
         findings.record(
             Where::file().named("AlternatePresentations"),
@@ -1051,7 +1236,7 @@ fn no_presentation_steps(exam: &Examination<'_>, findings: &mut Findings) {
         let Some(page) = page else {
             continue;
         };
-        if page.dict.get("PresSteps").is_some() {
+        if states(document, &page.dict, "PresSteps") {
             findings.record(
                 Where::page(index).named("PresSteps"),
                 "a page dictionary states a PresSteps key",
@@ -1064,7 +1249,7 @@ fn no_presentation_steps(exam: &Examination<'_>, findings: &mut Findings) {
 fn no_requirements_dictionary(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     if let Ok(catalog) = document.catalog()
-        && catalog.get("Requirements").is_some()
+        && states(document, &catalog, "Requirements")
     {
         findings.record(
             Where::file().named("Requirements"),
@@ -1202,13 +1387,46 @@ mod tests {
         assert_eq!(
             found(
                 no_alternate_presentations,
-                &document(" /Names << /AlternatePresentations 4 0 R >>", "")
+                &document(" /Names << /AlternatePresentations << /Names [] >> >>", "")
             ),
             1
         );
 
         let with_steps = page_document("", " /PresSteps << /Type /NavNode >>", "");
         assert_eq!(found(no_presentation_steps, &with_steps), 1);
+    }
+
+    /// The group census counts a reference where a group stands, and nothing else: a group's
+    /// `/Usage` dictionary written with `/Type /OCG` (as `issue9949.pdf` holds one) is no group,
+    /// while a group the content selects through `/Properties` and `/OCGs` leaves out is
+    /// (ISO 32000-2 §8.11.2.1, §8.11.3.2, §8.11.4.2; ADR 3836).
+    #[test]
+    fn the_group_census_reads_where_a_reference_stands() {
+        let groups = "4 0 obj\n<< /Type /OCG /Name (a) /Usage 5 0 R >>\nendobj\n\
+                      5 0 obj\n<< /Type /OCG /CreatorInfo << /Creator (c) /Subtype /Artwork >> >>\n\
+                      endobj\n6 0 obj\n<< /Type /OCG /Name (b) >>\nendobj\n";
+        let listed = " /OCProperties << /OCGs [4 0 R] /D << /Name (d) /Order [4 0 R] >> >>";
+        let usage_only = document(listed, groups);
+        assert_eq!(
+            super::optional_content_groups(&usage_only),
+            vec![pdf_syntax::ObjectId::new(4, 0)]
+        );
+        assert_eq!(found(order_lists_every_group, &usage_only), 0);
+
+        let selected = page_document(
+            listed,
+            " /Resources << /Properties << /oc1 6 0 R >> >>",
+            groups,
+        );
+        assert_eq!(
+            super::optional_content_groups(&selected),
+            vec![
+                pdf_syntax::ObjectId::new(4, 0),
+                pdf_syntax::ObjectId::new(6, 0)
+            ]
+        );
+        // Once in `/OCGs`, once in `/D`'s `/Order`.
+        assert_eq!(found(order_lists_every_group, &selected), 2);
     }
 
     /// ISO 19005-2 section 6.9: a configuration without a name, and two configurations sharing one.

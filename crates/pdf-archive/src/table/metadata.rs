@@ -154,6 +154,14 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
         check: Check::Implemented(catalog_metadata_stream),
     },
     Requirement {
+        id: "metadata/metadata-streams-state-their-type",
+        asks: "Every metadata stream other than the catalog's shall state /Type /Metadata, which \
+               ISO 32000-2 §14.3.2 makes a required entry of one.",
+        clauses: Clauses::both("6.6.2.1", "6.7.2.1"),
+        applies: Applies::Always,
+        check: Check::Implemented(metadata_streams_state_their_type),
+    },
+    Requirement {
         id: "metadata/xmp-packets-well-formed",
         asks: "Every metadata stream in the file shall carry an XMP packet that parses.",
         clauses: Clauses::both("6.6.2.1", "6.7.2.1"),
@@ -503,26 +511,118 @@ fn catalog_metadata_stream(exam: &Examination<'_>, findings: &mut Findings) {
     }
 }
 
-/// Every stream the file marks as a metadata stream, reached through the cross-reference table.
+/// Every metadata stream the cross-reference table reaches, by declaration or by position.
 ///
-/// The population is `/Type /Metadata`, which ISO 32000-2 §14.3.2 Table 347 makes a required
-/// entry of one: a stream that omits it has not declared itself a metadata stream, and the
-/// catalog's own is checked for that entry by [`catalog_metadata_stream`] instead. Bounded by the
-/// cross-reference table for the reason `file_structure.rs`'s walk is — both parts exempt an
-/// indirect object no cross-reference section names.
+/// A stream is a metadata stream when it states `/Type /Metadata`, which ISO 32000-2 §14.3.2
+/// Table 347 makes a required entry of one, **or when a `/Metadata` entry names it**: §14.3.2
+/// gives every object that may carry metadata a `/Metadata` key whose value is a metadata
+/// stream, and ISO 32000-2 §7.7.3.3's page entry is "\[a] metadata stream that shall contain
+/// metadata for the page".
+///
+/// A stream known only by where it stands has omitted the required `/Type`, which
+/// `metadata/metadata-streams-state-their-type` reports; it is still a metadata stream, and every
+/// packet rule reads it. Bounded by the cross-reference table for the reason `file_structure.rs`'s
+/// walk is — both parts exempt an indirect object no cross-reference section names.
 fn for_each_metadata_stream(exam: &Examination<'_>, mut visit: impl FnMut(ObjectId, &Stream)) {
-    let document = exam.document;
+    let population = exam.metadata_streams();
     for (id, object) in exam.objects() {
-        let id = *id;
         if let Object::Stream(stream) = object
-            && document
-                .get_key(&stream.dict, "Type")
-                .as_name()
-                .is_some_and(|name| name.as_bytes() == b"Metadata")
+            && population.contains(id)
         {
-            visit(id, stream);
+            visit(*id, stream);
         }
     }
+}
+
+/// How deep the search for `/Metadata` entries descends into one object's own values.
+///
+/// A document controls how deeply its arrays and dictionaries nest, so the descent is bounded
+/// (principle 3); a `/Metadata` entry deeper than this is not found, and its stream is read only
+/// where it states its type.
+const MAX_METADATA_DEPTH: usize = 32;
+
+/// The metadata streams among `objects`: those stating `/Type /Metadata`, and those any
+/// `/Metadata` entry of any of them names, in the order `objects` gives.
+///
+/// Shared by [`crate::Examination::metadata_streams`] and [`metadata_streams`], so that the
+/// validator and a converter reaching for the population agree on it.
+pub(crate) fn metadata_population<'o>(
+    document: &Document,
+    objects: impl Iterator<Item = (ObjectId, &'o Object)> + Clone,
+) -> BTreeSet<ObjectId> {
+    let mut named = BTreeSet::new();
+    for (_, object) in objects.clone() {
+        metadata_entries(object, 0, &mut named);
+    }
+    objects
+        .filter_map(|(id, object)| {
+            let Object::Stream(stream) = object else {
+                return None;
+            };
+            let declared = document
+                .get_key(&stream.dict, "Type")
+                .as_name()
+                .is_some_and(|name| name.as_bytes() == b"Metadata");
+            (declared || named.contains(&id)).then_some(id)
+        })
+        .collect()
+}
+
+/// Every object a `/Metadata` entry inside `value` names, references not followed.
+fn metadata_entries(value: &Object, depth: usize, out: &mut BTreeSet<ObjectId>) {
+    if depth > MAX_METADATA_DEPTH {
+        return;
+    }
+    let deeper = depth.saturating_add(1);
+    let dict = match value {
+        Object::Array(items) => {
+            for item in items {
+                metadata_entries(item, deeper, out);
+            }
+            return;
+        }
+        Object::Dictionary(dict) => dict,
+        Object::Stream(stream) => &stream.dict,
+        _ => return,
+    };
+    for (key, entry) in dict.iter() {
+        if key.as_bytes() == b"Metadata"
+            && let Some(id) = entry.as_reference()
+        {
+            out.insert(id);
+        }
+        metadata_entries(entry, deeper, out);
+    }
+}
+
+/// ISO 19005-2 section 6.6.2.1, ISO 19005-4 section 6.7.2.1, by way of the base standard.
+///
+/// Both parts hold every metadata stream to what ISO 32000-2 §14.3.2 makes one, and Table 347
+/// makes `/Type` a required entry whose value is `Metadata`; a stream a `/Metadata` entry names
+/// is a metadata stream by its position, so one that omits the entry has not stated what the
+/// table requires of it. The catalog's own is [`catalog_metadata_stream`]'s, which reads its
+/// `/Subtype` as well.
+fn metadata_streams_state_their_type(exam: &Examination<'_>, findings: &mut Findings) {
+    let document = exam.document;
+    let catalog_stream = document
+        .catalog()
+        .ok()
+        .and_then(|catalog| catalog.get("Metadata").and_then(Object::as_reference));
+    for_each_metadata_stream(exam, |id, stream| {
+        if Some(id) == catalog_stream {
+            return;
+        }
+        let stated = document.get_key(&stream.dict, "Type");
+        if stated
+            .as_name()
+            .is_none_or(|name| name.as_bytes() != b"Metadata")
+        {
+            findings.record(
+                Where::object(id).named("Type"),
+                "a metadata stream does not state /Type /Metadata",
+            );
+        }
+    });
 }
 
 /// ISO 19005-2 section 6.6.2.1, ISO 19005-4 section 6.7.2.1.
@@ -2480,7 +2580,8 @@ impl PacketFault {
     }
 }
 
-/// Every metadata stream a document's cross-reference sections name, in object-number order.
+/// Every metadata stream a document's cross-reference sections name, by declaration or by
+/// position, in object-number order.
 ///
 /// The population every row of this module walks (`for_each_metadata_stream`), answered for a
 /// document alone so that a converter reaching for it does not need an [`Examination`]. Both
@@ -2488,19 +2589,17 @@ impl PacketFault {
 /// ISO 19005-4 section 6.1.4), which is why the walk is the table's rather than a traversal's.
 #[must_use]
 pub fn metadata_streams(document: &Document) -> Vec<ObjectId> {
-    let mut out = Vec::new();
-    for number in document.xref().object_numbers() {
-        let id = document.defined_id(number);
-        if let Object::Stream(stream) = document.get(id)
-            && document
-                .get_key(&stream.dict, "Type")
-                .as_name()
-                .is_some_and(|name| name.as_bytes() == b"Metadata")
-        {
-            out.push(id);
-        }
-    }
-    out
+    let objects: Vec<(ObjectId, Object)> = document
+        .xref()
+        .object_numbers()
+        .map(|number| {
+            let id = document.defined_id(number);
+            (id, document.get(id))
+        })
+        .collect();
+    metadata_population(document, objects.iter().map(|(id, object)| (*id, object)))
+        .into_iter()
+        .collect()
 }
 
 /// Which of the three packet rules one packet's bytes break, in [`PacketFault`] order.

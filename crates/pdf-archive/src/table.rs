@@ -44,6 +44,19 @@ pub(crate) fn states(document: &Document, dict: &Dictionary, key: &str) -> bool 
     !matches!(document.get_key(dict, key), Object::Null)
 }
 
+/// The keys a dictionary states, as strings a report can print: every entry but those whose
+/// value [`states`] reads as the null object.
+///
+/// A rule that lists a dictionary's keys to report the ones its clause does not admit is a rule
+/// that forbids a key, so it reads each entry the way [`states`] does: `/UR 99 0 R` in a file with
+/// no object 99 is an entry stating nothing (ISO 32000-2 §7.3.10, §7.3.7), not a `UR`.
+pub(crate) fn stated_keys(document: &Document, dict: &Dictionary) -> Vec<String> {
+    dict.iter()
+        .filter(|(_, value)| !matches!(document.resolve(value), Object::Null))
+        .map(|(key, _)| String::from_utf8_lossy(key.as_bytes()).into_owned())
+        .collect()
+}
+
 /// The name a dictionary states for `key`, or `None` where it states something else.
 pub(crate) fn name_of(document: &Document, dict: &Dictionary, key: &str) -> Option<Vec<u8>> {
     document

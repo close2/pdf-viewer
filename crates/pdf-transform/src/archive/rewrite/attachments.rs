@@ -6,16 +6,95 @@ use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
 
 use super::{Rewrite, Rewriter, count};
 
+/// How deep [`Rewriter::complete_file_specification`] looks inside one object for a
+/// specification written in place; the bound `pdf_archive`'s walk keeps.
+const MAX_IN_PLACE_DEPTH: usize = 32;
+
 impl Rewriter<'_> {
-    /// An embedded file's specification: §7.11.3's `/F` and `/UF`, and its `/AFRelationship`.
+    /// Every embedded file's specification in one object: §7.11.3's `/F` and `/UF`, and its
+    /// `/AFRelationship`.
     ///
     /// **The population is the `/EF` key**, which is what makes a file specification one that
     /// *carries* an embedded file — the population both ISO 19005-2 section 6.8 and ISO 19005-4
-    /// section 6.9 state their rules over. A specification the document holds as a direct
-    /// dictionary inside its `/EmbeddedFiles` name tree is not reached, because this walk
-    /// rewrites objects rather than values inside them; the requirement then stays failed and
-    /// `doc/adr/0947`'s third stage refuses the file rather than writing a half-corrected one.
+    /// section 6.9 state their rules over. The object's own dictionary is one, and so is every
+    /// specification written in place inside it: a file attachment annotation's `/FS`, an
+    /// embedded go-to action's `/F`, an `/AF` array's element or a name tree's leaf, which
+    /// `pdf_archive`'s walk holds to the same rows.
     pub(super) fn complete_file_specification(
+        &self,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::AssociatedFileNames)
+            && !self.wants(Rewrite::AssociatedFileRelationship)
+        {
+            return false;
+        }
+        let mut changed = self.complete_one_specification(out, applied);
+        let replacements: Vec<(Name, Object)> = out
+            .iter()
+            .filter_map(|(key, value)| {
+                self.completed_in_place(value, applied, 0)
+                    .map(|replacement| (key.clone(), replacement))
+            })
+            .collect();
+        for (key, replacement) in replacements {
+            out.insert(key, replacement);
+            changed = true;
+        }
+        changed
+    }
+
+    /// One value with every file specification written in place inside it completed, or `None`
+    /// where none needed it. Bounded by [`MAX_IN_PLACE_DEPTH`], because a document controls how
+    /// deeply its own arrays and dictionaries nest.
+    fn completed_in_place(
+        &self,
+        value: &Object,
+        applied: &mut BTreeMap<Rewrite, usize>,
+        depth: usize,
+    ) -> Option<Object> {
+        if depth > MAX_IN_PLACE_DEPTH {
+            return None;
+        }
+        let deeper = depth.saturating_add(1);
+        match value {
+            Object::Array(items) => {
+                let mut out: Option<Vec<Object>> = None;
+                for (index, item) in items.iter().enumerate() {
+                    if let Some(replacement) = self.completed_in_place(item, applied, deeper) {
+                        out.get_or_insert_with(|| items.clone())[index] = replacement;
+                    }
+                }
+                out.map(Object::Array)
+            }
+            Object::Dictionary(dict) => {
+                let replacements: Vec<(Name, Object)> = dict
+                    .iter()
+                    .filter_map(|(key, entry)| {
+                        self.completed_in_place(entry, applied, deeper)
+                            .map(|replacement| (key.clone(), replacement))
+                    })
+                    .collect();
+                // Most dictionaries an object holds are neither a specification nor above one,
+                // and those are not copied.
+                if replacements.is_empty() && dict.get("EF").is_none() {
+                    return None;
+                }
+                let mut out = dict.clone();
+                let mut changed = self.complete_one_specification(&mut out, applied);
+                for (key, replacement) in replacements {
+                    out.insert(key, replacement);
+                    changed = true;
+                }
+                changed.then_some(Object::Dictionary(out))
+            }
+            _ => None,
+        }
+    }
+
+    /// One dictionary's own `/F`, `/UF` and `/AFRelationship`, where it carries `/EF`.
+    fn complete_one_specification(
         &self,
         out: &mut Dictionary,
         applied: &mut BTreeMap<Rewrite, usize>,

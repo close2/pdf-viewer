@@ -2102,6 +2102,7 @@ impl Prepared {
             }
             Rewrite::RenderingIntent => self.owed.rendering_intents.as_ref().err().copied(),
             Rewrite::BlendModeNormal => self.owed.blend_modes.as_ref().err().copied(),
+            Rewrite::MetadataStreamType => self.owed.untyped_metadata.as_ref().err().copied(),
             Rewrite::NormalAppearanceFromState => {
                 self.owed.appearance_states.as_ref().err().copied()
             }
@@ -2431,6 +2432,8 @@ pub(super) struct Owed {
     pub(super) rendering_intents: Result<Sites, Because>,
     /// The dictionaries whose `/BM` array is restated as `Normal`, or why none are.
     pub(super) blend_modes: Result<Sites, Because>,
+    /// The metadata streams that state `/Type /Metadata`, or why none do.
+    pub(super) untyped_metadata: Result<Sites, Because>,
     /// The annotations whose normal appearance collapses to one state, or why none do.
     pub(super) appearance_states: Result<AppearanceStates, Because>,
     /// The optional content configurations whose `/Order` is completed, or why none are.
@@ -2591,6 +2594,9 @@ impl Owed {
             }),
             blend_modes: asked(wanted(Rewrite::BlendModeNormal), || {
                 sites::blend_modes(document, input)
+            }),
+            untyped_metadata: asked(wanted(Rewrite::MetadataStreamType), || {
+                sites::untyped_metadata(input)
             }),
             appearance_states: asked(wanted(Rewrite::NormalAppearanceFromState), || {
                 sites::appearance_states(document, input, spare)

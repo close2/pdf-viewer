@@ -2682,6 +2682,19 @@ ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six / part 2 for the third · **
   reached, so the well-formed row reports it at all six targets and the same fresh packet answers
   it (`PacketFault::UndeclaredPrefix`, ADR 2412).
 
+#### `metadata/metadata-streams-state-their-type`
+ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1, by way of ISO 32000-2 §14.3.2 Table 347 · all six ·
+**built in session 2283** (ADR 3835)
+
+- **What the rule reaches.** Every metadata stream but the catalog's, the population being the
+  streams that state `/Type /Metadata` and the streams a `/Metadata` entry names; the packet rows
+  read the same population.
+- **Mitigation** — `Mechanical`, `Rewrite::MetadataStreamType`: the stream states `/Type
+  /Metadata` and nothing else of it changes. Its holder's entry already says what it is.
+- **By target** — none.
+- **From a configuration** — nothing.
+- **Departure** — **B**, and pointless.
+
 #### `metadata/xmp-packet-header-attributes`
 ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six · **built in session 962**
 
@@ -2973,6 +2986,13 @@ ISO 19005-2 6.7.4 · PDF/A-2a · today **`discard` built, `supply` built** (ADRs
 #### `embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile` (PDF/A-4)
 ISO 19005-2 6.8, ISO 19005-4 6.9 · today **`derive` built, `discard` built** (ADR 1258)
 
+- **Where the specification stands.** Every dictionary carrying `/EF` that the cross-referenced
+  objects state is held to the row, a direct `/FS`, `GoToE` `/F` or `/AF` element included, and
+  reported at the object it is written in (ADR 3834). `discard` removes references to
+  specification objects, so a file under a specification written in place is refused by name
+  (`EMBEDDED_FILE_WRITTEN_IN_PLACE`) unless section 6.3.1's removal takes its annotation off the
+  page; `file-and-unicode-names` and `relationship-stated` are completed where the specification
+  stands.
 - **What the rule reaches.** An embedded PDF is held to the part its own identification names; one
   naming part 1 or 3 is passed over, a claim this validator cannot judge, and one naming no part
   fails, because it has established nothing the section's condition rests on (ADR 2278).
@@ -3075,6 +3095,9 @@ ISO 19005-2 6.9, ISO 19005-4 6.10 · all six · **the `/Order` row built in sess
 `keep-everything`; a name two configurations share stays refused. The table default argued below
 was not taken, because `A48`'s line forbids the converter filling an absence on its own authority
 
+- **The census** is every group the file references (`pdf_archive::optional_content_groups`), not
+  `/OCGs` alone, and a group `/OCGs` leaves out is reported under this row; the completion appends
+  it to `/OCGs` and to every `Order` in the same step (ADR 3836).
 - **Mitigation** — section 3.8 of the limits document calls both Default work and the review splits
   them. Completing an `/Order` array with the groups it omits, in the file's own order, invents
   nothing: the groups are in the file and the order is the file's. That half is **owed, not

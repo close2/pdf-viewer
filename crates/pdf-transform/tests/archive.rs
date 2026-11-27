@@ -4724,6 +4724,128 @@ fn an_order_array_gains_the_groups_the_producer_left_out_of_it() {
 }
 
 #[test]
+fn a_group_the_content_uses_joins_the_groups_array_and_every_order() {
+    // ISO 32000-2 §8.11.4.2's Table 98: "Every optional content group shall be included in this
+    // array." Group 7 is selected by the page's content through §8.11.3.2's `/OC` property and
+    // listed nowhere, so `pdf_archive::optional_content_groups` counts it and the row fails on
+    // both arrays (ADR 3836). The completion appends the file's own group to both.
+    let source = Conforming {
+        catalog: "/OCProperties << /OCGs [6 0 R] /D << /Name (Default) /Order [6 0 R] >> >>"
+            .to_owned(),
+        resources: "/Properties << /oc1 7 0 R >>".to_owned(),
+        contents: Some((String::new(), b"/OC /oc1 BDC EMC".to_vec())),
+        objects: vec![
+            "<< /Type /OCG /Name (First) >>".to_owned(),
+            "<< /Type /OCG /Name (Second) >>".to_owned(),
+        ],
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(&report, "optional-content/order-lists-every-group"),
+        Decision::Mechanical(Rewrite::OptionalContentOrder),
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+}
+
+#[test]
+fn a_page_metadata_stream_stating_no_type_states_it() {
+    // ISO 32000-2 §14.3.2's Table 347 makes `/Type /Metadata` a required entry of a metadata
+    // stream, and §7.7.3.3's page `/Metadata` makes the stream one by where it stands (ADR 3835).
+    // The packet is well-formed and states nothing, so the type is the one thing written.
+    let packet = "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\
+        <x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+        xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+        <rdf:Description rdf:about=\"\"/></rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>";
+    let source = Conforming {
+        page: "/Metadata 6 0 R".to_owned(),
+        objects: vec![format!(
+            "<< /Subtype /XML /Length {} >>\nstream\n{packet}\nendstream",
+            packet.len()
+        )],
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(&report, "metadata/metadata-streams-state-their-type"),
+        Decision::Mechanical(Rewrite::MetadataStreamType),
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+}
+
+/// A page holding one `FileAttachment` annotation whose `/FS` is written in place and states no
+/// `/UF`, embedding a text file (ADR 3834).
+fn a_file_specification_written_in_place() -> Vec<u8> {
+    Conforming {
+        // Annex A.2 of ISO 19005-4 requires PDF/A-4f's `/EmbeddedFiles` key; the tree names
+        // nothing, so the annotation's is the one specification in the file.
+        catalog: "/Names << /EmbeddedFiles << /Names [] >> >>".to_owned(),
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /FileAttachment /Rect [20 30 40 60] /F 4 \
+             /FS << /Type /Filespec /F (notes.txt) /EF << /F 7 0 R >> \
+             /AFRelationship /Unspecified >> /AP << /N 8 0 R >> >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![
+            stream(
+                "/Type /EmbeddedFile /Subtype /text#2Fplain \
+                 /Params << /ModDate (D:20260101000000Z) >> /Length 6",
+                b"notes\n",
+            ),
+            stream(
+                "/Type /XObject /Subtype /Form /BBox [0 0 20 30] /Length 15",
+                b"0 0 20 30 re f\n",
+            ),
+        ],
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn a_file_specification_written_in_place_is_completed_where_it_stands() {
+    // ISO 19005-4 section 6.9 asks `/F` and `/UF` of every embedded file's specification, and
+    // §12.5.6.15's Table 184 lets the annotation hold it directly. PDF/A-4f admits the file; the
+    // completion writes the name the specification states into the key it left out, inside the
+    // annotation that holds it.
+    let (report, output) = convert(
+        &a_file_specification_written_in_place(),
+        Target::Four(Flavour::F),
+        Authorisations::default(),
+    );
+    assert_eq!(
+        decision(&report, "embedded-files/file-and-unicode-names").rewrite(),
+        Some(Rewrite::AssociatedFileNames),
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Four(Flavour::F));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+}
+
+#[test]
+fn a_file_no_part_admits_under_a_specification_written_in_place_is_refused_by_name() {
+    // ISO 19005-2 section 6.8: the embedded file conforms to a part of ISO 19005, and a text file
+    // does not. The removal takes out references to specification objects, and this one is
+    // written inside the annotation that requires it, so the conversion says so rather than
+    // writing a file that fails the row (ADR 3834).
+    let (report, output) = to_part_two(&a_file_specification_written_in_place());
+    let Decision::Refused(Because::NotBuiltYet(why)) =
+        decision(&report, "embedded-files/embedded-file-is-itself-pdfa")
+    else {
+        panic!("a specification written in place is refused by name");
+    };
+    assert!(why.contains("directly inside another object"), "{why}");
+    assert!(output.is_none(), "and no file is written");
+}
+
+#[test]
 fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_states_them() {
     // ISO 19005-2 section 6.4.3 and ISO 19005-4 section 6.5.1 ask the annotation flag and
     // appearance rules again of a signature field's widget. `doc/pdf-a-mitigations.md` section 7

@@ -75,6 +75,9 @@ pub struct Examination<'a> {
     /// The font population's two halves the cross-reference table does not list, found once;
     /// see [`Self::direct_fonts`] and [`Self::fonts_by_position`].
     fonts: OnceCell<crate::table::fonts::FontPopulation>,
+    /// Every metadata stream, by declaration or by position, found once; see
+    /// [`Self::metadata_streams`].
+    metadata: OnceCell<BTreeSet<ObjectId>>,
 }
 
 /// One annotation, with the page it is on and the object it was reached through.
@@ -108,6 +111,7 @@ impl<'a> Examination<'a> {
             reach: OnceCell::new(),
             exempt: OnceCell::new(),
             fonts: OnceCell::new(),
+            metadata: OnceCell::new(),
         }
     }
 
@@ -238,6 +242,17 @@ impl<'a> Examination<'a> {
     /// [`Self::direct_fonts`].
     pub(crate) fn fonts_by_position(&self) -> &BTreeSet<u32> {
         &self.font_population().by_position
+    }
+
+    /// Every metadata stream the cross-referenced objects hold, found once
+    /// (`crate::table::metadata::metadata_population`).
+    pub(crate) fn metadata_streams(&self) -> &BTreeSet<ObjectId> {
+        self.metadata.get_or_init(|| {
+            crate::table::metadata::metadata_population(
+                self.document,
+                self.objects().iter().map(|(id, object)| (*id, object)),
+            )
+        })
     }
 
     fn font_population(&self) -> &crate::table::fonts::FontPopulation {

@@ -453,7 +453,7 @@ impl Walk<'_> {
 
     /// A holder's `/A`: removed where the part forbids the entry, filtered where it does not.
     fn action_entry(&mut self, site: &pdf_archive::ActionSite) -> Result<(), Because> {
-        let Some(entry) = site.dict.get("A") else {
+        let Some(entry) = stated(self.document, &site.dict, "A") else {
             return Ok(());
         };
         if action_entry_admitted(site.holder) {
@@ -486,7 +486,7 @@ impl Walk<'_> {
 
     /// A holder's `/AA`, under whichever of the three answers the part gives here.
     fn additional_actions(&mut self, site: &pdf_archive::ActionSite) -> Result<(), Because> {
-        let Some(stated) = site.dict.get("AA") else {
+        let Some(stated) = stated(self.document, &site.dict, "AA") else {
             return Ok(());
         };
         let admits = additional_actions_admitted(site.holder, self.target);
@@ -880,6 +880,17 @@ impl Survived {
             changed: false,
         }
     }
+}
+
+/// The entry a holder states for `key`, or `None` where it states the null object.
+///
+/// The validator reads a forbidden entry through `pdf_archive`'s `states`: an entry whose value
+/// is a reference to an object the file does not hold is the null object (ISO 32000-2 §7.3.10),
+/// and a null entry is an absent one (§7.3.7). A remedy that removed such an entry would list a
+/// removal of something the file never stated, so it reads the entry the same way.
+fn stated<'a>(document: &Document, dict: &'a Dictionary, key: &str) -> Option<&'a Object> {
+    dict.get(key)
+        .filter(|entry| !matches!(document.resolve(entry), Object::Null))
 }
 
 /// Writes one action dictionary's `/Next`, or removes the key where nothing follows it.

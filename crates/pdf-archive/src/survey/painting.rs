@@ -14,8 +14,12 @@ impl Walk<'_> {
     /// stream that paints without ever naming a colour space is painting in `DeviceGray`, and
     /// the file never wrote the operator that would have said so.
     pub(super) fn paint(&mut self, fill: bool, stroke: bool, state: &State, context: &Context<'_>) {
-        let implicit = (fill && state.fill == Selected::Initial)
-            || (stroke && state.stroke == Selected::Initial);
+        // Where colour operators are ignored the marks take a colour from outside the stream —
+        // §8.7.3.3's uncoloured cell is painted in the colour its pattern is selected with, and a
+        // `d1` glyph in the text's — so the initial space is not this stream's to use.
+        let implicit = !state.uncoloured
+            && ((fill && state.fill == Selected::Initial)
+                || (stroke && state.stroke == Selected::Initial));
         if implicit {
             self.record_colour(
                 (DeviceFamily::Gray, Route::Direct),

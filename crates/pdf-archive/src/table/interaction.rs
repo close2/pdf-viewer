@@ -65,6 +65,7 @@ use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 use crate::Examination;
 use crate::finding::{Findings, Where};
 use crate::requirement::{Applies, Check, Clauses, Requirement};
+use crate::table::{stated_keys, states};
 use crate::target::{Flavour, Part, Target};
 
 /// The rows this module contributes, which `super::TRANCHES` concatenates.
@@ -841,7 +842,7 @@ pub fn annotations_with_extra_appearance_states(
             let Object::Dictionary(appearance) = document.get_key(&annotation.dict, "AP") else {
                 return None;
             };
-            let states: Vec<String> = keys(&appearance)
+            let states: Vec<String> = stated_keys(document, &appearance)
                 .into_iter()
                 .filter(|key| key != "N")
                 .collect();
@@ -929,14 +930,6 @@ fn name_at(document: &Document, dictionary: &Dictionary, key: &str) -> Option<St
         .get_key(dictionary, key)
         .as_name()
         .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
-}
-
-/// One dictionary's keys, as strings a report can print.
-fn keys(dictionary: &Dictionary) -> Vec<String> {
-    dictionary
-        .iter()
-        .map(|(key, _)| String::from_utf8_lossy(key.as_bytes()).into_owned())
-        .collect()
 }
 
 /// Every annotation the page tree reaches, with the page it is on.
@@ -1054,7 +1047,7 @@ fn for_each_document_additional_actions(
     mut visit: impl FnMut(&Where, &Object),
 ) {
     if let Ok(catalog) = document.catalog()
-        && catalog.get("AA").is_some()
+        && states(document, &catalog, "AA")
     {
         visit(
             &Where::file().named("AA"),
@@ -1068,7 +1061,7 @@ fn for_each_document_additional_actions(
         };
         // `/AA` is not one of §7.7.3.4's inheritable entries, so the page's own dictionary is
         // the whole of what it states.
-        if page.dict.get("AA").is_some() {
+        if states(document, &page.dict, "AA") {
             visit(
                 &on_page(page.id, index).named("AA"),
                 &document.get_key(&page.dict, "AA"),
@@ -1661,7 +1654,7 @@ fn appearance_dictionary_holds_only_normal(exam: &Examination<'_>, findings: &mu
         let Object::Dictionary(appearance) = document.get_key(annotation, "AP") else {
             return;
         };
-        for key in keys(&appearance) {
+        for key in stated_keys(document, &appearance) {
             if key != "N" {
                 findings.record(
                     place.clone().named(key),
@@ -1761,7 +1754,7 @@ fn names_no_appearance(document: &Document, states: &Dictionary) -> bool {
 /// more places in section 6.5.2 and that is the clause this table cites for it.
 fn no_action_on_widget_or_field(exam: &Examination<'_>, findings: &mut Findings) {
     for_each_widget_or_field(exam, |place, dictionary| {
-        if dictionary.get("A").is_some() {
+        if states(exam.document, dictionary, "A") {
             findings.record(
                 place.clone().named("A"),
                 "a widget annotation or field dictionary states an A entry",
@@ -1791,7 +1784,7 @@ fn no_xfa_key(exam: &Examination<'_>, findings: &mut Findings) {
     let Some(form) = acro_form(document) else {
         return;
     };
-    if form.get("XFA").is_some() {
+    if states(document, &form, "XFA") {
         findings.record(
             Where::file().named("XFA"),
             "the interactive form dictionary states an XFA key",
@@ -1805,7 +1798,7 @@ fn no_needs_rendering(exam: &Examination<'_>, findings: &mut Findings) {
     let Ok(catalog) = document.catalog() else {
         return;
     };
-    if catalog.get("NeedsRendering").is_some() {
+    if states(document, &catalog, "NeedsRendering") {
         findings.record(
             Where::file().named("NeedsRendering"),
             "the document catalog states a NeedsRendering key",
@@ -1850,7 +1843,7 @@ fn signature_widgets_meet_the_annotation_rules(exam: &Examination<'_>, findings:
         let Object::Dictionary(appearance) = document.get_key(field, "AP") else {
             return;
         };
-        for key in keys(&appearance) {
+        for key in stated_keys(document, &appearance) {
             if key != "N" {
                 findings.record(
                     place.clone().named(key),
@@ -2215,7 +2208,7 @@ fn no_additional_actions_dictionary(exam: &Examination<'_>, findings: &mut Findi
         );
     });
     for_each_widget_or_field(exam, |place, dictionary| {
-        if dictionary.get("AA").is_some() {
+        if states(document, dictionary, "AA") {
             findings.record(
                 place.clone().named("AA"),
                 "a widget annotation or field dictionary states an AA entry",
@@ -2236,7 +2229,7 @@ fn additional_actions_hold_only_annotation_triggers(
 ) {
     let document = exam.document;
     let mut report = |place: &Where, actions: &Dictionary| {
-        for key in keys(actions) {
+        for key in stated_keys(document, actions) {
             if !ANNOTATION_TRIGGERS.contains(&key.as_str()) {
                 findings.record(
                     place.clone().named(key),
@@ -3023,7 +3016,7 @@ mod tests {
     #[test]
     fn a_rollover_appearance_is_a_key_too_many() {
         let file = with_annotations(&[
-            "<< /Type /Annot /Subtype /Square /Rect [0 0 4 4] /F 4 /AP << /N 9 0 R /R 9 0 R /D 9 0 R >> >>",
+            "<< /Type /Annot /Subtype /Square /Rect [0 0 4 4] /F 4 /AP << /N 9 0 R /R << >> /D << >> >> >>",
         ]);
         assert_eq!(faults(&file, appearance_dictionary_holds_only_normal), 2);
     }

@@ -67,6 +67,7 @@ pub use crate::pages_held::NoPageHeld;
 pub use crate::reach::{Arrival, CutEntry, Entry, Exempt, Limit, Reach};
 pub use crate::report::{Judgement, Outcome, Report, Verdict};
 pub use crate::requirement::{Applies, Check, Clauses, Requirement};
+pub use crate::table::document_level::optional_content_groups;
 pub use crate::table::document_level::{standard_structure_element, standard_structure_type};
 pub use crate::table::fonts::{
     Table124Row, cid_fonts_above_their_cmaps, cmap_is_predefined,

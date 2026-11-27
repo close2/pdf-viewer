@@ -26,7 +26,7 @@
   "code": "crates/pdf-archive/src/table/file_structure.rs:1085 (external data keys), :1267 (permissions keys), :1338 (DocMDP digest keys, by reading); crates/pdf-archive/src/table/interaction.rs:1057,1071 (catalog and page AA), :1664 (appearance keys), :1764 (A), :1794 (XFA), :1808 (NeedsRendering), :2218 (widget and field AA); crates/pdf-archive/src/table/document_level.rs:1020 (AS), :1037 (AlternatePresentations), :1054 (PresSteps), :1067 (Requirements); crates/pdf-archive/src/table/graphics.rs:2959 (Intent and RI)",
   "change": "Ask table::states for each forbidden key, and list a dictionary's keys skipping those whose value resolves to null.",
   "execution": "crates/pdf-archive/tests/pdfa_clause_6_spec_audit.rs::a_forbidden_key_naming_no_object_states_nothing_spec_audit fails on main listing eleven sites, each against a twin without the entry.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2282-B02",
@@ -40,7 +40,7 @@
   "code": "crates/pdf-archive/src/table/document_level.rs:520-549 (for_each_embedded_file_specification), and every row that walks through it",
   "change": "Visit every file specification carrying /EF wherever the examination reaches a dictionary (an annotation's /FS, an action's /F, an /AF element), direct or indirect.",
   "execution": "crates/pdf-archive/tests/pdfa_clause_6_spec_audit.rs::a_file_specification_written_in_place_is_held_to_the_embedded_file_rules_spec_audit fails on main; its control (the same specification as an indirect object) fails both rules.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2282-B03",
@@ -57,7 +57,7 @@
   "code": "crates/pdf-archive/src/survey/colour_spaces.rs:16-41 (set_device_colour), :48 (set_space); crates/pdf-archive/src/survey/painting.rs:23 (the initial colour space); crates/pdf-archive/src/survey/operators.rs:95,202 (State::uncoloured read for the grammar only)",
   "change": "Record no device colour where State::uncoloured holds: the operators return early, and an uncoloured cell's paint is the pattern's colour space.",
   "execution": "crates/pdf-archive/tests/pdfa_clause_6_spec_audit.rs::colour_the_base_standard_ignores_is_no_device_colour_use_spec_audit fails on main listing all five cases.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2282-B04",
@@ -72,7 +72,7 @@
   "code": "crates/pdf-archive/src/table/metadata.rs:512-526 (for_each_metadata_stream), :2490-2505 (metadata_streams)",
   "change": "Add every stream a /Metadata entry names to the population, and report the missing /Type under a row (or adheres-to-the-base-standard).",
   "execution": "crates/pdf-archive/tests/pdfa_clause_6_spec_audit.rs::a_page_metadata_stream_is_read_whether_or_not_it_names_its_type_spec_audit fails on main; its control (the same stream with /Type) fails both rows.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2282-B05",
@@ -87,7 +87,7 @@
   "code": "crates/pdf-archive/src/table/document_level.rs:982-1013 (order_lists_every_group)",
   "change": "Take the census from /OCGs together with every group the survey's /OC route and the OCMDs reach, and report a group /OCGs leaves out.",
   "execution": "crates/pdf-archive/tests/pdfa_clause_6_spec_audit.rs::an_order_array_references_every_group_the_file_uses_spec_audit fails on main; its control (the group listed in /OCGs) fails the row.",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2282-D01",
@@ -101,6 +101,6 @@
   "code": "crates/pdf-archive/src/table/document_level.rs:1008",
   "change": "Name the group as Where::object does.",
   "execution": "read in examples/one.rs output of a probe; no test.",
-  "status": "open"
+  "status": "fixed"
  }
 ]

@@ -20,6 +20,12 @@ impl Walk<'_> {
         state: &mut State,
         context: &Context<'_>,
     ) {
+        // §8.6.8 has the operator ignored in an uncoloured cell and after a `d1` (§9.6.4's Table
+        // 111: "any use of such operators shall be ignored"), so it selects nothing and uses no
+        // device space; the state stays as the stream was given it.
+        if state.uncoloured {
+            return;
+        }
         self.record_colour(
             (family, Route::Direct),
             context,
@@ -52,6 +58,10 @@ impl Walk<'_> {
         state: &mut State,
         context: &Context<'_>,
     ) {
+        // Ignored where colour operators are, for `set_device_colour`'s reason.
+        if state.uncoloured {
+            return;
+        }
         let object = Object::Name(Name::new(name.to_vec()));
         let resolved = if names_a_family(name) {
             object
