@@ -20,9 +20,10 @@
 //!   the content"). Whether all of the element's content was removed or part of it is reported,
 //!   never decided silently: the choice the clause leaves — keep a part's description or drop it
 //!   — is taken on the side that leaks nothing. An element written directly inside its parent's
-//!   `/K` is restated inside the object that holds it (ADR 3809), and an element whose form
-//!   sequence was written in a placement copy of the form gains a reference naming the copy by
-//!   its own number where the copy still shows part of it (ADR 3811).
+//!   `/K` is restated inside the object that holds it (ADR 3809), or inside the structure tree
+//!   root where the catalog states the root directly (ADR 3845), and an element whose form
+//!   sequence is in a placement copy of the form gains a reference naming the copy by its own
+//!   number wherever the copy still holds the sequence (ADRs 3811 and 3846).
 //!
 //! **What the clause does not bind**: an outline item's title, a named destination, an embedded
 //! file, an optional content group's name, the document's own XMP packet and information
@@ -162,7 +163,8 @@ pub(super) fn with_popups(document: &Document, page: &Dictionary, removed: &mut 
     }
 }
 
-/// One object written with entries left out: its new dictionary, and what to say of it.
+/// One object written with entries left out: its new dictionary, and what to say of it. Where
+/// `id` is the catalog, `dict` is the structure tree root the catalog states directly ([`Place`]).
 pub(super) struct Restated {
     pub(super) id: ObjectId,
     pub(super) dict: Dictionary,
@@ -170,6 +172,9 @@ pub(super) struct Restated {
     /// Content items to add to elements of `dict`, each at the place of its element below the
     /// object (see [`Place`]), naming a copy only the writer has a number for (ADR 3811).
     pub(super) added: Vec<(Vec<usize>, Copied)>,
+    /// Objects of the output, by their numbers there, to add at the end of `dict`'s `/Kids`: a
+    /// parent tree's new leaf (ADR 3846).
+    pub(super) kids_added: Vec<ObjectId>,
 }
 
 /// Adds to the element at `path` below `dict` one content item per `items` entry: a §14.7.5.2
@@ -253,6 +258,7 @@ pub(super) fn field_values(document: &Document, removed: &HashSet<ObjectId>) -> 
                     id: field,
                     dict,
                     added: Vec::new(),
+                    kids_added: Vec::new(),
                     detail: format!(
                         "field {}'s {} not written; its widget {} met the region and was removed",
                         field.number,
@@ -280,13 +286,14 @@ struct Marks {
     items: usize,
     whole: usize,
     reached: usize,
-    /// The placement copies holding part of one of its sequences (ADR 3811).
+    /// The placement copies still holding one of its sequences, whole or in part (ADRs 3811
+    /// and 3846).
     copies: Vec<Copied>,
 }
 
 /// A marked-content sequence of a form written in a placement copy of its own (ADR 1363) that
-/// still shows part of what it showed: the structure element that marks the form's sequence is
-/// given a reference to the copy's (§14.7.5.2's `/Stm`), since no reference names the copy.
+/// the copy still holds, whole or in part: the structure element that marks the form's sequence
+/// is given a reference to the copy's (§14.7.5.2's `/Stm`), since no reference names the copy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Copied {
     /// The page the copy is drawn on.
@@ -313,10 +320,16 @@ fn kids(document: &Document, dict: &Dictionary) -> Vec<Object> {
 /// An element written directly has no object of its own to be restated in, so it is restated
 /// inside its holder: the holder is written again with the element's entries removed at its
 /// place.
+///
+/// A structure tree root written directly in the catalog (Table 29 does not require the root to
+/// be indirect) holds its direct kids the same way: their holder is the catalog, `in_catalog` says
+/// that the path starts at the catalog's `/StructTreeRoot` rather than at the holder's own
+/// dictionary, and the restated root is written into the catalog (ADR 3845).
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 struct Place {
     holder: ObjectId,
     path: Vec<usize>,
+    in_catalog: bool,
 }
 
 impl Place {
@@ -326,6 +339,7 @@ impl Place {
             Object::Reference(id) => Some(Self {
                 holder: *id,
                 path: Vec::new(),
+                in_catalog: false,
             }),
             Object::Dictionary(_) => {
                 let mut path = self.path.clone();
@@ -333,6 +347,7 @@ impl Place {
                 Some(Self {
                     holder: self.holder,
                     path,
+                    in_catalog: self.in_catalog,
                 })
             }
             _ => None,
@@ -341,17 +356,24 @@ impl Place {
 
     /// The report's name for the element.
     fn named(&self) -> String {
-        if self.path.is_empty() {
+        let at = self
+            .path
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        if self.in_catalog {
+            format!(
+                "the structure element written directly in the /K of the structure tree root \
+                 the catalog (object {}) states directly (at {at})",
+                self.holder.number
+            )
+        } else if self.path.is_empty() {
             format!("structure element {}", self.holder.number)
         } else {
             format!(
-                "the structure element written directly in object {}'s /K (at {})",
-                self.holder.number,
-                self.path
-                    .iter()
-                    .map(usize::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                "the structure element written directly in object {}'s /K (at {at})",
+                self.holder.number
             )
         }
     }
@@ -388,7 +410,7 @@ fn marks_of(
     document: &Document,
     dict: &Dictionary,
     (place, page): (&Place, Option<ObjectId>),
-    items: &[Item],
+    (items, placements): (&[Item], &[(ObjectId, usize, ObjectId)]),
     removed: &HashSet<ObjectId>,
     children: &mut Vec<(Place, Dictionary)>,
 ) -> Marks {
@@ -448,6 +470,21 @@ fn marks_of(
                         });
                     }
                 }
+                // A copy the removal reached no sequence of this element in holds the sequence
+                // as the form does: one content item more, not reached, named the same way.
+                for (copy_page, copy, _) in placements.iter().filter(|(copy_page, copy, form)| {
+                    Some(*copy_page) == at && Some(*form) == stream && !seen.contains(copy)
+                }) {
+                    let Some(mcid) = mcid else {
+                        break;
+                    };
+                    count(None);
+                    copies.push(Copied {
+                        page: *copy_page,
+                        copy: *copy,
+                        mcid,
+                    });
+                }
             }
             Object::Dictionary(item) if item.get("Obj").is_some() => {
                 let object = item.get("Obj").and_then(Object::as_reference);
@@ -478,45 +515,36 @@ struct Restatement {
 /// The structure elements whose content the removal reached, and their ancestors, each written
 /// without what describes that content (§14.7.2 Table 355, §14.9.3–§14.9.5) — an element written
 /// directly in its parent's `/K` restated inside the object that holds it.
+///
+/// Where the catalog (object `catalog_id`) states the structure tree root directly, the elements
+/// written directly in the root's `/K` are restated inside it, and the answer for them carries
+/// `catalog_id` with the restated *root* as its dictionary: the caller writes it into the catalog.
+///
+/// `placements` are the placement copies of forms (ADR 1363), each as its page, the page's form
+/// edit and the form: an element marking a sequence of the form is given a reference to each
+/// copy that still holds the sequence, reached or not, so that the structure tree names every
+/// content item the copy's own parent-tree entry names (§14.7.5.4, ADR 3846).
 pub(super) fn elements(
     document: &Document,
-    catalog: &Dictionary,
-    items: &[Item],
+    (catalog_id, catalog): (ObjectId, &Dictionary),
+    (items, placements): (&[Item], &[(ObjectId, usize, ObjectId)]),
     removed: &HashSet<ObjectId>,
 ) -> Vec<Restated> {
     let Some(root) = catalog.get("StructTreeRoot") else {
         return Vec::new();
     };
-    // §7.7.2's catalog states the root by reference in every file this verb restates elements of;
-    // a root written directly in the catalog has no holder for its direct kids, which are then
-    // read for their kids only.
     let tree = document.resolve(root);
     let Some(tree) = tree.as_dict() else {
         return Vec::new();
     };
-    let root_place = root.as_reference().map(|holder| Place {
-        holder,
-        path: Vec::new(),
-    });
     // Breadth first from the root, each element with its place, the page it inherits and its
     // parent's place.
-    let mut queue: VecDeque<(Place, Dictionary, Option<ObjectId>, Option<Place>)> = VecDeque::new();
-    for (position, kid) in kids(document, tree).iter().enumerate() {
-        let place = match (&root_place, kid) {
-            (_, Object::Reference(id)) => Some(Place {
-                holder: *id,
-                path: Vec::new(),
-            }),
-            (Some(root), _) => root.kid(kid, position),
-            (None, _) => None,
-        };
-        if let (Some(place), Some(dict)) = (place, document.resolve(kid).as_dict()) {
-            queue.push_back((place, dict.clone(), None, None));
-        }
-    }
+    let mut queue = root_kids(document, tree, root.as_reference().ok_or(catalog_id));
     let mut seen: HashSet<Place> = HashSet::new();
     let mut parents: HashMap<Place, Place> = HashMap::new();
     let mut marked: Vec<(Place, Marks)> = Vec::new();
+    // Elements the removal did not reach that only gain references to placement copies.
+    let mut named: Vec<(Place, Marks)> = Vec::new();
     while let Some((place, dict, inherited, parent)) = queue.pop_front() {
         if place.path.len() > MAX_DEPTH || !seen.insert(place.clone()) {
             continue;
@@ -530,7 +558,7 @@ pub(super) fn elements(
             document,
             &dict,
             (&place, page),
-            items,
+            (items, placements),
             removed,
             &mut children,
         );
@@ -541,6 +569,8 @@ pub(super) fn elements(
         );
         if marks.reached > 0 {
             marked.push((place, marks));
+        } else if !marks.copies.is_empty() {
+            named.push((place, marks));
         }
     }
 
@@ -583,17 +613,53 @@ pub(super) fn elements(
             at = parents.get(ancestor);
         }
     }
-    restate(document, &wanted)
+    for (place, marks) in &named {
+        want(place, &[], Some(marks));
+    }
+    restate(document, &wanted, tree)
 }
 
-/// Each holder of the `wanted` elements written again without their keys, with what to say.
-fn restate(document: &Document, wanted: &[Restatement]) -> Vec<Restated> {
+/// The structure tree root `tree`'s kids, each with its place: the root is the object `Ok`
+/// names, or is written directly in the catalog `Err` names (see [`Place`]).
+fn root_kids(
+    document: &Document,
+    tree: &Dictionary,
+    root: Result<ObjectId, ObjectId>,
+) -> VecDeque<(Place, Dictionary, Option<ObjectId>, Option<Place>)> {
+    let root_place = Place {
+        holder: root.unwrap_or_else(|catalog| catalog),
+        path: Vec::new(),
+        in_catalog: root.is_err(),
+    };
+    let mut queue = VecDeque::new();
+    for (position, kid) in kids(document, tree).iter().enumerate() {
+        if let (Some(place), Some(dict)) = (
+            root_place.kid(kid, position),
+            document.resolve(kid).as_dict(),
+        ) {
+            queue.push_back((place, dict.clone(), None, None));
+        }
+    }
+    queue
+}
+
+/// Each holder of the `wanted` elements written again without their keys, with what to say. A
+/// holder whose elements stand in a root the catalog states directly is that root, `tree`.
+fn restate(document: &Document, wanted: &[Restatement], tree: &Dictionary) -> Vec<Restated> {
     let mut holders: Vec<ObjectId> = wanted.iter().map(|item| item.place.holder).collect();
     holders.sort_by_key(|id| (id.number, id.generation));
     holders.dedup();
     let mut out = Vec::new();
     for holder in holders {
-        let Some(mut dict) = document.get(holder).as_dict().cloned() else {
+        let in_catalog = wanted
+            .iter()
+            .any(|item| item.place.holder == holder && item.place.in_catalog);
+        let dict = if in_catalog {
+            Some(tree.clone())
+        } else {
+            document.get(holder).as_dict().cloned()
+        };
+        let Some(mut dict) = dict else {
             continue;
         };
         let mut details = Vec::new();
@@ -607,7 +673,7 @@ fn restate(document: &Document, wanted: &[Restatement]) -> Vec<Restated> {
             if !item.copies.is_empty() {
                 details.push(format!(
                     "{} given a reference to each of {} placement copies of a form that still \
-                     show part of its content",
+                     hold its content, whole or in part",
                     item.place.named(),
                     item.copies.len()
                 ));
@@ -638,6 +704,7 @@ fn restate(document: &Document, wanted: &[Restatement]) -> Vec<Restated> {
                 dict,
                 detail: details.join("; "),
                 added,
+                kids_added: Vec::new(),
             });
         }
     }

@@ -592,6 +592,64 @@ fn a_structure_element_written_directly_in_its_parent_is_restated_there() {
     );
 }
 
+/// Table 29 does not require the catalog's `/StructTreeRoot` to be indirect, and Table 355 lets
+/// `/K` hold a kid written directly. Here the catalog states the root directly, the document
+/// element is written directly in the root's `/K`, and the element marking the removed sequence
+/// directly in the document element's: both are restated inside the root, which the catalog is
+/// written with (ADR 3845).
+#[test]
+fn a_structure_tree_root_the_catalog_states_directly_is_restated_there() {
+    let mut objects = fixture_objects("name");
+    let span = objects[9].replace("/P 24 0 R ", "");
+    let document = objects[23]
+        .replace("/P 9 0 R ", "")
+        .replace("10 0 R", &span);
+    let root = format!(
+        "<< /Type /StructTreeRoot /K [{document}] /ParentTree 23 0 R /ParentTreeNextKey 1 >>"
+    );
+    objects[0] = objects[0].replace("/StructTreeRoot 9 0 R", &format!("/StructTreeRoot {root}"));
+    objects[8] = "null".to_owned();
+    objects[9] = "null".to_owned();
+    objects[23] = "null".to_owned();
+    objects[22] = "<< /Nums [0 [6 0 R null]] >>".to_owned();
+    let (report, out) = redact(assemble(&objects, "/Info 27 0 R"));
+    let found = hits(&out);
+    let bound: Vec<&String> = found.iter().filter(|hit| !elsewhere(hit)).collect();
+    assert!(bound.is_empty(), "the output still holds {bound:#?}");
+    assert!(
+        report.departures.iter().any(|departure| departure
+            .detail
+            .contains("structure tree root the catalog (object 1) states directly (at 0, 1)")),
+        "no departure names the element in the root: {:#?}",
+        report.departures
+    );
+    // The tree keeps its shape: the root still direct, the document element and the span in it.
+    let document = Document::open_with_limits(out, Limits::DEFAULT).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    let Some(Object::Dictionary(root)) = catalog.get("StructTreeRoot") else {
+        panic!("the catalog still states the root directly");
+    };
+    let Object::Array(top) = document.get_key(root, "K") else {
+        panic!("the root's /K is an array");
+    };
+    let top = top[0].as_dict().expect("the document element is carried");
+    assert!(
+        top.get("ActualText").is_none(),
+        "the ancestor's description goes"
+    );
+    let Object::Array(kids) = document.get_key(top, "K") else {
+        panic!("the document element's /K is an array");
+    };
+    let span = kids[1].as_dict().expect("the direct element is carried");
+    assert_eq!(
+        document
+            .get_key(span, "S")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"Span".to_vec())
+    );
+}
+
 /// §14.9.4 makes `/ActualText` a character substitution for the whole content its sequence
 /// encloses, and nothing maps a part of the value to a part of the content. So a region that
 /// takes part of such a sequence took part of what the whole value stands for (ADR 3810): the

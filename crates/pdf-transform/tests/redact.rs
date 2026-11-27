@@ -5844,6 +5844,154 @@ fn a_placement_copy_is_named_to_the_structure_tree_by_its_own_number() {
     );
 }
 
+/// A page drawing a tagged form of two sequences twice, the second placement's first sequence
+/// under a redaction; the form states `/StructParents 1`, the page 0, and the parent tree's root
+/// holds `/Nums` with `/ParentTreeNextKey 2`.
+fn a_tagged_form_of_two_sequences_drawn_twice() -> Vec<u8> {
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 8 0 R /MarkInfo << /Marked true >> >>"
+            .to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Fm0 \
+          6 0 R >> >> /Contents 4 0 R /Annots [5 0 R] /StructParents 0 >>"
+            .to_vec(),
+        stream_object(
+            "",
+            b"q 1 0 0 1 20 20 cm /Fm0 Do Q q 1 0 0 1 20 120 cm /Fm0 Do Q",
+        ),
+        b"<< /Type /Annot /Subtype /Redact /Rect [15 125 60 150] >>".to_vec(),
+        stream_object(
+            "/Type /XObject /Subtype /Form /BBox [0 0 150 30] /StructParents 1 /Resources << \
+             /Font << /F1 7 0 R >> >>",
+            b"/Span <</MCID 0>> BDC BT /F1 12 Tf 0 10 Td (AAAA) Tj ET EMC /Span <</MCID 1>> BDC \
+              BT /F1 12 Tf 60 10 Td (BBBB) Tj ET EMC",
+        ),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+        b"<< /Type /StructTreeRoot /K [9 0 R 10 0 R] /ParentTree 11 0 R /ParentTreeNextKey 2 >>"
+            .to_vec(),
+        b"<< /Type /StructElem /S /Span /P 8 0 R /Pg 3 0 R /K << /Type /MCR /Stm 6 0 R /MCID 0 \
+          >> /ActualText (AAAA) >>"
+            .to_vec(),
+        b"<< /Type /StructElem /S /Span /P 8 0 R /Pg 3 0 R /K << /Type /MCR /Stm 6 0 R /MCID 1 \
+          >> >>"
+            .to_vec(),
+        b"<< /Nums [0 [] 1 [9 0 R 10 0 R]] >>".to_vec(),
+    ];
+    assemble_bytes(&objects)
+}
+
+/// The `/Stm` of each marked-content reference in `element`'s `/K`.
+fn streams_named(
+    document: &Document,
+    element: &pdf_syntax::object::Dictionary,
+) -> Vec<Option<pdf_syntax::ObjectId>> {
+    let stream = |item: &Object| {
+        let item = document.resolve(item);
+        item.as_dict()
+            .and_then(|item| item.get("Stm")?.as_reference())
+    };
+    match document.get_key(element, "K") {
+        Object::Array(items) => items.iter().map(stream).collect(),
+        other => vec![stream(&other)],
+    }
+}
+
+/// A tagged form drawn twice, the region taking one of its two sequences whole at one placement:
+/// that placement's copy is given a parent-tree key and entry of its own (§14.7.5.4, Table 359,
+/// ADR 3846) from `/ParentTreeNextKey`, its entry the form's with a null for the sequence it no
+/// longer holds. The form's own key and entry, which the placement the region missed still
+/// finds its elements by, are as the producer wrote them, and the element of the sequence the
+/// copy kept names the copy as one content item more.
+#[test]
+fn a_placement_copy_is_given_a_parent_tree_entry_of_its_own() {
+    let (report, out) = redact(&a_tagged_form_of_two_sequences_drawn_twice());
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let document = Document::open_with_limits(out, Limits::DEFAULT).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    let root = document.get_key(&catalog, "StructTreeRoot");
+    let root = root.as_dict().expect("a root");
+    let Object::Array(top) = document.get_key(root, "K") else {
+        panic!("the root's /K is an array");
+    };
+    let (kept, cut) = (document.resolve(&top[1]), document.resolve(&top[0]));
+    let (kept, cut) = (kept.as_dict().expect("kept"), cut.as_dict().expect("cut"));
+    // The two streams, told apart by what they show.
+    let streams: Vec<(pdf_syntax::ObjectId, String, Option<i64>)> = (1..64)
+        .filter_map(|number| {
+            let id = pdf_syntax::ObjectId {
+                number,
+                generation: 0,
+            };
+            let object = document.get(id);
+            let stream = object.as_stream()?;
+            let data = document.decoded_stream_data(stream)?;
+            let text = String::from_utf8_lossy(&data).into_owned();
+            text.contains("BBBB").then(|| {
+                let key = document.get_key(&stream.dict, "StructParents").as_integer();
+                (id, text, key)
+            })
+        })
+        .collect();
+    assert_eq!(streams.len(), 2, "the form and one copy: {streams:#?}");
+    let form = streams.iter().find(|(_, text, _)| text.contains("AAAA"));
+    let copy = streams.iter().find(|(_, text, _)| !text.contains("AAAA"));
+    let (Some(form), Some(copy)) = (form, copy) else {
+        panic!("the form keeps both sequences and the copy only the second: {streams:#?}");
+    };
+    assert_eq!(form.2, Some(1), "the form keeps the producer's key");
+    assert_eq!(copy.2, Some(2), "the copy takes /ParentTreeNextKey");
+    assert_eq!(
+        document.get_key(root, "ParentTreeNextKey").as_integer(),
+        Some(3)
+    );
+    let tree = document.get_key(root, "ParentTree");
+    let Object::Array(nums) = document.get_key(tree.as_dict().expect("a parent tree"), "Nums")
+    else {
+        panic!("the parent tree's root holds /Nums");
+    };
+    let entry = |key: i64| -> Vec<Object> {
+        let at = nums
+            .iter()
+            .position(|item| item.as_integer() == Some(key))
+            .expect("the key is in the tree");
+        document
+            .resolve(&nums[at + 1])
+            .as_array()
+            .expect("an array")
+            .to_vec()
+    };
+    let element = |object: &Object| object.as_reference();
+    let (kept_id, cut_id) = (top[1].as_reference(), top[0].as_reference());
+    let producer = entry(1);
+    assert_eq!(
+        producer.iter().map(element).collect::<Vec<_>>(),
+        vec![cut_id, kept_id],
+        "the form's entry is as the producer wrote it"
+    );
+    let own = entry(2);
+    assert_eq!(own.len(), 2, "{own:?}");
+    assert_eq!(
+        own[0],
+        Object::Null,
+        "the sequence the copy lost is found nowhere"
+    );
+    assert_eq!(
+        element(&own[1]),
+        kept_id,
+        "the sequence it kept finds its element"
+    );
+    // The element of the kept sequence names the copy; the other's description is gone.
+    assert_eq!(
+        streams_named(&document, kept),
+        vec![Some(form.0), Some(copy.0)]
+    );
+    assert_eq!(streams_named(&document, cut), vec![Some(form.0)]);
+    assert!(
+        cut.get("ActualText").is_none(),
+        "the replacement is carried"
+    );
+}
+
 /// A form drawn twice from inside another form is split in that form's own stream: the copy is
 /// named in the enclosing form's resources, which the enclosing form's edited stream states.
 #[test]

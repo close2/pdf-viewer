@@ -1,7 +1,8 @@
 //! Embedded files: the file specification a requirement completes, the names it states and the
 //! attachments filed under the name dictionary.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
+use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
 
 use super::{Rewrite, Rewriter, count};
@@ -298,6 +299,98 @@ impl Rewriter<'_> {
             count(applied, Rewrite::EmbeddedFileRemoved);
             changed = true;
         }
+        if at.is_some_and(|id| removed.in_place_by.contains(&id))
+            && forget_in_place(self.document, out, &removed.in_place_files, 0)
+        {
+            count(applied, Rewrite::EmbeddedFileRemoved);
+            changed = true;
+        }
         changed
     }
+}
+
+/// Takes each specification written in place inside `dict` whose embedded file stream is one
+/// of `files` out where it stands (`sites::InPlace`, ADR 3847): an `/AF` array's element
+/// leaves the array, and the object's own `/FS` (`depth` 0) keeps naming its file with its
+/// `/EF` and `/RF` gone. Bounded by [`MAX_IN_PLACE_DEPTH`].
+fn forget_in_place(
+    document: &Document,
+    dict: &mut Dictionary,
+    files: &BTreeSet<ObjectId>,
+    depth: usize,
+) -> bool {
+    if depth > MAX_IN_PLACE_DEPTH {
+        return false;
+    }
+    let mut changed = false;
+    let mut out = Dictionary::new();
+    for (key, value) in dict.iter() {
+        let mut value = value.clone();
+        match (key.as_bytes(), &mut value) {
+            (b"FS", Object::Dictionary(specification))
+                if depth == 0 && carries_one_of(document, specification, files) =>
+            {
+                specification.remove("EF");
+                specification.remove("RF");
+                changed = true;
+            }
+            (b"AF", Object::Array(items)) => {
+                let before = items.len();
+                items.retain(|item| {
+                    !item
+                        .as_dict()
+                        .is_some_and(|specification| carries_one_of(document, specification, files))
+                });
+                changed |= items.len() != before;
+                // As for a referenced one: an `/AF` with nothing left says what an absent
+                // one says, so the entry goes.
+                if items.is_empty() {
+                    continue;
+                }
+            }
+            _ => {}
+        }
+        changed |= forget_below(document, &mut value, files, depth.saturating_add(1));
+        out.insert(key.clone(), value);
+    }
+    if changed {
+        *dict = out;
+    }
+    changed
+}
+
+/// [`forget_in_place`] in every dictionary below `value`.
+fn forget_below(
+    document: &Document,
+    value: &mut Object,
+    files: &BTreeSet<ObjectId>,
+    depth: usize,
+) -> bool {
+    if depth > MAX_IN_PLACE_DEPTH {
+        return false;
+    }
+    match value {
+        Object::Array(items) => items.iter_mut().fold(false, |changed, item| {
+            forget_below(document, item, files, depth.saturating_add(1)) | changed
+        }),
+        Object::Dictionary(dict) => forget_in_place(document, dict, files, depth),
+        _ => false,
+    }
+}
+
+/// Whether `specification`'s `/EF` names one of `files` by reference.
+fn carries_one_of(
+    document: &Document,
+    specification: &Dictionary,
+    files: &BTreeSet<ObjectId>,
+) -> bool {
+    document
+        .get_key(specification, "EF")
+        .as_dict()
+        .is_some_and(|streams| {
+            streams
+                .iter()
+                .filter_map(|(_, stream)| stream.as_reference())
+                .any(|stream| files.contains(&stream))
+        })
 }

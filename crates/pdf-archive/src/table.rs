@@ -73,6 +73,8 @@ pub(crate) fn states_name(document: &Document, dict: &Dictionary, key: &str, nam
 pub(crate) mod document_level;
 pub(crate) mod file_structure;
 
+pub use document_level::embedded_file_fails;
+
 pub use file_structure::{EXTERNAL_DATA_KEYS, ascii_stage_cut_short, is_standard_filter};
 
 pub(crate) mod fonts;

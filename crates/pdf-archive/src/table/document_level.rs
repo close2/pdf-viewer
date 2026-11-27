@@ -840,41 +840,63 @@ impl Drop for Descent {
 fn embedded_file_is_itself_pdfa(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     for_each_embedded_file_specification(exam, |place, specification, _| {
-        let files = document.get_key(specification, "EF");
-        let Some(files) = files.as_dict() else {
-            return;
+        judge_specification(document, &place, specification, findings);
+    });
+}
+
+/// Whether one file specification carries an embedded file that fails ISO 19005-2 section 6.8
+/// and ISO 19005-4 section 6.9 as `embedded-files/embedded-file-is-itself-pdfa` judges it.
+///
+/// For a converter that has to tell apart the specifications written in place inside one
+/// object, which the row's findings name only by that object.
+#[must_use]
+pub fn embedded_file_fails(document: &Document, specification: &Dictionary) -> bool {
+    let mut findings = Findings::default();
+    judge_specification(document, &Where::file(), specification, &mut findings);
+    !findings.kept().is_empty()
+}
+
+/// [`embedded_file_is_itself_pdfa`] over one specification, found at `place`.
+fn judge_specification(
+    document: &Document,
+    place: &Where,
+    specification: &Dictionary,
+    findings: &mut Findings,
+) {
+    let files = document.get_key(specification, "EF");
+    let Some(files) = files.as_dict() else {
+        return;
+    };
+    let mut seen = BTreeSet::new();
+    for key in EMBEDDED_FILE_STREAM_KEYS {
+        let entry = files.get(key);
+        // One stream filed under two keys is one embedded file, and reporting it twice would
+        // count two faults against a document that has one.
+        if let Some(entry) = entry
+            && let Some(id) = entry.as_reference()
+            && !seen.insert(id)
+        {
+            continue;
+        }
+        let object = document.get_key(files, key);
+        let Some(stream) = object.as_stream() else {
+            continue;
         };
-        let mut seen = BTreeSet::new();
-        for key in EMBEDDED_FILE_STREAM_KEYS {
-            let entry = files.get(key);
-            // One stream filed under two keys is one embedded file, and reporting it twice would
-            // count two faults against a document that has one.
-            if let Some(entry) = entry
-                && let Some(id) = entry.as_reference()
-                && !seen.insert(id)
-            {
+        let bytes = match document.decoded_stream_data_reported(stream) {
+            Ok(decoded) => decoded.data,
+            Err(pdf_syntax::StreamRefusal::DecryptionFailed) => {
+                findings.record(
+                    place.clone().named((*key).to_owned()),
+                    "an embedded file's data does not decrypt without a password the file \
+                     does not supply, so nothing in the file shows it conforms to a part of \
+                     ISO 19005",
+                );
                 continue;
             }
-            let object = document.get_key(files, key);
-            let Some(stream) = object.as_stream() else {
-                continue;
-            };
-            let bytes = match document.decoded_stream_data_reported(stream) {
-                Ok(decoded) => decoded.data,
-                Err(pdf_syntax::StreamRefusal::DecryptionFailed) => {
-                    findings.record(
-                        place.clone().named((*key).to_owned()),
-                        "an embedded file's data does not decrypt without a password the file \
-                         does not supply, so nothing in the file shows it conforms to a part of \
-                         ISO 19005",
-                    );
-                    continue;
-                }
-                Err(_) => continue,
-            };
-            judge_embedded(&place.clone().named((*key).to_owned()), bytes, findings);
-        }
-    });
+            Err(_) => continue,
+        };
+        judge_embedded(&place.clone().named((*key).to_owned()), bytes, findings);
+    }
 }
 
 /// One embedded file's bytes, held to whatever part of ISO 19005 they claim.

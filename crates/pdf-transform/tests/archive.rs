@@ -4782,6 +4782,11 @@ fn a_page_metadata_stream_stating_no_type_states_it() {
 /// A page holding one `FileAttachment` annotation whose `/FS` is written in place and states no
 /// `/UF`, embedding a text file (ADR 3834).
 fn a_file_specification_written_in_place() -> Vec<u8> {
+    a_file_specification_written_in_place_over(Conforming::default())
+}
+
+/// [`a_file_specification_written_in_place`] over the fixture `base`.
+fn a_file_specification_written_in_place_over(base: Conforming) -> Vec<u8> {
     Conforming {
         // Annex A.2 of ISO 19005-4 requires PDF/A-4f's `/EmbeddedFiles` key; the tree names
         // nothing, so the annotation's is the one specification in the file.
@@ -4804,7 +4809,7 @@ fn a_file_specification_written_in_place() -> Vec<u8> {
                 b"0 0 20 30 re f\n",
             ),
         ],
-        ..Conforming::default()
+        ..base
     }
     .build()
 }
@@ -4830,19 +4835,108 @@ fn a_file_specification_written_in_place_is_completed_where_it_stands() {
 }
 
 #[test]
-fn a_file_no_part_admits_under_a_specification_written_in_place_is_refused_by_name() {
+fn a_file_no_part_admits_under_a_specification_written_in_place_is_taken_out_where_it_stands() {
     // ISO 19005-2 section 6.8: the embedded file conforms to a part of ISO 19005, and a text file
-    // does not. The removal takes out references to specification objects, and this one is
-    // written inside the annotation that requires it, so the conversion says so rather than
-    // writing a file that fails the row (ADR 3834).
-    let (report, output) = to_part_two(&a_file_specification_written_in_place());
+    // does not. The specification is written inside the annotation, whose `/FS` §12.5.6.15's
+    // Table 184 requires, so it stays there naming its file and its `/EF` goes; the annotation,
+    // its appearance and its place are kept, and the file is the stated loss (ADR 3847).
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::EmbeddedFile);
+    let (report, output) = convert(
+        &a_file_specification_written_in_place_over(Conforming::part_two()),
+        Target::Two(Level::B),
+        authorised,
+    );
+    assert_eq!(
+        conversion(&report).removed_files,
+        vec!["notes.txt".to_owned()],
+        "the report names the file that went"
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let document = Document::open(output).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let annotations = document.get_key(&page.dict, "Annots");
+    let annotation = document.resolve(&annotations.as_array().expect("annotations")[0]);
+    let annotation = annotation.as_dict().expect("the annotation is kept");
+    let specification = document.get_key(annotation, "FS");
+    let specification = specification.as_dict().expect("its /FS is kept");
+    assert!(
+        specification.get("EF").is_none(),
+        "the embedded file is gone"
+    );
+    assert_eq!(
+        document.get_key(specification, "F").as_string(),
+        Some(&b"notes.txt"[..]),
+        "the specification still names its file"
+    );
+    assert!(annotation.get("AP").is_some(), "the appearance is kept");
+}
+
+#[test]
+fn a_file_no_part_admits_in_place_under_an_action_is_refused_by_name() {
+    // An embedded go-to action's `/F` (§12.6.4.4) is neither an `/AF` element nor an annotation's
+    // own `/FS`: what taking the specification out of it would leave has not been read, so the
+    // conversion says so rather than guessing (ADR 3847).
+    let source = Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Link /Rect [20 30 40 60] /F 4 /Border [0 0 0] \
+             /A << /S /GoToE /T << /R /C /N (notes.txt) >> /F << /Type /Filespec \
+             /F (notes.txt) /UF (notes.txt) /EF << /F 7 0 R >> >> >> >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![stream(
+            "/Type /EmbeddedFile /Subtype /text#2Fplain \
+             /Params << /ModDate (D:20260101000000Z) >> /Length 6",
+            b"notes\n",
+        )],
+        ..Conforming::part_two()
+    }
+    .build();
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::EmbeddedFile);
+    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
     let Decision::Refused(Because::NotBuiltYet(why)) =
         decision(&report, "embedded-files/embedded-file-is-itself-pdfa")
     else {
-        panic!("a specification written in place is refused by name");
+        panic!("a specification written in place under an action is refused by name");
     };
     assert!(why.contains("directly inside another object"), "{why}");
     assert!(output.is_none(), "and no file is written");
+}
+
+#[test]
+fn a_file_no_part_admits_in_place_in_an_af_array_leaves_the_array() {
+    // §14.13.2 makes `/AF` the list of an object's associated files: a specification written in
+    // place in it is taken out of the list, as a referenced one is, and the array with nothing
+    // left goes (ADR 3847).
+    let source = Conforming {
+        page: "/AF [<< /Type /Filespec /F (notes.txt) /UF (notes.txt) /EF << /F 6 0 R >> \
+               /AFRelationship /Data >>]"
+            .to_owned(),
+        binary_objects: vec![stream(
+            "/Type /EmbeddedFile /Subtype /text#2Fplain \
+             /Params << /ModDate (D:20260101000000Z) >> /Length 6",
+            b"notes\n",
+        )],
+        ..Conforming::part_two()
+    }
+    .build();
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::EmbeddedFile);
+    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
+    assert_eq!(
+        conversion(&report).removed_files,
+        vec!["notes.txt".to_owned()]
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let document = Document::open(output).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    assert!(page.dict.get("AF").is_none(), "the emptied /AF goes");
 }
 
 #[test]

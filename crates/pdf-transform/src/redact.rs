@@ -251,6 +251,7 @@ mod marked;
 mod mesh;
 mod overlay;
 mod painting;
+mod parent_tree;
 mod paths;
 mod regions;
 mod shading;
@@ -3139,8 +3140,18 @@ fn write_document(
             .replace(0, page.page_id)
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
     }
-    let (mut replaced, mut restated_slots) =
-        cut_traces(&mut assembly, document, &catalog, applied)?;
+    let (mut replaced, mut restated_slots, restated_tree, copy_keys) =
+        cut_traces(&mut assembly, document, (root, &catalog), applied)?;
+    // A structure tree root the catalog states directly, restated, is written into the catalog,
+    // which is then replaced rather than copied (ADR 3845).
+    let replaced_root = match (replaced_root, &restated_tree) {
+        (None, Some(_)) => Some(
+            assembly
+                .replace(0, root)
+                .map_err(|error| Refusal::Assembly(error.to_string()))?,
+        ),
+        (placed, _) => placed,
+    };
     replaced.extend(replaced_root.map(|_| root));
     let mut xfa_details = Vec::new();
     let mut packet_slots = Vec::new();
@@ -3184,13 +3195,18 @@ fn write_document(
     // The reachable closure, pruned: a replaced page short-circuits the walk, so its old content
     // and its removed annotations are reached from nowhere else and never copied.
     let mapped_root = match replaced_root {
-        Some(placed) => place_catalog(
-            &mut assembly,
-            document,
-            &catalog,
-            placed,
-            needs_rendering || direct_form,
-        )?,
+        Some(placed) => {
+            let tree = restated_tree
+                .as_ref()
+                .map(|tree| restated_dict(&mut assembly, document, tree, (applied, &form_slots)));
+            place_catalog(
+                &mut assembly,
+                document,
+                &catalog,
+                (placed, tree),
+                needs_rendering || direct_form,
+            )?
+        }
         None => copy_closure(&mut assembly, document, root, true)
             .map_err(|error| Refusal::Assembly(error.to_string()))?,
     };
@@ -3229,6 +3245,16 @@ fn write_document(
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
     }
 
+    // Each placement copy's own parent-tree key, by the slot the copy went into (ADR 3846).
+    let copy_keys: HashMap<ObjectId, i64> = copy_keys
+        .into_iter()
+        .filter_map(|((page, edit), key)| {
+            form_slots
+                .get(page)
+                .and_then(|slots| slots.get(edit))
+                .map(|slot| (*slot, key))
+        })
+        .collect();
     for (placed, source, index) in replacements {
         let copies = private.get(index).cloned().unwrap_or_default();
         let object = match source {
@@ -3241,7 +3267,17 @@ fn write_document(
                     overrides: &resolved(&form.overrides, placed_located.get(index)),
                     masks: &slotted_masks(&form.masks, slots),
                 };
-                build_form(&mut assembly, document, form, &carried)?
+                let built = build_form(&mut assembly, document, form, &carried)?;
+                match (built, copy_keys.get(&placed)) {
+                    (Object::Stream(stream), Some(key)) => {
+                        let mut stream = Stream::clone(&stream);
+                        stream
+                            .dict
+                            .insert(Name::new(&b"StructParents"[..]), Object::Integer(*key));
+                        Object::Stream(Arc::new(stream))
+                    }
+                    (built, _) => built,
+                }
             }
         };
         assembly
@@ -3287,6 +3323,8 @@ fn write_document(
         restated: restated_slots
             .into_iter()
             .map(|(_, item)| item.detail)
+            .chain(restated_tree.map(|tree| tree.detail))
+            .filter(|detail| !detail.is_empty())
             .chain(xfa_details)
             .collect(),
         survivors,
@@ -3316,36 +3354,55 @@ fn place_restated(
     assembly: &mut Assembly<'_>,
     document: &Document,
     slots: &[(ObjectId, traces::Restated)],
-    (applied, form_slots): (&[AppliedPage], &[Vec<ObjectId>]),
+    placed: (&[AppliedPage], &[Vec<ObjectId>]),
 ) -> Result<(), Refusal> {
     for (slot, item) in slots {
-        let mut dict = Dictionary::new();
-        for (key, value) in item.dict.iter() {
-            dict.insert(key.clone(), carry(assembly, document, value, 0));
-        }
-        // Each copy named here was recorded by the walk of one of `applied`'s pages and given a
-        // slot by `reserve_slots` from the same list, and that page's slot is taken before this
-        // runs, so every lookup below answers; a miss would add no reference and leave the copy
-        // outside the tree, which the element's report already counts as part of its content.
-        for (path, copied) in &item.added {
-            let Some(at) = applied.iter().position(|page| page.page_id == copied.page) else {
-                continue;
-            };
-            let Some(stream) = form_slots.get(at).and_then(|forms| forms.get(copied.copy)) else {
-                continue;
-            };
-            let Object::Reference(page) =
-                carry(assembly, document, &Object::Reference(copied.page), 0)
-            else {
-                continue;
-            };
-            traces::add_references(&mut dict, path, &[(page, *stream, copied.mcid)]);
-        }
+        let dict = restated_dict(assembly, document, item, placed);
         assembly
             .place(*slot, Object::Dictionary(dict))
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
     }
     Ok(())
+}
+
+/// `item`'s dictionary with its entries carried into the output's numbering and each placement
+/// copy it names added (ADR 3811).
+fn restated_dict(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    item: &traces::Restated,
+    (applied, form_slots): (&[AppliedPage], &[Vec<ObjectId>]),
+) -> Dictionary {
+    let mut dict = Dictionary::new();
+    for (key, value) in item.dict.iter() {
+        dict.insert(key.clone(), carry(assembly, document, value, 0));
+    }
+    // Each copy named here was recorded by the walk of one of `applied`'s pages and given a slot
+    // by `reserve_slots` from the same list, and that page's slot is taken before this runs, so
+    // every lookup below answers; a miss would add no reference and leave the copy outside the
+    // tree, which the element's report already counts as part of its content.
+    for (path, copied) in &item.added {
+        let Some(at) = applied.iter().position(|page| page.page_id == copied.page) else {
+            continue;
+        };
+        let Some(stream) = form_slots.get(at).and_then(|forms| forms.get(copied.copy)) else {
+            continue;
+        };
+        let Object::Reference(page) = carry(assembly, document, &Object::Reference(copied.page), 0)
+        else {
+            continue;
+        };
+        traces::add_references(&mut dict, path, &[(page, *stream, copied.mcid)]);
+    }
+    if !item.kids_added.is_empty() {
+        let mut kids = match dict.remove("Kids") {
+            Some(Object::Array(kids)) => kids,
+            _ => Vec::new(),
+        };
+        kids.extend(item.kids_added.iter().copied().map(Object::Reference));
+        dict.insert(Name::new(&b"Kids"[..]), Object::Array(kids));
+    }
+    dict
 }
 
 /// Every annotation the removal took, on any page.
@@ -3356,8 +3413,136 @@ fn removed_annotations(applied: &[AppliedPage]) -> HashSet<ObjectId> {
         .collect()
 }
 
-/// What [`cut_traces`] replaced, and each slot it reserved with what goes into it.
-type Cut = (HashSet<ObjectId>, Vec<(ObjectId, traces::Restated)>);
+/// What [`cut_traces`] replaced, each slot it reserved with what goes into it, a structure tree
+/// root the catalog states directly, restated, for the catalog to be written with, and each
+/// placement copy's own parent-tree key, by its page's index and the page's form edit.
+type Cut = (
+    HashSet<ObjectId>,
+    Vec<(ObjectId, traces::Restated)>,
+    Option<traces::Restated>,
+    Vec<((usize, usize), i64)>,
+);
+
+/// What [`key_placement_copies`] restates of the structure tree.
+#[derive(Default)]
+struct Keyed {
+    /// Each placement copy's own key.
+    keys: Vec<((usize, usize), i64)>,
+    /// The parent tree's root, where it is an object of its own.
+    node: Option<traces::Restated>,
+    /// The new leaf a root with `/Kids` takes.
+    leaf: Option<Dictionary>,
+}
+
+/// Each placement copy of a form that states `/StructParents` (ADR 1363) given a key and an entry
+/// of its own in the structural parent tree (`parent_tree`, ADR 3846): the structure tree root
+/// in `restated` is restated, or added, with the new `/ParentTreeNextKey` and, where it holds the
+/// parent tree directly, the tree; a parent tree that is an object is answered to be restated.
+/// Nothing is keyed where the tree cannot be read or extended, and the copies keep the form's.
+fn key_placement_copies(
+    document: &Document,
+    (root, catalog): (ObjectId, &Dictionary),
+    applied: &[AppliedPage],
+    restated: &mut Vec<traces::Restated>,
+) -> Keyed {
+    let mut copies = Vec::new();
+    for (index, page) in applied.iter().enumerate() {
+        for (edit, form) in page.forms.iter().enumerate() {
+            let key = document
+                .get(form.id)
+                .as_stream()
+                .and_then(|stream| document.get_key(&stream.dict, "StructParents").as_integer());
+            let Some(key) = key.filter(|_| form.placement_copy) else {
+                continue;
+            };
+            let taken = page
+                .reached
+                .iter()
+                .filter(|reached| {
+                    reached.copy == Some(edit) && reached.stream == Some(form.id) && reached.whole
+                })
+                .map(|reached| reached.mcid)
+                .collect();
+            copies.push(parent_tree::Copy {
+                at: (index, edit),
+                key,
+                taken,
+            });
+        }
+    }
+    let Some(stated) = catalog.get("StructTreeRoot").filter(|_| !copies.is_empty()) else {
+        return Keyed::default();
+    };
+    let holder = stated.as_reference().unwrap_or(root);
+    let tree = document.resolve(stated);
+    let Some(tree) = tree.as_dict() else {
+        return Keyed::default();
+    };
+    let Some(stated_parents) = tree.get("ParentTree") else {
+        return Keyed::default();
+    };
+    let at = stated_parents.as_reference();
+    let parents = document.resolve(stated_parents);
+    let Some(parents) = parents.as_dict() else {
+        return Keyed::default();
+    };
+    let stated_next = document.get_key(tree, "ParentTreeNextKey").as_integer();
+    let Some(extension) = parent_tree::extend(document, (parents, at), stated_next, &copies) else {
+        return Keyed::default();
+    };
+    let (node, leaf) = parent_tree::with_pairs(document, parents, &extension.pairs);
+    // A leaf's reference goes into the root's own `/Kids`; a tree the structure tree root holds
+    // directly has no object for it to be added to once the leaf is numbered.
+    if at.is_none() && leaf.is_some() {
+        return Keyed::default();
+    }
+    let detail = format!(
+        "the structural parent tree given an entry of its own for each of {} placement copies of \
+         a form, the copy's /StructParents its key",
+        extension.keys.len()
+    );
+    let position = restated.iter().position(|item| item.id == holder);
+    let item = if let Some(position) = position
+        && let Some(item) = restated.get_mut(position)
+    {
+        item.detail = format!("{}; {detail}", item.detail);
+        item
+    } else {
+        restated.push(traces::Restated {
+            id: holder,
+            dict: tree.clone(),
+            detail,
+            added: Vec::new(),
+            kids_added: Vec::new(),
+        });
+        let Some(item) = restated.last_mut() else {
+            return Keyed::default();
+        };
+        item
+    };
+    item.dict.insert(
+        Name::new(&b"ParentTreeNextKey"[..]),
+        Object::Integer(extension.next),
+    );
+    let node = if let Some(id) = at {
+        Some(traces::Restated {
+            id,
+            dict: node,
+            detail: String::new(),
+            added: Vec::new(),
+            kids_added: Vec::new(),
+        })
+    } else {
+        item.dict
+            .insert(Name::new(&b"ParentTree"[..]), Object::Dictionary(node));
+        None
+    };
+    Keyed {
+        keys: extension.keys,
+        node,
+        leaf,
+    }
+}
 
 /// Writes §12.5.6.23's removed annotations as the null object, so that no reference to one — a
 /// popup's `/Parent`, a reply's `/IRT`, a field's `/Kids`, an `OBJR` — copies it back, and
@@ -3369,7 +3554,7 @@ type Cut = (HashSet<ObjectId>, Vec<(ObjectId, traces::Restated)>);
 fn cut_traces(
     assembly: &mut Assembly<'_>,
     document: &Document,
-    catalog: &Dictionary,
+    (root, catalog): (ObjectId, &Dictionary),
     applied: &[AppliedPage],
 ) -> Result<Cut, Refusal> {
     let assembly_error =
@@ -3400,9 +3585,32 @@ fn cut_traces(
         })
         .collect();
     let mut restated = traces::field_values(document, &gone_set);
-    restated.extend(traces::elements(document, catalog, &items, &gone_set));
+    let placements: Vec<(ObjectId, usize, ObjectId)> = applied
+        .iter()
+        .flat_map(|page| {
+            page.forms
+                .iter()
+                .enumerate()
+                .filter(|(_, form)| form.placement_copy)
+                .map(|(edit, form)| (page.page_id, edit, form.id))
+        })
+        .collect();
+    restated.extend(traces::elements(
+        document,
+        (root, catalog),
+        (&items, &placements),
+        &gone_set,
+    ));
+    let mut keyed = key_placement_copies(document, (root, catalog), applied, &mut restated);
+    let node = keyed.node.as_ref().map(|node| node.id);
+    restated.extend(keyed.node.take());
     let mut restated_slots = Vec::new();
+    let mut tree = None;
     for item in restated {
+        if item.id == root {
+            tree = Some(item);
+            continue;
+        }
         if replaced.contains(&item.id) || assembly.copied(0, item.id).is_some() {
             continue;
         }
@@ -3410,22 +3618,53 @@ fn cut_traces(
         replaced.insert(item.id);
         restated_slots.push((slot, item));
     }
-    Ok((replaced, restated_slots))
+    // The parent tree's root, where it is an object, takes the new leaf as its last kid; a root
+    // this could not restate takes nothing, and no copy is keyed into a tree that lacks its entry.
+    if let Some(node) = node {
+        let Some(at) = restated_slots.iter().position(|(_, item)| item.id == node) else {
+            return Ok((replaced, restated_slots, tree, Vec::new()));
+        };
+        if let Some(leaf) = keyed.leaf.take() {
+            let slot = assembly.reserve().map_err(assembly_error)?;
+            if let Some((_, item)) = restated_slots.get_mut(at) {
+                item.kids_added.push(slot);
+            }
+            restated_slots.push((
+                slot,
+                traces::Restated {
+                    id: node,
+                    dict: leaf,
+                    detail: String::new(),
+                    added: Vec::new(),
+                    kids_added: Vec::new(),
+                },
+            ));
+        }
+    }
+    Ok((replaced, restated_slots, tree, keyed.keys))
 }
 
 /// Writes the catalog into the slot `placed` with every entry but `/PieceInfo` carried (§14.5,
 /// ADR 3717), and answers the slot. Where `without_xfa`, Table 29's `/NeedsRendering` is left out
 /// and a directly stated interactive form dictionary is written without its `/XFA` (`xfa`, ADR
-/// 3789).
+/// 3789). A structure tree root the catalog states directly is written as `tree` where the
+/// removal restated it (ADR 3845), already in the output's numbering.
 fn place_catalog(
     assembly: &mut Assembly<'_>,
     document: &Document,
     catalog: &Dictionary,
-    placed: ObjectId,
+    (placed, tree): (ObjectId, Option<Dictionary>),
     without_xfa: bool,
 ) -> Result<ObjectId, Refusal> {
     let mut written = Dictionary::new();
+    let mut tree = tree;
     for (key, value) in catalog.iter() {
+        if key.as_bytes() == b"StructTreeRoot"
+            && let Some(tree) = tree.take()
+        {
+            written.insert(key.clone(), Object::Dictionary(tree));
+            continue;
+        }
         let value = match (key.as_bytes(), value) {
             (b"PieceInfo", _) => continue,
             (b"NeedsRendering", _) if without_xfa => continue,

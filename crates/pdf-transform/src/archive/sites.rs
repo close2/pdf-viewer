@@ -3276,6 +3276,12 @@ pub(super) struct EmbeddedFiles {
     /// Each specification with its name, in object order, for the outcome per object
     /// (`doc/adr/2536`).
     pub(super) each: Vec<(ObjectId, String)>,
+    /// The objects a specification of a file this target does not admit is written in place
+    /// inside, where it stands in an `/AF` array or is the object's own `/FS` (ADR 3847).
+    pub(super) in_place_by: BTreeSet<ObjectId>,
+    /// The embedded file streams of those specifications, by which the rewrite knows them: a
+    /// specification written in place has no number of its own.
+    pub(super) in_place_files: BTreeSet<ObjectId>,
     /// Each file attachment annotation still on a page whose `/FS` names one, with the one it names.
     ///
     /// Filled only where the files are laid out as pages: the annotation then becomes a link to
@@ -3307,24 +3313,34 @@ pub(super) fn embedded_files(
     // A place naming an object that is not itself a file specification names the object a
     // specification is written in place inside (`pdf_archive`'s embedded-file walk reports it so).
     // Where that holder is an annotation section 6.3.1's removal takes off the page, the
-    // specification leaves with it; anywhere else there is no reference to remove.
+    // specification leaves with it; anywhere else the specification is taken out where it stands
+    // (`in_place`, ADR 3847).
     let mut specifications = BTreeSet::new();
+    let mut in_place = InPlace::default();
     for id in at {
         let object = document.get(id);
-        let is_specification = object
-            .as_dict()
-            .is_some_and(|dict| document.get_key(dict, "EF").as_dict().is_some());
-        if is_specification {
+        let Some(dict) = object.as_dict() else {
+            return Err(Because::NotBuiltYet(EMBEDDED_FILE_WRITTEN_IN_PLACE));
+        };
+        if document.get_key(dict, "EF").as_dict().is_some() {
             specifications.insert(id);
         } else if !removed_annotations.is_some_and(|removed| removed.contains(&id)) {
-            return Err(Because::NotBuiltYet(EMBEDDED_FILE_WRITTEN_IN_PLACE));
+            in_place.holder(document, id, dict)?;
         }
     }
     let mut found = EmbeddedFiles {
         at: specifications,
+        in_place_by: in_place.holders,
+        in_place_files: in_place.files,
         ..EmbeddedFiles::default()
     };
+    for (holder, name) in in_place.names {
+        found.each.push((holder, name.clone()));
+        found.names.push(name);
+    }
     if found.at.is_empty() {
+        found.names.sort_unstable();
+        found.names.dedup();
         return Ok(found);
     }
     for number in document.xref().object_numbers() {
@@ -3390,6 +3406,113 @@ pub(super) fn embedded_files(
     found.names.sort_unstable();
     found.names.dedup();
     Ok(found)
+}
+
+/// The specifications of files a target does not admit that are written in place inside the
+/// objects the embedded-file rows name, and how each is taken out (ADR 3847).
+///
+/// The rows name a specification written in place by the object holding it, so each one inside a
+/// named holder is judged again on its own (`pdf_archive::table::embedded_file_fails`) and only
+/// the failing ones are taken out:
+///
+/// - **in an `/AF` array**, at any depth of the holder, the element leaves the array, as a
+///   referenced one does (ISO 32000-2 §14.13.2: the array lists the associated files, and one
+///   that is gone is listed nowhere);
+/// - **as the holder's own `/FS`**, which §12.5.6.15's Table 184 makes required of a file
+///   attachment annotation, the specification stays and its `/EF` and `/RF` go: what is left is
+///   §7.11.3's specification of a file by name, which an annotation the conversion keeps (its
+///   appearance, its place, its `/Contents`) still states, and the embedded file is the loss.
+///
+/// A failing specification anywhere else inside the holder — an action's `/F`, a collection
+/// item, a media clip — still refuses by name: each stands under an entry with a reading of its
+/// own, and none has been made here.
+#[derive(Default)]
+struct InPlace {
+    holders: BTreeSet<ObjectId>,
+    files: BTreeSet<ObjectId>,
+    names: Vec<(ObjectId, String)>,
+}
+
+impl InPlace {
+    /// Reads the specifications written in place inside `dict`, object `id`.
+    fn holder(
+        &mut self,
+        document: &Document,
+        id: ObjectId,
+        dict: &Dictionary,
+    ) -> Result<(), Because> {
+        let mut failing = 0_usize;
+        let mut unplaced = false;
+        let mut visit = |specification: &Dictionary, removable: bool| {
+            if !pdf_archive::table::embedded_file_fails(document, specification) {
+                return;
+            }
+            failing = failing.saturating_add(1);
+            if !removable {
+                unplaced = true;
+                return;
+            }
+            let files = document.get_key(specification, "EF");
+            self.files.extend(
+                files
+                    .as_dict()
+                    .into_iter()
+                    .flat_map(|files| files.iter().filter_map(|(_, file)| file.as_reference())),
+            );
+            self.names
+                .push((id, specification_file_name(document, specification)));
+        };
+        for (key, value) in dict.iter() {
+            let at_fs = key.as_bytes() == b"FS";
+            in_place_specifications(
+                document,
+                value,
+                (at_fs, key.as_bytes() == b"AF"),
+                0,
+                &mut visit,
+            );
+        }
+        // A holder the rows named in which no specification fails on its own failed for one this
+        // reading does not find, and nothing here says which to take out.
+        if unplaced || failing == 0 {
+            return Err(Because::NotBuiltYet(EMBEDDED_FILE_WRITTEN_IN_PLACE));
+        }
+        self.holders.insert(id);
+        Ok(())
+    }
+}
+
+/// Visits each specification written in place inside `value`, saying whether it stands where the
+/// removal takes it out: as the holder's own `/FS` (`at_fs`, only for `value` itself) or in an
+/// `/AF` array (`in_af`). Bounded by [`MAX_NAME_TREE_DEPTH`], as a document controls its nesting.
+fn in_place_specifications(
+    document: &Document,
+    value: &Object,
+    (at_fs, in_af): (bool, bool),
+    depth: usize,
+    visit: &mut impl FnMut(&Dictionary, bool),
+) {
+    if depth > MAX_NAME_TREE_DEPTH {
+        return;
+    }
+    let deeper = depth.saturating_add(1);
+    match value {
+        Object::Array(items) => {
+            for item in items {
+                in_place_specifications(document, item, (false, in_af), deeper, visit);
+            }
+        }
+        Object::Dictionary(dict) => {
+            if document.get_key(dict, "EF").as_dict().is_some() {
+                visit(dict, at_fs || in_af);
+            }
+            for (key, entry) in dict.iter() {
+                let in_af = key.as_bytes() == b"AF";
+                in_place_specifications(document, entry, (false, in_af), deeper, visit);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Records the outermost object holding each name-tree node whose `/Names` names a removed file.
@@ -3488,12 +3611,13 @@ const EMBEDDED_FILE_ROWS: [&str; 2] = [
     "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile",
 ];
 
-/// Why an embedded file whose specification a name tree holds in place is not removed.
+/// Why an embedded file whose specification is written in place somewhere this converter does not
+/// take one out of is not removed.
 const EMBEDDED_FILE_WRITTEN_IN_PLACE: &str = "this document writes the file specification of an \
      embedded file this target does not admit directly inside another object — its EmbeddedFiles \
-     name tree, an annotation's FS, an action's F or an AF array — rather than as an object of \
-     its own, and this verb removes references to objects: the specification has no object \
-     number for the removal to match on, and the object holding it is not the file";
+     name tree, an action's F, a collection item or a media clip — rather than as an object of \
+     its own, in an AF array or as an annotation's FS, and this verb has no reading of what \
+     taking it out of that entry would leave";
 
 /// Why an embedded file something else in the document still reaches is not removed.
 const EMBEDDED_FILE_STILL_REACHED: &str = "an embedded file this target does not admit is named \
