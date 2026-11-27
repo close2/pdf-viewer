@@ -1,0 +1,97 @@
+[
+ {
+  "id": "2278-B01",
+  "kind": "behavior-gap",
+  "clauses": [
+   "13.2.2",
+   "13.2.3.1"
+  ],
+  "summary": "A value of the wrong type in a rendition's must-honour media criteria is read as met. pdf_model::media's criterion returns met for a Table 279 /V or /P that is no array, language_criterion logs an /L that is no array and reads it as absent, and criteria skips a rendition MH /C that is no dictionary. MH << /C << /V 5 >> >>, /P /2.0, /L (en) and MH << /C 5 >> each leave the rendition viable.",
+  "source": "ISO 32000-2 §13.2.2: \"Unless otherwise stated, an object shall be considered non-viable if its MH dictionary contains an unrecognised key or an unrecognised value for a recognised key.\" §13.2.3.1: \"these dictionaries shall have a single entry C (see \\\"Table 278 -Entries in a rendition MH/BE dictionary\\\"), whose value shall have a media criteria dictionary\" and \"The only exception is that if an entry in a BE dictionary is unrecognised by the interactive PDF processor, it shall not affect the viability of the object.\"",
+  "code": "crates/pdf-model/src/media.rs:1363-1366 (a non-dictionary /C skipped), :1403 (/V and /P that are no array read as met), :1431-1434 (/L that is no array read as absent)",
+  "change": "Pass the MH flag to every value-type check: in MH a /V, /P or /L that is no array, and a /C that is no dictionary, is a reason; in BE each is ignored.",
+  "execution": "crates/pdf-model/tests/clause_13_multimedia_spec_audit.rs::an_unrecognised_value_in_a_rendition_must_honour_makes_it_non_viable_spec_audit fails on main listing all four; the controls (a plain rendition viable, an unrecognised MH key non-viable) pass.",
+  "status": "open"
+ },
+ {
+  "id": "2278-B02",
+  "kind": "behavior-gap",
+  "clauses": [
+   "13.4"
+  ],
+  "summary": "A movie this program plays itself (an embedded MP4 of video/ type, ADR 3594) is not rotated by Table 306's /Rotate. movie_clip pushes \"Table 306's /Rotate N\" into Clip::unhonoured and the clip carries no rotation, so viewer_host::video places the pictures, and the poster it decodes for /Poster true, at the page's orientation.",
+  "source": "ISO 32000-2 §13.4, Table 306 /Rotate: \"(Optional) The number of degrees by which the movie shall be rotated clockwise relative to the page. The value shall be a multiple of 90. Default value: 0.\"",
+  "code": "crates/pdf-model/src/media/deprecated.rs:136-144 (set aside), :175-177 (kept for the movie shown here); crates/viewer-host/src/video.rs, video/poster.rs (no rotation applied)",
+  "change": "Carry the rotation on Playing (or Clip) for a movie shown here and turn the pictures and the decoded poster clockwise by it where the window places them.",
+  "execution": "crates/pdf-model/tests/clause_13_multimedia_spec_audit.rs::a_movie_shown_here_is_rotated_as_its_movie_dictionary_states_spec_audit fails on main at /Rotate 90; the control without /Rotate passes.",
+  "status": "open"
+ },
+ {
+  "id": "2278-B03",
+  "kind": "behavior-gap",
+  "clauses": [
+   "13.3"
+  ],
+  "summary": "XFDF's <sound encoding=\"alaw\"> is written as a sound object with no /E, which Table 305 reads as its default Raw, so A-law codes are played as unsigned samples. The importer's comment says Table 305 lists Raw, Signed and muLaw only, following doc/md/'s extraction; the printed table lists ALaw, and pdf_model::media::Encoding::ALaw reads it (ADR 2398).",
+  "source": "ISO 32000-2 §13.3, Table 305 /E as printed (doc/ISO_32000-2_sponsored_EC3.pdf): \"Raw Unspecified or unsigned values in the range 0 to 2B - 1; Signed Twos-complement values; muLaw m-law–encoded samples; ALaw A-law–encoded samples; Default value: Raw.\"",
+  "code": "crates/pdf-model/src/xfdf/annotations.rs:757-773 (alaw owed, no /E written)",
+  "change": "Write /E /ALaw for encoding=\"alaw\" and restate the comment against the printed table.",
+  "execution": "crates/pdf-model/tests/clause_13_multimedia_spec_audit.rs::an_xfdf_a_law_sound_is_written_with_table_305_s_alaw_spec_audit fails on main at alaw; the mulaw control passes.",
+  "status": "open"
+ },
+ {
+  "id": "2278-B04",
+  "kind": "behavior-gap",
+  "clauses": [
+   "13.6.2",
+   "13.7.2.1"
+  ],
+  "summary": "A press on a 3D annotation or a rich media annotation says nothing. Table 310's /A defaults to XA, activation by the user, and the active state shows the artwork, whose rendering CLAUDE.md's clause 13 entry excludes. interact::exhibited returns None for every subtype but Movie and Sound, no link or field takes the press, and the viewer emits only a damage rectangle: the exclusion is never said where a person asks for the artwork.",
+  "source": "ISO 32000-2 §13.6.2: \"Inactive (the default initial state): the annotation displays the annotation's normal appearance.\" \"Active: the annotation displays a rendering of the 3D artwork.\" Table 310 /A: \"XA The annotation shall remain inactive until explicitly activated by a script or user action. Default value: XA.\" CLAUDE.md principle 5, the clause 13 exclusion; doc/scope-ratifications.md; trap 5 (every arm of a click says something).",
+  "code": "crates/viewer-core/src/interact/deprecated_media.rs:27-52 (exhibited: _ => return None), crates/viewer-core/src/viewer/pointer.rs:321",
+  "change": "For a 3D or RichMedia annotation pressed, report once that its artwork is not rendered by this program (the clause 13 exclusion) and that its normal appearance stays.",
+  "execution": "crates/viewer-core/tests/clause_13_activation_spec_audit.rs::activating_3d_or_rich_media_artwork_is_refused_by_name_spec_audit fails on main at the 3D press (events: one Damage); the movie control hands its movie over.",
+  "status": "open"
+ },
+ {
+  "id": "2278-D01",
+  "kind": "documentation",
+  "clauses": [
+   "13.4"
+  ],
+  "summary": "The 13.4 row is implemented while three statements of Tables 306 and 307 are set aside for the movie this program plays: /Rotate (B02), /Rate below zero and /Mode /Palindrome (played forward repeatedly). The clause 13 entry does not exclude them.",
+  "source": "ISO 32000-2 Table 307 /Rate: \"If the value of this entry is negative, the movie shall be played backward with respect to Start and Duration.\" /Mode: \"Palindrome Play continuously forward and backward until stopped.\"",
+  "code": "doc/conformance/ledger.toml (13.4); crates/pdf-model/src/media/deprecated.rs:203-216",
+  "change": "Restate the row as partial, or argue each as a departure in an ADR.",
+  "execution": "read only",
+  "status": "open"
+ },
+ {
+  "id": "2278-D02",
+  "kind": "documentation",
+  "clauses": [
+   "13.2.3.1"
+  ],
+  "summary": "Table 279's /P is refused with the sentence \"this program plays none\" of the multimedia constructs; it plays §13.2's renditions, sounds and movies. The refusal may stand on \"fully supported\" (13.2.5 is partial); the sentence and its comment are stale.",
+  "source": "ISO 32000-2 Table 279 /P: \"If this entry is present and non-empty, the version of multimedia constructs fully supported by the interactive PDF processor shall be within the specified range in order for this object to be viable.\"",
+  "code": "crates/pdf-model/src/media.rs:1410-1414",
+  "change": "Say that this program does not fully support any version's multimedia constructs (13.2.5 partial), not that it plays none.",
+  "execution": "read only",
+  "status": "open"
+ },
+ {
+  "id": "2278-D03",
+  "kind": "documentation",
+  "clauses": [
+   "13.7",
+   "13.7.2.1",
+   "13.7.2.2"
+  ],
+  "summary": "The rich media rows rest on 'a media engine's runtime — rich media's, which no round has planned beside the video player', and 13.7.2.1's note says the playing of video still excludes. The ratification makes rich media follow its parts with no trigger of its own, and RFC 0015 section 10.1 makes a Sound configuration Part 1 and a Video configuration Part 2, both built. Those configurations are unblocked; the rows may stay out-of-scope until built, but the reason is stale and no todo plans the five rounds section 10.1 estimates.",
+  "source": "doc/scope-ratifications.md: \"Rich media (§13.7) and §12.6.4.16's Go-To-3D-View follow the parts they are made of and carry no trigger of their own\"; RFC 0015 section 10.1: \"A 3D configuration is Part 3 or 4, a Sound configuration Part 1, a Video configuration Part 2\".",
+  "code": "doc/conformance/ledger.toml (13.7, 13.7.1, 13.7.2, 13.7.2.1, 13.7.2.2 to 13.7.2.2.6, 13.7.2.3, 13.7.2.3.3 to 13.7.2.3.6)",
+  "change": "Restate the reasons: Sound and Video configurations unblocked by A946 and A1006 and owed, 3D configurations and the run time excluded; add a todo for RFC 0015 section 10.1's rounds.",
+  "execution": "read only",
+  "status": "open"
+ }
+]

@@ -23,6 +23,7 @@ mod artifact_reporting_audit;
 mod associated_file_examples;
 mod associated_file_examples_audit;
 mod attachments_filed;
+mod clause_13_multimedia_spec_audit;
 mod collections;
 mod content_rectangle;
 mod destinations;
