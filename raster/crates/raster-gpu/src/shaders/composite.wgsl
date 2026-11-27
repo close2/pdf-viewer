@@ -126,15 +126,23 @@ fn lum(c: vec3f) -> f32 {
 }
 
 // §11.3.5.3's ClipColor: pull components back into gamut around the luminosity.
+//
+// Each division is taken only where its denominator is positive (ADR 3773). The clause
+// divides by `l − n` and by `x − l`, which are zero for a neutral colour; in exact arithmetic
+// SetLum never hands one out of gamut, because its luminosity is that of an in-gamut colour.
+// In `f32` it does: a backdrop's straight colour is its premultiplied colour over its alpha,
+// a hair past 1.0 at some partial alphas, and white then reached the second branch with
+// `x == l` and became NaN — a black pixel inside a white glyph. A neutral colour is left as it
+// is; nothing about it is out of gamut but the rounding, which the target's store clamps.
 fn clip_color(c_in: vec3f) -> vec3f {
     var c = c_in;
     let l = lum(c);
     let n = min(c.r, min(c.g, c.b));
     let x = max(c.r, max(c.g, c.b));
-    if n < 0.0 {
+    if n < 0.0 && l > n {
         c = l + (c - l) * l / (l - n);
     }
-    if x > 1.0 {
+    if x > 1.0 && x > l {
         c = l + (c - l) * (1.0 - l) / (x - l);
     }
     return c;

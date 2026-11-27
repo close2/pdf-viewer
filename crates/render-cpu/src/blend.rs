@@ -89,19 +89,21 @@ fn lum(c: Rgb) -> f32 {
 /// directly, the same arithmetic returns −3.55 for a component. Not a defence to write in
 /// code — there is no caller that can do it — but the reason there is none is worth
 /// stating, because it is a property of the clause rather than of this function.
+///
+/// **Each division is taken only where its denominator is positive** (ADR 3773). The clause
+/// divides by `l − n` and by `x − l`, and both are zero for a neutral colour, where `l` is every
+/// component. In exact arithmetic `SetLum` never hands this a neutral colour out of range; in
+/// `f32` a straight colour recovered from a premultiplied one by its alpha can stand a hair past
+/// `1.0` with `Lum` rounding onto it, and the second branch was then zero over zero. A neutral
+/// colour is left as it is: only rounding puts it out of range, and the store clamps it.
 fn clip_colour(c: Rgb) -> Rgb {
     let l = lum(c);
     let (n, x) = (c.min(), c.max());
     let mut c = c;
-    if n < 0.0 {
-        // `l - n` is positive here, since `n` is negative and `l` is a weighted mean of
-        // components no smaller than `n`; the degenerate `l == n` needs every component
-        // equal, which contradicts `n < 0.0 <= l`.
+    if n < 0.0 && l > n {
         c = c.map(|v| l + (v - l) * l / (l - n));
     }
-    if x > 1.0 {
-        // Symmetrically, `x - l` is positive because `x` exceeds 1.0 and `l` is a
-        // weighted mean of components no larger than `x`.
+    if x > 1.0 && x > l {
         c = c.map(|v| l + (v - l) * (1.0 - l) / (x - l));
     }
     c
@@ -786,6 +788,34 @@ mod tests {
         assert!((lum(rgb(1.0, 0.0, 0.0)) - 0.30).abs() < 1e-6);
         assert!((lum(rgb(0.0, 1.0, 0.0)) - 0.59).abs() < 1e-6);
         assert!((lum(rgb(0.0, 0.0, 1.0)) - 0.11).abs() < 1e-6);
+    }
+
+    /// §11.3.5.3's `ClipColor` divides by `x − l` once a component passes `1.0`, and for a
+    /// neutral colour `x` is `l`: zero over zero. Only rounding puts a neutral colour there — a
+    /// white recovered from its premultiplied value a hair past `1.0` — and white is what
+    /// `SetLum(white, Lum(white))` is in the clause's arithmetic, so the answer stays finite and
+    /// at white (ADR 3773). The loop also counts the neutral colours whose `Lum` rounds onto
+    /// their own component, the case the guard is for, so the test cannot pass vacuously.
+    #[test]
+    fn a_neutral_colour_a_hair_past_white_is_not_divided_by_zero() {
+        let mut v = 1.0_f32;
+        let mut on_its_luminosity = 0;
+        for _ in 0..64 {
+            v = v.next_up();
+            let neutral = rgb(v, v, v);
+            if lum(neutral) >= v {
+                on_its_luminosity += 1;
+            }
+            let clipped = clip_colour(neutral);
+            for k in [clipped.r, clipped.g, clipped.b] {
+                assert!((k - 1.0).abs() < 1e-5, "{v}: {k}");
+            }
+            let white = set_lum(rgb(1.0, 1.0, 1.0), lum(neutral));
+            for k in [white.r, white.g, white.b] {
+                assert!((k - 1.0).abs() < 1e-5, "{v}: {k}");
+            }
+        }
+        assert!(on_its_luminosity > 0, "no neutral colour met the guard");
     }
 
     /// `ClipColor` brings a colour into range *without* moving its luminosity, which is

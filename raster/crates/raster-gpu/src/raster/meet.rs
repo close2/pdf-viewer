@@ -135,7 +135,7 @@ fn row_span(edge: &Edge, y: f64) -> (f64, f64) {
 const RUN_WIDTH: f64 = 1.0;
 
 /// Every edge's part in each row it reaches, gathered into runs ([`Entry`]) and listed as
-/// `(row, run)` in the order the runs were begun; `span` gives the rows an edge reaches, and
+/// `(row, run)` in the order the runs were begun; `spans` gives the rows each edge reaches, and
 /// `pairs` — the edge-row pairs, an upper bound on the runs — sizes the list.
 ///
 /// An edge continues the run its row last began when it follows that run's last edge in the
@@ -148,13 +148,12 @@ fn runs_by_row(
     first: f64,
     rows: u32,
     pairs: usize,
-    span: impl Fn(&Edge) -> (u32, u32),
+    spans: &[(u32, u32)],
 ) -> Vec<(u32, Entry)> {
     let mut runs: Vec<(u32, Entry)> = Vec::with_capacity(pairs);
     // Per row, the run it last began, or `usize::MAX` before its first.
     let mut open = vec![usize::MAX; rows as usize];
-    for (index, edge) in edges.iter().enumerate() {
-        let (from, to) = span(edge);
+    for (index, (edge, &(from, to))) in edges.iter().zip(spans).enumerate() {
         for r in from..to {
             let (ya, yb) = row_span(edge, first + f64::from(r));
             let (xa, xb) = (edge.x_at(ya), edge.x_at(yb));
@@ -342,7 +341,13 @@ impl RowEdges {
         // gathers it with its neighbours: what a set may cost is decided before its runs are.
         // Kept row by row as well, so that a meet over some of these rows asks the bound a
         // build over those rows alone would have asked ([`RowEdges::charge`]).
+        //
+        // **Each edge's rows are found once**, here, and the runs read them back (ADR 3774):
+        // `floor` and `ceil` are calls into the C library at this target's baseline, and
+        // asking them a second time per edge cost the Type 3-in-Type 3 page 2.3 % of raster's
+        // instructions.
         let mut total = 0_usize;
+        let mut spans = Vec::with_capacity(edges.len());
         let mut reached = if charges {
             vec![0_u64; rows as usize + 1]
         } else {
@@ -350,6 +355,7 @@ impl RowEdges {
         };
         for edge in &edges {
             let (from, to) = span(edge);
+            spans.push((from, to));
             total = total.saturating_add(to.saturating_sub(from) as usize);
             if total > limit {
                 return None;
@@ -389,7 +395,7 @@ impl RowEdges {
         }
         let levels: Vec<Level> = levels.into_iter().map(|(_, level)| level).collect();
         let total = total - levels.len();
-        let entries = runs_by_row(&edges, first, rows, total, span);
+        let entries = runs_by_row(&edges, first, rows, total, &spans);
         let starts = row_starts(&entries, rows);
         let entries: Vec<Entry> = entries.into_iter().map(|(_, entry)| entry).collect();
         let mut sets = Self {
