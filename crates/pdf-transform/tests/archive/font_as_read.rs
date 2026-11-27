@@ -563,3 +563,66 @@ fn a_damaged_encoding_cmap_is_written_as_read() {
         );
     }
 }
+
+/// A damaged encoding `CMap` that also maps with `beginbfchar` is written as read, in one pass.
+///
+/// ISO 32000-2 §9.7.5.4 c) reserves `beginbfchar` for a `ToUnicode` `CMap`, and this reader reads
+/// each of its destinations as a CID (ADR 3428); `/B` in a mapping section is an operand §9.7.5.3
+/// does not admit, so the map is `font/cmap-damaged`. The reading holds both answers, so writing
+/// it again (ADR 3804) states every mapping as `cidchar` and drops the damage at once; restating
+/// only the `bfchar` sections would keep the damage (ADR 3827). The damage is tried in its own
+/// section and inside the `bfchar` section.
+#[test]
+fn a_damaged_encoding_cmap_that_maps_with_bfchar_is_written_as_read() {
+    for sections in [
+        "1 beginbfchar\n<41> <0024>\nendbfchar\n1 begincidchar\n<42> /B\nendcidchar\n",
+        "2 beginbfchar\n<41> <0024>\n<42> /B\nendbfchar\n",
+    ] {
+        let map = format!(
+            "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+             /CMapName /Damaged-H def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n\
+             {sections}endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n"
+        );
+        let source = a_composite_page_encoded_by(map.as_bytes());
+        assert!(
+            fails(&source, "fonts/font-maps-read-as-written"),
+            "{sections}"
+        );
+        assert!(
+            fails(&source, "fonts/encoding-cmap-maps-codes-to-cids"),
+            "{sections}"
+        );
+        let before = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+        let was = pdf_font::composite_cmap(
+            &before,
+            before.get(ObjectId::new(6, 0)).as_dict().expect("the font"),
+            "F1",
+        )
+        .expect("the map reads");
+        for profile in ["as-shown", "as-if-printed"] {
+            let (report, output) = convert(&source, TARGET, authorised_by(profile));
+            let output = written(&report, output);
+            let held = holds(&output, TARGET);
+            assert_eq!(
+                held.verdict(),
+                Verdict::Conforms,
+                "{sections}{profile}: {}",
+                held.render()
+            );
+            let reopened = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+            let font = reopened
+                .get(ObjectId::new(6, 0))
+                .as_dict()
+                .cloned()
+                .expect("the font");
+            let read = pdf_font::composite_cmap(&reopened, &font, "F1").expect("the map reads");
+            assert!(!read.damaged(), "{sections}{profile}");
+            assert!(was.reads_alike(&read), "{sections}{profile}");
+            let codes: Vec<Option<u32>> = b"AB"
+                .iter()
+                .map(|byte| read.cid(read.next_code(&[*byte])))
+                .collect();
+            assert_eq!(codes, [Some(36), None], "{sections}{profile}");
+        }
+    }
+}

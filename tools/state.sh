@@ -693,9 +693,10 @@ section_confined() {
 # **The census is the section's second half, so that a brief's premise is one command** (ADR 1983).
 # The listing says which sites have no remedy and needs no document; `examples/archive_unbuilt`
 # says, over the corpora `doc/todo/72` names, how many documents fail each of them per target, with
-# its kind, and that ranking is what an archive slot is chosen from. It is a walk, about three
-# minutes and under a gibibyte, so the section is not in `quick`; `section_archive` calls it so that
-# a run of that section alone prints the whole item.
+# its kind, and that ranking is what an archive slot is chosen from. It is a walk of thirteen to
+# twenty-eight minutes and about a gibibyte, declared long because it runs past ADR 1869's 600 s
+# (ADR 3826), so the section is not in `quick`; `section_archive` calls it so that a run of that
+# section alone prints the whole item.
 section_remedies() {
     heading "the mitigation catalogue's gap, per PDF/A target" \
         "quorra-transform archive --remedy-sites --to <target> [--config <profile>]"
@@ -772,7 +773,7 @@ section_remedies() {
     # site no document reaches is still owed, and the first half above counts it.
     run "the census: the documents failing each unbuilt site, per target, ranked (doc/todo/72)" \
         '^[0-9]+ of [0-9]+ documents opened|^PDF/A-[0-9a-z]+: [0-9]+ unbuilt site|^ +[1-9][0-9]* +' \
-        walk small -- cargo run --release -q -p pdf-transform --example archive_unbuilt -- doc/pdf.js/test/pdfs doc/corpora
+        walk long -- cargo run --release -q -p pdf-transform --example archive_unbuilt -- doc/pdf.js/test/pdfs doc/corpora
 }
 
 # ISO 19005's two readings, clause by clause: the validator against every witness the veraPDF
@@ -788,6 +789,7 @@ section_remedies() {
 # as conforming and veraPDF does not, and the rules it fails them on (ADR 2652). The outputs are
 # about two gigabytes, in a `mktemp` directory removed when the section ends; where `/tmp` is memory,
 # `TMPDIR` names a disk.
+# The converter's walk and the cross-check run past ADR 1869's 600 s, so they declare long (ADR 3826).
 section_archive() {
     section_remedies
     run "the validator against the veraPDF corpus (ISO 19005, clause by clause per target)" \
@@ -797,7 +799,7 @@ section_archive() {
     outputs=$(mktemp -d) || return 1
     run "the converter over the veraPDF corpus (conforms in, conforms out, no glyph moves)" \
         '^(archive |profile |pdf.js profile |corpora profile |    )|not here|^bounded:' \
-        walk small --build '--profile gates -p pdf-sandbox --bins' -- env QUORRA_CENSUS_OUTPUTS="$outputs" \
+        walk long --build '--profile gates -p pdf-sandbox --bins' -- env QUORRA_CENSUS_OUTPUTS="$outputs" \
         cargo test --profile gates -p pdf-transform --test archive_corpus -- --ignored --nocapture
     run "veraPDF over every output the census of real producers' files wrote as conforming (ADR 2652)" \
         '^veraPDF census: |^disagreements: |^bounded:' \
@@ -805,7 +807,7 @@ section_archive() {
     rm -rf "$outputs"
     run "the survey's resource selections held to the interpreter's (A61, ADR 1055)" \
         '^cross-check: |not here|^bounded:' \
-        walk small -- cargo test --profile gates -p pdf-archive --test cross_check -- --ignored --nocapture
+        walk long -- cargo test --profile gates -p pdf-archive --test cross_check -- --ignored --nocapture
 }
 
 section_dates() {
@@ -817,13 +819,14 @@ section_dates() {
 # at a Table 199 site committed once, each displayed value held by name (ADR 1579). Tier 1's: every
 # script Tier 0 does not run, run in its document's realm with the `engine` feature, its endings
 # counted and held to the column's own ceilings, which the `held:` line prints (ADR 1625). Two
-# corpus walks, behind the lock.
+# corpus walks, behind the lock, each over an hour and so declared long: a small walk is one that ends
+# within ADR 1869's 600 s, and one that does not keeps a waiting clock run off the second lane (ADR 3826).
 section_scripts() {
     run "field scripts, Tier 0 (RFC 0008)" '^[0-9]+ (PDF\(s\) walked|held)' \
-        walk small -- cargo test --profile gates -p pdf-model --test script_corpus -- --ignored --nocapture
+        walk long -- cargo test --profile gates -p pdf-model --test script_corpus -- --ignored --nocapture
     run "field scripts, Tier 1 in the engine (RFC 0008 section 6.7, ADR 1625)" \
         '^[0-9]+ PDF\(s\) walked|^held: |^ratchet: |^budgets exceeded|^bounded:' \
-        walk small --data 8 -- \
+        walk long --data 8 -- \
         cargo test --profile gates -p pdf-script --features engine --test script_corpus -- --ignored --nocapture
 }
 

@@ -78,6 +78,19 @@ impl Rewriter<'_> {
             count(applied, Rewrite::CompactFontRealsRestated);
             return Rewritten::Changed(restated.clone());
         }
+        // A damaged `/ToUnicode` `CMap`, or a damaged encoding `CMap`, written again as the
+        // mappings this reader read: new bytes and a new `/Filter` together, so a whole stream
+        // (ADRs 3781 and 3804). Asked before the restatement of `bfchar` sections below, because
+        // an encoding map written from its reading states those sections as `cidchar` already,
+        // and the restatement alone would keep the damage (ADR 3827).
+        if self.wants(Rewrite::FontMapsAsRead)
+            && let Some(written) = self
+                .font_maps
+                .and_then(|restated| restated.streams.get(&id))
+        {
+            count(applied, Rewrite::FontMapsAsRead);
+            return Rewritten::Changed(written.clone());
+        }
         // An Encoding CMap's bfchar sections restated as cidchar: new bytes and a new `/Filter`
         // together, so a whole stream (ADR 3428).
         if self.wants(Rewrite::EncodingCmapRestated)
@@ -87,16 +100,6 @@ impl Rewriter<'_> {
         {
             count(applied, Rewrite::EncodingCmapRestated);
             return Rewritten::Changed(restated.clone());
-        }
-        // A damaged `/ToUnicode` `CMap` written again as the mappings this reader read: new
-        // bytes and a new `/Filter` together, so a whole stream (ADR 3781).
-        if self.wants(Rewrite::FontMapsAsRead)
-            && let Some(written) = self
-                .font_maps
-                .and_then(|restated| restated.streams.get(&id))
-        {
-            count(applied, Rewrite::FontMapsAsRead);
-            return Rewritten::Changed(written.clone());
         }
         // A name-keyed CFF written CID-keyed: new bytes, a new `/Filter` and a new `/Subtype`
         // together, so a whole stream (ADR 3446).

@@ -2912,3 +2912,17 @@ After ADR 3607, `spec-errata check` lists 705 landings on a passage struck out o
 | Issue #437 | `crates/pdf-transform/src/archive/tagged.rs:129` |
 | Issue #113 | `tools/spec-errata/src/lib.rs:1034` |
 | Issue #23 and #34 | `doc/conformance/ledger.toml:3682` |
+
+## The tracker's moves of 24 to 27 November 2026, read (ADR 3825)
+
+`tools/fetch-errata.sh --check` failed on the train: `issues.jsonl` and `comments.jsonl` had moved,
+and `site/` had not (no page of pdf-issues.pdfa.org changed). The re-fetch holds the repository at
+`d9b2519a`. Twenty-nine issues changed and one is new; six comments are new. **None is agreed
+against a clause this program implements, so no code, quotation or ledger row moves.**
+
+| issue | standard | what moved | verdict |
+|---|---|---|---|
+| #865 (new) | ISO 32000-2 §12.5.5 | Proposes that appearance subdictionaries *should* be used only where an annotation defines states, and be deprecated for text, choice and signature widgets. | **Evidence: open, no agreement in its thread.** The proposal is writer guidance (*should*, *deprecated*) and leaves a reader's rule where it was. Its witness is a `/Sig` widget whose `/N` is an empty subdictionary and that has no `/AS`. `pdf-model`'s `annotation.rs` draws nothing for that widget and says Table 166's requirement by name (`no_state`), which is the printed text read as it stands. Re-read when the PDF TWG records a resolution. |
+| #810, #814, #816, #818, #820, #822, #832, #847 | ISO 14739-1 (PRC) | Closed as completed on 25 November, labelled `proposed solution`. Only #822 has a new comment, a census of `point_reference_array` sizes. | **Inside the exclusion.** PRC rendering is excluded (`CLAUDE.md`'s clause 13 entry; `doc/scope-ratifications.md`'s trigger is a PRC reader that reads ISO 14739-1 whole). This tree has no PRC reader, so no code reads any of these clauses. The threads record no working-group agreement: the issues were closed with no comment, and #817's comment points to the 3D PDF TWG's own source (`3dpdf-twg` PR 56). They are recorded here for the round that meets the trigger, which reads them in full. |
+| #805, #817, #853, #864, #844 | ISO 14739-1 | New comments, all evidence from implementers: #805's version-window test files with Acrobat's and two other readers' results, #817's recommendation 2 moved to a TWG pull request, #853's helix evaluator matched, and #864's and #844's corner assignment for `sense_array` re-measured over prc-db. | **Inside the exclusion**, as above. Another reader's behaviour is evidence even after the trigger is met (principle 5). |
+| #823, #824, #825, #827, #830, #843, #849, #856 to #863 | ISO 14739-1 | Bodies edited by their authors on 25 November. The issues are still open. | **Inside the exclusion**, as above. |

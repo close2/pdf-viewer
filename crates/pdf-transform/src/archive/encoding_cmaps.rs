@@ -16,6 +16,10 @@
 //! selects the same CID under the restated program, or the `CMap` is refused by name and the
 //! finding stands.
 //!
+//! A map this reader read past entries of is not this module's: it is written whole from its
+//! reading (`super::font_maps`, ADR 3804), which states each of these mappings as `cidchar` too,
+//! so one route answers both findings (ADR 3827).
+//!
 //! What stays refused, by name: a `CMap` written inside another object, one this reader does not
 //! decode, a destination that is not a hex string of at most four bytes — a glyph name, which
 //! states no CID — and a program with more codes than the check walks.
@@ -72,6 +76,13 @@ pub(super) fn restated(
             return Err(refused);
         };
         let original = document.decoded_stream_data(&stream).ok_or(refused)?;
+        // A map this reader read past entries of is written whole from its reading at
+        // `fonts/font-maps-read-as-written` (`super::font_maps`, ADR 3804), which states every
+        // mapping a `bfchar` section made as the `cidchar` entry read; restating the sections here
+        // as well would keep the damage (ADR 3827).
+        if CMap::parse(&original, None).damaged() {
+            continue;
+        }
         let program = with_cid_sections(&original).ok_or(refused)?;
         if !selects_as_it_did(&original, &program) {
             return Err(refused);
