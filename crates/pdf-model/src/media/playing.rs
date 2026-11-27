@@ -116,7 +116,7 @@ impl Fit {
 /// `/ShowControls` as four independent flags with four independent defaults.
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "one field per table entry; the tables state four independent flags"
+    reason = "one field per table entry; the tables state six independent flags"
 )]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Playing {
@@ -164,11 +164,19 @@ pub struct Playing {
     ///
     /// False for every other clip.
     pub backward: bool,
+    /// ISO 32000-2 §13.4, Table 307's `/Mode` `Palindrome`, for a movie this program shows itself
+    /// (ADR 3842):
+    ///
+    /// > Palindrome Play continuously forward and backward until stopped.
+    ///
+    /// Each pass after the first plays in the direction opposite to the one before it, the first
+    /// in [`Self::backward`]'s; false for every other clip.
+    pub palindrome: bool,
 }
 
 impl Default for Playing {
     /// Each table's default: `/V` 100, `/D` intrinsic, `/RC` 1.0, `/A` true, `/F` 5,
-    /// `/Synchronous`, `/Mix` and `/ShowControls` false, `/Rotate` 0, `/Rate` 1.0 (forward).
+    /// `/Synchronous`, `/Mix` and `/ShowControls` false, `/Rotate` 0, `/Rate` 1.0 (forward), `/Mode` `Once`.
     fn default() -> Self {
         Self {
             level: 1.0,
@@ -182,6 +190,7 @@ impl Default for Playing {
             controls: false,
             quarter_turns: 0,
             backward: false,
+            palindrome: false,
         }
     }
 }

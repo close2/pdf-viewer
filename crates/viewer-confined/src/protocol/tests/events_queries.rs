@@ -219,6 +219,7 @@ fn every_carried_event_round_trips() {
                     controls: true,
                     quarter_turns: 3,
                     backward: true,
+                    palindrome: true,
                     ..pdf_model::media::Playing::default()
                 },
                 screen: None,

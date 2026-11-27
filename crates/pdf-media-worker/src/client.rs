@@ -25,7 +25,7 @@ use crate::wire::{
 };
 
 mod video;
-pub use video::{RING_SLOTS, VideoStreamed};
+pub use video::{MAX_GROUP_PARTS, RING_SLOTS, VideoStreamed};
 
 /// The most boxes at the top of an MP4 file the host walks to find its movie.
 ///
@@ -194,6 +194,9 @@ pub struct MediaWorker {
     host: Option<Host>,
     /// How many workers this handle has started.
     starts: usize,
+    /// The bytes of decoded planes each part of a group played backward holds, where a caller
+    /// lowered it below [`crate::video::MAX_GROUP_BYTES`] ([`Self::with_group_bytes`]).
+    group_bytes: Option<usize>,
 }
 
 impl MediaWorker {
@@ -211,6 +214,16 @@ impl MediaWorker {
             program: Some(program),
             ..Self::default()
         }
+    }
+
+    /// The same handle letting each group of a movie played backward out in parts of at most
+    /// `bytes` of decoded planes, where that is below [`crate::video::MAX_GROUP_BYTES`]: the bound
+    /// is only ever lowered, which a test uses to split a small fixture's groups exactly as a
+    /// 1080-line clip's are split (ADR 3843).
+    #[must_use]
+    pub fn with_group_bytes(mut self, bytes: usize) -> Self {
+        self.group_bytes = Some(bytes.min(crate::video::MAX_GROUP_BYTES));
+        self
     }
 
     /// How many workers this handle has started.

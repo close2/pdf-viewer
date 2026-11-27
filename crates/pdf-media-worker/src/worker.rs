@@ -303,7 +303,11 @@ impl Worker {
         }
         match run {
             VideoRun::Forward { last } => self.forward(last, &units, emitter, input, output),
-            VideoRun::Backward { ends } => self.backward(ends, &units, emitter, input, output),
+            VideoRun::Backward { ends, from, to } => {
+                let places = usize::try_from(from).unwrap_or(usize::MAX)
+                    ..usize::try_from(to).unwrap_or(usize::MAX);
+                self.backward(ends, places, &units, emitter, input, output)
+            }
         }
     }
 
@@ -357,12 +361,13 @@ impl Worker {
 
     /// A run of a group played backward (ISO 32000-2 §13.4, Table 307's negative `/Rate`; ADR
     /// 3837): the group's first run begins a session of its own at the group's sync sample, every
-    /// picture is held in the [`video::Group`], and the run that ends the group emits the whole of
-    /// it last picture first. A group past [`video::MAX_GROUP_BYTES`] is refused before any of its
-    /// pictures is emitted.
+    /// picture at an output place in `places` is held in the [`video::Group`], and the run that
+    /// ends the group emits them last picture first (ADR 3843). A part past
+    /// [`video::MAX_GROUP_BYTES`] is refused before any of its pictures is emitted.
     fn backward(
         &mut self,
         ends: bool,
+        places: std::ops::Range<usize>,
         units: &[&[u8]],
         emitter: &mut Emitter,
         input: &mut impl Read,
@@ -378,7 +383,7 @@ impl Worker {
                 Ok(session) => self.video = Some(session),
                 Err(error) => return Ok(Some(ended(error))),
             }
-            self.group = Some(video::Group::default());
+            self.group = Some(video::Group::keeping(places.start, places.end));
         }
         let held = self.hold_group(ends, units);
         if let Err(error) = held {
@@ -400,7 +405,8 @@ impl Worker {
     }
 
     /// Decodes `units` into the group in hand, and the session's held pictures with them where the
-    /// run `ends` the group.
+    /// run `ends` the group; once the last place the group holds has been let out, the rest of the
+    /// group is not decoded (ADR 3843).
     fn hold_group(&mut self, ends: bool, units: &[&[u8]]) -> Result<(), video::VideoError> {
         let (Some(session), Some(group)) = (self.video.as_mut(), self.group.as_mut()) else {
             return Err(video::VideoError::Refused(
@@ -408,9 +414,12 @@ impl Worker {
             ));
         };
         for unit in units {
+            if !group.wants_more() {
+                return Ok(());
+            }
             group.hold(session.sample(unit)?)?;
         }
-        if ends {
+        if ends && group.wants_more() {
             group.hold(session.finish())?;
         }
         Ok(())

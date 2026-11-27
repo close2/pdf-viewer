@@ -68,6 +68,7 @@ fn shown(file: Arc<[u8]>) -> Shown {
         window: None,
         quarter_turns: 0,
         backward: false,
+        palindrome: false,
     }
 }
 
@@ -349,6 +350,77 @@ fn a_movie_played_backward_shows_its_pictures_last_first() {
     assert!(
         indices.windows(2).all(|pair| pair[0] > pair[1]),
         "last first: {indices:?}"
+    );
+    let Some(Seen::Ended(ended)) = said.last() else {
+        panic!("the clip ended: {said:?}");
+    };
+    assert!(ended.starts_with("the clip: ended after"), "{ended}");
+}
+
+/// Whether each stretch of `indices` rises or falls, a stretch ending where the next index turns
+/// back or repeats: `[0, 1, 2, 2, 1, 0]` is `[true, false]`.
+fn stretches(indices: &[usize]) -> Vec<bool> {
+    let mut rising: Vec<bool> = Vec::new();
+    let mut last: Option<bool> = None;
+    for pair in indices.windows(2) {
+        let direction = match pair[1].cmp(&pair[0]) {
+            std::cmp::Ordering::Greater => Some(true),
+            std::cmp::Ordering::Less => Some(false),
+            std::cmp::Ordering::Equal => None,
+        };
+        if let Some(direction) = direction
+            && last != Some(direction)
+        {
+            rising.push(direction);
+        }
+        last = direction;
+    }
+    rising
+}
+
+/// **`Palindrome`** — Table 307's `/Mode`, "Play continuously forward and backward until stopped"
+/// (ISO 32000-2 §13.4, ADR 3842): three passes of six pictures come first to last, then last to
+/// first, then first to last again, from one open of the clip. The wrong answers excluded: every
+/// pass forward (`Repeat`), every pass backward, and a turn only at the first pass.
+#[test]
+fn a_palindrome_alternates_its_direction_pass_by_pass() {
+    let (file, samples) = clip(6);
+    let (mut player, wakes) = player();
+    player.play(Shown {
+        palindrome: true,
+        repeat: 3.0,
+        ..shown(file)
+    });
+    let began = Instant::now();
+    let mut indices = Vec::new();
+    let mut said = Vec::new();
+    loop {
+        if let Some(frame) = player.due(Instant::now()) {
+            indices.push(
+                samples
+                    .iter()
+                    .position(|known| *known == frame.picture)
+                    .expect("a picture of the clip"),
+            );
+        }
+        let seen = player.seen();
+        let finished = seen
+            .iter()
+            .any(|seen| matches!(seen, Seen::Ended(_) | Seen::Refused(_) | Seen::Stopped(_)));
+        said.extend(seen);
+        if finished {
+            break;
+        }
+        assert!(
+            began.elapsed() < PATIENCE,
+            "the worker must be built: `cargo build -p pdf-media-worker --bins`; said {said:?}"
+        );
+        rest(&player, &wakes);
+    }
+    assert_eq!(
+        stretches(&indices),
+        vec![true, false, true],
+        "forward, backward, forward: {indices:?}; said {said:?}"
     );
     let Some(Seen::Ended(ended)) = said.last() else {
         panic!("the clip ended: {said:?}");

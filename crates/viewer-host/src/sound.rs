@@ -30,6 +30,7 @@ mod convert;
 pub mod helper;
 mod painting;
 pub(crate) mod passes;
+mod reversed;
 mod window;
 
 use std::collections::VecDeque;
@@ -43,12 +44,14 @@ use clock::MediaClock;
 use passes::{Pass, Passes, levelled};
 use pdf_model::media::SimpleDuration;
 pub use quorra_sound::{Held, Progress, Report};
+use reversed::{Direction, Turning};
 
 pub use convert::{ConversionError, DeviceFormat, MAX_PLAYED_SAMPLES, converted, speakers_said};
 use convert::{Converter, samples_after};
 use pdf_media_worker::sound::{Encoding, SoundFormat};
 use pdf_media_worker::{MediaWorker, Run};
 use pdf_syntax::ObjectId;
+pub use reversed::MAX_REVERSED_SAMPLES;
 use std::ops::ControlFlow;
 use viewer_core::{DocumentId, MediaOperation, Recording, Screen, SoundData};
 pub use window::{HANDED_ON, HELD, Hearing, LOOK, PAUSED, Sounds};
@@ -335,19 +338,10 @@ impl Player {
 
     /// Plays `played` in place of whatever sounds, starting the thread if this is the first.
     ///
-    /// A movie played backward — Table 307's negative `/Rate` — stops whatever sounds and is not
-    /// sounded: its pictures are played backward, and its sound is not yet reversed with them
-    /// (ADRs 3818, 3837), so it is declined and said rather than played forward under them.
+    /// A movie played backward — Table 307's negative `/Rate` — or under its `/Mode` `Palindrome`
+    /// has its section held whole and sounded turned, within [`MAX_REVERSED_SAMPLES`] (ADRs 3841,
+    /// 3842).
     pub fn play(&mut self, played: Played) {
-        if played.sound.playing.backward {
-            self.stop();
-            self.early.push(Heard::Refused(format!(
-                "{}: not sounded, because the movie is played backward (Table 307's negative \
-                 /Rate) and this player does not yet reverse a sound",
-                played.label
-            )));
-            return;
-        }
         if self.running.is_none() {
             self.start();
         }
@@ -545,6 +539,9 @@ struct Sounding {
     intrinsic: Option<u64>,
     /// The screen annotation a rendition action associated it with (Table 218's `/AN`).
     rendition: Option<viewer_core::Associated>,
+    /// Which way its passes run, and the number of the pass in hand from zero (ADR 3842).
+    direction: Direction,
+    pass_number: u64,
     stage: Stage,
     /// Whether it holds the reader (Table 212's `/Synchronous`).
     synchronous: bool,
@@ -572,6 +569,8 @@ struct Feed {
     begun: bool,
     /// Whether an order means it is not to go on.
     superseded: bool,
+    /// The section held until its last run, where it is to be turned (ADR 3841).
+    turning: Option<Turning>,
 }
 
 /// The player's thread's state.
@@ -788,8 +787,9 @@ impl Thread {
         let waits = matches!(playing.duration, SimpleDuration::Intrinsic)
             && playing.repeat > 0.0
             && playing.repeat < 1.0;
-        // A sound of one run is taken whole, as it arrived whole.
-        if !feed.begun && feed.sent > 0 && !waits && !run.last {
+        // A sound of one run is taken whole, as it arrived whole; a sound to be turned is taken
+        // whole at its last run (ADR 3841).
+        if !feed.begun && feed.sent > 0 && !waits && !run.last && feed.turning.is_none() {
             self.begin(played, feed, None);
         }
         let arrived: Vec<Order> = self.inbox.try_iter().collect();
@@ -825,6 +825,7 @@ impl Thread {
             return Err("the audio device was not opened".to_owned());
         };
         let device = sink.format();
+        let direction = Direction::of(&played.sound.playing);
         // A sound whose length is known is refused before any of it sounds, as a whole one was.
         if let Some(frames) = run.at_most {
             let samples = samples_after(frames, run.rate, device);
@@ -834,6 +835,15 @@ impl Thread {
                     limit: MAX_PLAYED_SAMPLES,
                 }
                 .to_string());
+            }
+            // The whole sound's length passes the bound of a turned one only where no section cuts
+            // it shorter; a cut one is measured as it is held.
+            let whole = played.sound.playing.section == pdf_model::media::Section::WHOLE;
+            if direction.holds()
+                && whole
+                && usize::try_from(samples).map_or(true, |samples| samples > MAX_REVERSED_SAMPLES)
+            {
+                return Err(reversed::too_long(samples));
             }
         }
         feed.converter = Some(
@@ -851,6 +861,7 @@ impl Thread {
         let channels = usize::from(device.channels.max(1));
         let (begin, end) = sectioned(played.sound.playing.section, device.rate);
         feed.channels = channels;
+        feed.turning = direction.holds().then(|| Turning::new(channels));
         feed.skip = begin.saturating_mul(channels);
         feed.keep = end.map_or(usize::MAX, |end| {
             end.saturating_sub(begin).saturating_mul(channels)
@@ -897,11 +908,15 @@ impl Thread {
             return Ok(());
         }
         levelled(&mut samples, played.sound.playing.level);
-        let Some(sink) = self.sink.as_mut() else {
-            return Err("the audio device was not opened".to_owned());
-        };
-        sink.append(&samples)
-            .map_err(|why| format!("the audio device: {why}"))?;
+        if let Some(turning) = feed.turning.as_mut() {
+            turning.hold(&samples)?;
+        } else {
+            let Some(sink) = self.sink.as_mut() else {
+                return Err("the audio device was not opened".to_owned());
+            };
+            sink.append(&samples)
+                .map_err(|why| format!("the audio device: {why}"))?;
+        }
         let frames = samples.len().checked_div(feed.channels).unwrap_or_default();
         feed.sent = feed
             .sent
@@ -921,6 +936,12 @@ impl Thread {
         }
         self.handed(played, feed, last)?;
         if let Some(sink) = self.sink.as_mut() {
+            if let Some(turning) = feed.turning.take() {
+                turning.into_sink(Direction::of(&played.sound.playing), |samples| {
+                    sink.append(samples)
+                        .map_err(|why| format!("the audio device: {why}"))
+                })?;
+            }
             sink.complete()
                 .map_err(|why| format!("the audio device: {why}"))?;
         }
@@ -970,6 +991,8 @@ impl Thread {
             from: 0,
             intrinsic,
             rendition: played.sound.rendition,
+            direction: Direction::of(&playing),
+            pass_number: 0,
             stage: Stage::Held,
             synchronous: playing.synchronous,
         });
@@ -1014,8 +1037,11 @@ impl Thread {
             return Ok(());
         }
         sounding.stage = Stage::Sounding;
+        let intrinsic = sounding.intrinsic.unwrap_or_default();
         sink.start(
-            sounding.from,
+            sounding
+                .direction
+                .pass_from(sounding.pass_number, sounding.from, intrinsic),
             sounding.pass.sounding,
             Box::new(move |progress| {
                 let _ = report.send(Order::Progress(serial, progress));
@@ -1088,6 +1114,7 @@ impl Thread {
             Some(pass) => {
                 sounding.pass = pass;
                 sounding.from = 0;
+                sounding.pass_number = sounding.pass_number.wrapping_add(1);
                 if let Err(why) = self.start_pass() {
                     self.refused(&why);
                 }

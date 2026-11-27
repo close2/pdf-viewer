@@ -1,7 +1,8 @@
 # 80 — Rich media's `Sound` and `Video` configurations, and a movie played backward
 
-Status: **planned**, not built (ADRs 3818, 3820; review 2278 D01 and D03). The rich media rows stay
-`out-of-scope` and the 13.4 row `partial` until the rounds below are built.
+Status: section 1 **planned**, not built (ADR 3820; review 2278 D03); section 2 **built** but its
+step 3 (ADRs 3818, 3837, 3841 to 3843; review 2278 D01). The rich media rows stay `out-of-scope`
+until section 1 is built, and the 13.4 row `partial` until section 2's step 3 is.
 Priority: the clause 13 lane, after its open fix rounds; questions never block it.
 Inputs: RFC 0015 sections 5, 6 and 10.1; A946 and A1006; `doc/scope-ratifications.md`'s clause 13
 entry. The `3D` configuration, `/Scripts` and ISO 21757-1's 3D API stay excluded and are refused by
@@ -25,14 +26,21 @@ name wherever a configuration or an instance names them.
    (its protocol is the run time's, which the script exclusion holds).
 5. **Animation** — Table 337's `PlayCount` and `Speed` on the players' clock.
 
-## 2. A movie played backward (estimated two rounds, ADR 3818)
+## 2. A movie played backward (two rounds, built; ADRs 3818, 3837, 3841 to 3843)
 
 1. **The worker** — **built** (ADR 3837): it decodes a group of pictures from its sync sample
-   and writes it to the ring last picture first, and the clock runs a pass down. Bound: 96 MiB of
-   decoded planes, thirty-two 1080-line pictures, refused by name past it; a longer 1080p group
-   needs the media worker's address-space ceiling raised, which ADR 3837 prices.
-2. **The sound and the modes** — the sound's blocks reversed in the same pass; Table 307's negative
-   `/Rate` and `Palindrome`'s alternation; Table 212's sounds are not affected.
+   and writes it to the ring last picture first, and the clock runs a pass down. A group past 96
+   MiB of decoded planes is let out in up to four parts, each decoded from the sync sample again,
+   and the 256 MiB ceiling stands (ADR 3843).
+2. **The sound and the modes** — **built**: the section's sound held whole and handed to the
+   device turned, on the pictures' clock, bounded and refused by name (ADR 3841); `Palindrome`
+   alternating pictures and sound pass by pass from one decode (ADR 3842). Table 212's sounds are
+   not affected.
+3. **What §13.4 still owes** — Table 307's `/Synchronous` true, "the movie player shall retain
+   control until the movie is completed or dismissed by the user", is said and not honoured for a
+   movie this program shows; the sound player already holds the window for Table 212's
+   `/Synchronous` (`Heard::Holding`), and a movie without sound needs the same hold from the
+   picture player. That is the row's last `shall`.
 
 Each round leaves its clause's row re-read, and moves the row's status only once its last
 `shall` is built.

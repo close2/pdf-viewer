@@ -1050,10 +1050,17 @@ pub enum VideoRun {
     },
     /// Part of one group of pictures, decoded from its sync sample and held: the first run of a
     /// group begins a fresh session, no picture is let out until the run that `ends` the group,
-    /// and that run lets out every picture of the group last picture first.
+    /// and that run lets out the group's pictures in output places `from` up to `to`, last picture
+    /// first. Every picture before `from` is decoded and not held, and none after `to` is decoded
+    /// once it is reached, so that a group too long to hold at once is let out in parts, the last
+    /// first, each decoded from the group's sync sample again (ADR 3843).
     Backward {
         /// Whether this run ends the group.
         ends: bool,
+        /// The first output place of the group held.
+        from: u32,
+        /// The output place after the last one held.
+        to: u32,
     },
 }
 
@@ -1062,17 +1069,22 @@ impl VideoRun {
     fn flag(self) -> u8 {
         match self {
             Self::Forward { last } => u8::from(last),
-            Self::Backward { ends: false } => 2,
-            Self::Backward { ends: true } => 3,
+            Self::Backward { ends: false, .. } => 2,
+            Self::Backward { ends: true, .. } => 3,
         }
     }
 }
 
-/// A video run request's bytes: the version, the run's [`VideoRun`] as a flag byte, then
-/// [`encode_units`]'s count, sizes and units.
+/// A video run request's bytes: the version, the run's [`VideoRun`] as a flag byte — a backward
+/// run's followed by its `from` and `to`, four bytes each — then [`encode_units`]'s count, sizes
+/// and units.
 #[must_use]
 pub fn encode_video_run(run: VideoRun, units: &[&[u8]]) -> Vec<u8> {
     let mut bytes = vec![VERSION, run.flag()];
+    if let VideoRun::Backward { from, to, .. } = run {
+        bytes.extend_from_slice(&from.to_le_bytes());
+        bytes.extend_from_slice(&to.to_le_bytes());
+    }
     bytes.extend_from_slice(&encode_units(units));
     bytes
 }
@@ -1087,11 +1099,26 @@ pub fn decode_video_run(payload: &[u8]) -> Result<(VideoRun, Vec<&[u8]>), String
     let (&flag, units) = rest
         .split_first()
         .ok_or_else(|| "a video run request cut short before its flag".to_owned())?;
-    let run = match flag {
-        0 => VideoRun::Forward { last: false },
-        1 => VideoRun::Forward { last: true },
-        2 => VideoRun::Backward { ends: false },
-        3 => VideoRun::Backward { ends: true },
+    let (run, units) = match flag {
+        0 => (VideoRun::Forward { last: false }, units),
+        1 => (VideoRun::Forward { last: true }, units),
+        2 | 3 => {
+            let (Some(from), Some(to), Some(units)) = (
+                units.get(..4).and_then(|bytes| bytes.try_into().ok()),
+                units.get(4..8).and_then(|bytes| bytes.try_into().ok()),
+                units.get(8..),
+            ) else {
+                return Err("a backward video run request cut short in its places".to_owned());
+            };
+            let (from, to) = (u32::from_le_bytes(from), u32::from_le_bytes(to));
+            if from >= to {
+                return Err(format!(
+                    "a backward video run request holding places {from} to {to}, which is none"
+                ));
+            }
+            let ends = flag == 3;
+            (VideoRun::Backward { ends, from, to }, units)
+        }
         other => {
             return Err(format!("a video run request whose flag is {other}"));
         }
@@ -1285,16 +1312,25 @@ mod tests {
         encoding: Encoding::Signed,
     };
 
-    /// Each of a video run's four requests crosses as itself, and a flag no build writes is
-    /// refused (ADR 3837).
+    /// Each of a video run's four requests crosses as itself, a backward one with the places it
+    /// holds, and a flag no build writes or a backward run holding no place is refused (ADRs 3837,
+    /// 3843).
     #[test]
     fn a_video_run_s_direction_crosses_whole() {
         let unit: &[u8] = &[0, 0, 0, 1, 0x65];
         for run in [
             VideoRun::Forward { last: false },
             VideoRun::Forward { last: true },
-            VideoRun::Backward { ends: false },
-            VideoRun::Backward { ends: true },
+            VideoRun::Backward {
+                ends: false,
+                from: 0,
+                to: 60,
+            },
+            VideoRun::Backward {
+                ends: true,
+                from: 30,
+                to: 60,
+            },
         ] {
             let bytes = encode_video_run(run, &[unit]);
             assert_eq!(decode_video_run(&bytes), Ok((run, vec![unit])));
@@ -1302,6 +1338,12 @@ mod tests {
         let mut bytes = encode_video_run(VideoRun::Forward { last: true }, &[unit]);
         bytes[1] = 4;
         assert!(decode_video_run(&bytes).is_err());
+        let empty = VideoRun::Backward {
+            ends: true,
+            from: 5,
+            to: 5,
+        };
+        assert!(decode_video_run(&encode_video_run(empty, &[unit])).is_err());
     }
 
     #[test]

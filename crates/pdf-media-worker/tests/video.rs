@@ -519,12 +519,56 @@ fn a_resumed_backward_pass_skips_the_groups_before_it() {
     assert_eq!(presented, [(3, 160), (2, 200), (1, 240), (0, 280)]);
 }
 
-/// A group whose decoded planes pass `MAX_GROUP_BYTES` is refused by name before any of it is
-/// decoded: thirty-three 1920 by 1088 pictures — an IDR and thirty-two that copy it, one group —
-/// are 103 403 520 bytes, past the 100 663 296 one backward pass holds.
+/// A group too long to hold at once is let out in parts, each decoded from the group's sync sample
+/// and holding its own range of places (ADR 3843): with a part bound of two 32 by 32 pictures,
+/// each group of four is two halves, the later half first, and the pass is exactly the one an
+/// unsplit decode gives — every picture last first at `(7 − k) × 40` ms, and resumed 160 ms in
+/// from the first group alone. The wrong answers excluded: the halves in their recorded order, a
+/// half's pictures timed as the other's, and a picture of the first half held twice.
+#[test]
+fn a_group_split_into_parts_plays_as_one() {
+    let (file, pictures) = two_groups();
+    let planes = 32 * 32 + 2 * 16 * 16;
+    let split = |until, from| {
+        let mut worker = MediaWorker::with_program(WORKER.into()).with_group_bytes(2 * planes);
+        let mut presented = Vec::new();
+        worker
+            .decode_mp4_video_backward(&file, until, from, &mut |picture, at| {
+                let index = pictures
+                    .iter()
+                    .position(|known| *known == picture)
+                    .expect("a picture of the fixture");
+                presented.push((index, at.as_millis()));
+                ControlFlow::Continue(())
+            })
+            .expect("played backward in parts");
+        presented
+    };
+    let expected: Vec<(usize, u128)> = (0..8)
+        .rev()
+        .map(|index| (index, (7 - index as u128) * 40))
+        .collect();
+    assert_eq!(split(None, std::time::Duration::ZERO), expected);
+    assert_eq!(
+        split(None, std::time::Duration::from_millis(160)),
+        [(3, 160), (2, 200), (1, 240), (0, 280)]
+    );
+    let mut one = MediaWorker::with_program(WORKER.into()).with_group_bytes(planes);
+    let mut presented = Vec::new();
+    one.decode_mp4_video_backward(&file, None, std::time::Duration::ZERO, &mut |picture, _| {
+        presented.push(pictures.iter().position(|known| *known == picture));
+        ControlFlow::Continue(())
+    })
+    .expect("four parts of one picture");
+    assert_eq!(presented, (0..8).rev().map(Some).collect::<Vec<_>>());
+}
+
+/// A group whose decoded planes pass `MAX_GROUP_PARTS` parts of `MAX_GROUP_BYTES` is refused by
+/// name before any of it is decoded: 129 1920 by 1088 pictures — an IDR and 128 that copy it, one
+/// group — are 404 213 760 bytes, past the four parts of 100 663 296 one backward pass holds it in.
 #[test]
 fn a_group_past_the_bound_is_refused_by_name() {
-    let (sets, units, _) = held_stream(32, 1920, 1088);
+    let (sets, units, _) = held_stream(128, 1920, 1088);
     let file = mp4_with(&sets, &units, 1920, 1088, &one_group());
     let mut worker = MediaWorker::with_program(WORKER.into());
     let mut handed = 0;
@@ -545,13 +589,20 @@ fn a_group_past_the_bound_is_refused_by_name() {
 }
 
 /// The media worker's address space at its peak over a 1080-line group of thirty-two pictures played
-/// backward — the most `MAX_GROUP_BYTES` admits — and the time from the request to the first
-/// picture, which is the whole group's decode (ADR 3837).
+/// backward — the most `MAX_GROUP_BYTES` admits in one part — and over a two-second group of sixty,
+/// let out in two halves, and of 128 in the four parts `MAX_GROUP_PARTS` admits (ADR 3843); and
+/// the time from the request to the first picture, which is the last part's decode from the sync
+/// sample, and to the last (ADRs 3837, 3843).
 #[test]
 // not a gate: it prints the figures ADR 3837 records; the tests above are what fail on behaviour.
 #[ignore = "a measurement a person reads, of a 1080-line group through the confined worker"]
 fn the_worker_s_address_space_over_a_backward_1080_line_group() {
-    for (width, height, skipped) in [(32, 32, 7), (1920, 1088, 31)] {
+    for (width, height, skipped) in [
+        (32, 32, 7),
+        (1920, 1088, 31),
+        (1920, 1088, 59),
+        (1920, 1088, 127),
+    ] {
         let (sets, units, picture) = held_stream(skipped, width, height);
         let file = mp4_with(&sets, &units, width as u16, height as u16, &one_group());
         let mut worker = MediaWorker::with_program(WORKER.into());
@@ -582,8 +633,9 @@ fn the_worker_s_address_space_over_a_backward_1080_line_group() {
         let planes = decoded * (width * height + 2 * (width / 2) * (height / 2));
         println!(
             "{width}x{height}, a group of {decoded} pictures, {planes} bytes of planes: first \
-             backward picture after {:?}; {peak}",
-            first.unwrap_or_default()
+             backward picture after {:?}, last after {:?}; {peak}",
+            first.unwrap_or_default(),
+            asked.elapsed()
         );
         assert_eq!(decoded, skipped as usize + 1);
     }

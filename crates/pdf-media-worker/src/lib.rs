@@ -41,8 +41,8 @@ pub mod wire;
 mod worker;
 
 pub use client::{
-    Deliver, MAX_TOP_LEVEL_BOXES, MAX_WAVE_WINDOWS, MediaError, MediaWorker, PROCESSOR_BUDGET,
-    RING_SLOTS, Run, Sound, Streamed, VideoStreamed,
+    Deliver, MAX_GROUP_PARTS, MAX_TOP_LEVEL_BOXES, MAX_WAVE_WINDOWS, MediaError, MediaWorker,
+    PROCESSOR_BUDGET, RING_SLOTS, Run, Sound, Streamed, VideoStreamed,
 };
 pub use worker::{Worker, answer, serve};
 

@@ -239,10 +239,11 @@ impl MediaWorker {
         Ok(streamed)
     }
 
-    /// One group of a backward pass: refused by name where its planes would pass
-    /// [`MAX_GROUP_BYTES`] at the track's declared size, otherwise sent in runs whose last lets the
-    /// group out, each picture handed on at its time in `order` — the times of the group's
-    /// pictures latest composition first, as the worker lets them out.
+    /// One group of a backward pass, let out in as few parts as hold its planes within
+    /// [`MAX_GROUP_BYTES`] at the track's declared size — the last part first, each sent in runs
+    /// from the group's sync sample whose last lets the part out (ADR 3843) — and refused by name
+    /// past [`MAX_GROUP_PARTS`]. Each picture is handed on at its time in `order`: the times of the
+    /// group's pictures latest composition first, as the worker lets them out.
     fn backward_group(
         &mut self,
         file: &[u8],
@@ -255,21 +256,57 @@ impl MediaWorker {
         let planes = picture_bytes(usize::from(track.width), usize::from(track.height))
             .saturating_sub(PICTURE_HEADER_BYTES);
         let pictures = group.len();
-        if pictures.saturating_mul(planes) > MAX_GROUP_BYTES {
+        let bound = self.group_bytes.unwrap_or(MAX_GROUP_BYTES);
+        let Some(parts) = parts(pictures, planes, bound) else {
             return Err(MediaError::Refused(format!(
                 "a group of {pictures} pictures of {} by {} from sample {}, whose {} bytes of \
-                 decoded planes are past the {MAX_GROUP_BYTES} a movie played backward holds",
+                 decoded planes are past the {MAX_GROUP_PARTS} parts of {MAX_GROUP_BYTES} bytes \
+                 a movie played backward holds it in",
                 track.width,
                 track.height,
                 group.start.saturating_add(1),
                 pictures.saturating_mul(planes)
             )));
+        };
+        let units = track.units.get(group).unwrap_or_default();
+        // The last part first: its pictures are the group's last in output order, and the
+        // pass's first.
+        for part in parts.into_iter().rev() {
+            // Output place `k` of the group has its time at `order[pictures − 1 − k]`.
+            let times = order
+                .get(pictures.saturating_sub(part.end)..pictures.saturating_sub(part.start))
+                .unwrap_or_default();
+            if self.backward_part(file, track, units, part, times, deliver, streamed)?
+                == ControlFlow::Break(())
+            {
+                return Ok(ControlFlow::Break(()));
+            }
         }
+        Ok(ControlFlow::Continue(()))
+    }
+
+    /// One part of a group played backward: the group's `units` sent in runs from its sync sample,
+    /// the worker holding the pictures at output places `part` and letting them out last first at
+    /// the run that ends the group, each handed on at its time in `times`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one part's units, places and times, and where its pictures go"
+    )]
+    fn backward_part(
+        &mut self,
+        file: &[u8],
+        track: &VideoTrack,
+        units: &[(u64, u32, u32)],
+        part: std::ops::Range<usize>,
+        times: &[Option<Duration>],
+        deliver: &mut dyn FnMut(Picture, Duration) -> ControlFlow<()>,
+        streamed: &mut VideoStreamed,
+    ) -> Result<ControlFlow<()>, MediaError> {
         let mut output = 0usize;
-        let mut timed = |picture: Picture| {
-            let at = order
+        let mut handed_on = |picture: Picture| {
+            let at = times
                 .get(output)
-                .or_else(|| order.last())
+                .or_else(|| times.last())
                 .copied()
                 .flatten();
             output = output.saturating_add(1);
@@ -278,7 +315,11 @@ impl MediaWorker {
                 None => ControlFlow::Continue(()),
             }
         };
-        let units = track.units.get(group).unwrap_or_default();
+        let held = part.len();
+        let (from, to) = (
+            u32::try_from(part.start).unwrap_or(u32::MAX),
+            u32::try_from(part.end).unwrap_or(u32::MAX),
+        );
         let media: u64 = units
             .iter()
             .map(|&(_, _, duration)| u64::from(duration))
@@ -296,10 +337,10 @@ impl MediaWorker {
                 ));
             }
             let ends = index.saturating_add(1) == count;
-            // The run that ends the group lets out every picture of it, over the group's whole
-            // media time; the runs before it decode their own and let out none.
+            // The run that ends the group lets out every picture of the part, over the group's
+            // whole media time; the runs before it decode their own and let out none.
             let (items, wall_media) = if ends {
-                (pictures, media)
+                (held, media)
             } else {
                 let own = run
                     .iter()
@@ -307,9 +348,15 @@ impl MediaWorker {
                     .sum();
                 (0, own)
             };
-            let run = VideoRun::Backward { ends };
+            let run = VideoRun::Backward { ends, from, to };
             if self.run(
-                track, &cut_units, run, items, wall_media, &mut timed, streamed,
+                track,
+                &cut_units,
+                run,
+                items,
+                wall_media,
+                &mut handed_on,
+                streamed,
             )? == ControlFlow::Break(())
             {
                 return Ok(ControlFlow::Break(()));
@@ -607,6 +654,33 @@ impl Timing {
     }
 }
 
+/// The most parts one group of pictures played backward is let out in (ADR 3843): each part is
+/// decoded from the group's sync sample, so `k` parts cost about `(k + 1) ÷ 2` times the group's
+/// decode, and four admit a 1080-line group of 128 pictures — over four seconds at 30 a second —
+/// at two and a half times its forward decode.
+pub const MAX_GROUP_PARTS: usize = 4;
+
+/// The output places of a group of `pictures`, each of `planes` bytes, split into as few equal
+/// parts as keep each part's planes within `bound` — [`MAX_GROUP_BYTES`], or a test's lower one;
+/// `None` past [`MAX_GROUP_PARTS`].
+fn parts(pictures: usize, planes: usize, bound: usize) -> Option<Vec<std::ops::Range<usize>>> {
+    let per_part = bound.checked_div(planes).unwrap_or(pictures);
+    if per_part == 0 {
+        return None;
+    }
+    let count = pictures.div_ceil(per_part).max(1);
+    if count > MAX_GROUP_PARTS {
+        return None;
+    }
+    let size = pictures.div_ceil(count).max(1);
+    Some(
+        (0..pictures)
+            .step_by(size)
+            .map(|start| start..start.saturating_add(size).min(pictures))
+            .collect(),
+    )
+}
+
 /// A track's groups of pictures, in decoding order: each from a sync sample to the next, the first
 /// from the track's first sample whatever it is (ISO/IEC 14496-12:2012, 8.6.2).
 fn groups(sync: &[bool]) -> Vec<std::ops::Range<usize>> {
@@ -671,4 +745,36 @@ fn wall(media: u64, time_scale: u32) -> Duration {
     PROCESSOR_BUDGET
         .saturating_add(Duration::from_secs(seconds))
         .saturating_add(Duration::from_nanos(nanos))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_GROUP_BYTES, MAX_GROUP_PARTS, parts};
+
+    /// A 1080-line picture's planes: 1920 by 1088 luma and two chroma planes of a quarter each.
+    const PLANES_1080: usize = 1920 * 1088 * 3 / 2;
+
+    /// A group that fits is one part; a two-second 1080-line group of sixty pictures is two
+    /// halves of thirty, each within the bound; 128 pictures are four parts of 32; and 129 are
+    /// past [`MAX_GROUP_PARTS`] (ADR 3843).
+    #[test]
+    fn a_group_is_split_into_as_few_parts_as_its_planes_need() {
+        for (pictures, planes) in [(8, 32 * 32 * 3 / 2), (32, PLANES_1080)] {
+            let whole = parts(pictures, planes, MAX_GROUP_BYTES).expect("one part");
+            assert_eq!(whole.len(), 1);
+            assert_eq!(whole.first(), Some(&(0..pictures)));
+        }
+        let halves = parts(60, PLANES_1080, MAX_GROUP_BYTES).expect("two halves");
+        assert_eq!(halves, vec![0..30, 30..60]);
+        assert!(
+            halves
+                .iter()
+                .all(|half| half.len() * PLANES_1080 <= MAX_GROUP_BYTES)
+        );
+        let four = parts(128, PLANES_1080, MAX_GROUP_BYTES).expect("four parts");
+        assert_eq!(four.len(), MAX_GROUP_PARTS);
+        assert!(four.iter().all(|part| part.len() == 32));
+        assert_eq!(parts(129, PLANES_1080, MAX_GROUP_BYTES), None);
+        assert_eq!(parts(1, MAX_GROUP_BYTES + 1, MAX_GROUP_BYTES), None);
+    }
 }

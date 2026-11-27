@@ -16,11 +16,10 @@
 //! player shows video (ADR 3594) — is played in the movie annotation's rectangle, or in a floating
 //! window where Table 307's `/FWScale` asks for one, and is told the activation entries this
 //! player honours: `/Start` and `/Duration` as §13.2.4.3's section, `/Volume`, `/ShowControls`,
-//! `/Mode`'s `Once`, `Open` and `Repeat`, `/FWScale` and `/FWPosition` — and Table 306's
-//! `/Rotate`, the pictures and the poster turned clockwise by it (ADR 3817), and a negative
-//! `/Rate`'s pictures played backward (ADR 3837). Those it cannot honour are said, as for the
-//! hand-off: a backward movie's sound and `Palindrome`'s alternation are not built yet (ADR 3818,
-//! `doc/todo/80`).
+//! `/Mode`'s `Once`, `Open`, `Repeat` and `Palindrome` (ADR 3842), `/FWScale` and `/FWPosition` —
+//! and Table 306's `/Rotate`, the pictures and the poster turned clockwise by it (ADR 3817), and a
+//! negative `/Rate`'s pictures and sound played backward (ADRs 3837, 3841). Those it cannot honour
+//! are said, as for the hand-off.
 //!
 //! **What the hand-off cannot carry is said, never dropped** (trap 5): Table 307's activation
 //! entries and Table 212's playing parameters are each something a player would have to be *told*,
@@ -237,12 +236,12 @@ struct Told {
 /// - `/Mode`: `Once` plays one pass; `Repeat` plays "repeatedly from beginning to end until
 ///   stopped", a repeat count of zero; `Open` plays "and leave\[s] the movie controller bar open",
 ///   which this player reads as the last picture held, with the bar where one is shown, until the
-///   movie is stopped — an infinite duration. `Palindrome`'s alternation between passes is not
-///   built yet (ADR 3818); the movie is played repeatedly in one direction instead, and that is
-///   said.
+///   movie is stopped — an infinite duration. `Palindrome` is "Play continuously forward and
+///   backward until stopped": a repeat count of zero, each pass in the direction opposite to the
+///   one before it, the first in `/Rate`'s (ADR 3842).
 /// - `/Rate` negative — "the movie shall be played backward with respect to Start and Duration" —
-///   plays the pictures backward, from the section's end down to its start (ADR 3837); the sound
-///   is not reversed yet (ADR 3818), so the movie plays silent and that is said.
+///   plays the pictures backward, from the section's end down to its start (ADR 3837), and the
+///   sound backward with them on the same clock (ADR 3841).
 /// - `/Rate` of a size other than 1 — "the initial speed" — is said and the movie played at its own
 ///   speed: the pictures follow the sound's device clock (ADR 3555), which runs at the recording's
 ///   rate.
@@ -300,12 +299,7 @@ fn told(
         Some(b"Open") => told.playing.duration = super::SimpleDuration::Infinite,
         Some(b"Palindrome") => {
             told.playing.repeat = 0.0;
-            told.set_aside.push(
-                "Table 307's /Mode /Palindrome's backward half, because this program's player \
-                 does not yet alternate a movie's direction between passes, so the movie plays \
-                 in one direction repeatedly until stopped"
-                    .to_owned(),
-            );
+            told.playing.palindrome = true;
         }
         _ => told.set_aside.push(
             "Table 307's /Mode, because it is none of Once, Open, Repeat and Palindrome, so the \
@@ -316,16 +310,10 @@ fn told(
     if let Some(rate) = stated("Rate").as_number().filter(|rate| rate.is_finite()) {
         // A negative rate is "the movie shall be played backward with respect to Start and
         // Duration": the worker decodes each group of pictures from its sync sample and lets it
-        // out last picture first (ADR 3837). The sound is not yet reversed with them (ADR 3818),
-        // so a movie played backward is silent, and that is said.
+        // out last picture first (ADR 3837), and the sound player plays the section's sound
+        // reversed on the same clock (ADR 3841).
         if rate < 0.0 {
             told.playing.backward = true;
-            told.set_aside.push(
-                "Table 307's /Rate's backward sound, because this program's player plays a movie's \
-                 pictures backward and does not yet reverse its sound, so the movie is played \
-                 backward in silence"
-                    .to_owned(),
-            );
         }
         if (rate.abs() - 1.0).abs() >= f64::EPSILON {
             told.set_aside.push(format!(
@@ -902,10 +890,11 @@ mod tests {
         }
     }
 
-    /// `/Mode /Open` holds the last picture until the movie is stopped; `/Palindrome` plays
-    /// repeatedly and says its alternation is set aside (ADRs 3594, 3818).
+    /// `/Mode /Open` holds the last picture until the movie is stopped; `/Palindrome` — "Play
+    /// continuously forward and backward until stopped" — repeats for ever and alternates, with
+    /// nothing set aside (ADRs 3594, 3842).
     #[test]
-    fn open_holds_and_palindrome_is_said() {
+    fn open_holds_and_palindrome_alternates() {
         let movie_with = |mode: &str| {
             let doc = document(&[
                 "<< /Type /Catalog >>",
@@ -926,14 +915,22 @@ mod tests {
         assert!(open.unhonoured.is_empty(), "{:?}", open.unhonoured);
         let palindrome = movie_with("Palindrome");
         assert_eq!(palindrome.playing.repeat, 0.0);
-        assert!(palindrome.unhonoured[0].contains("Palindrome"));
+        assert!(palindrome.playing.palindrome);
+        assert!(!palindrome.playing.backward);
+        assert!(
+            palindrome.unhonoured.is_empty(),
+            "{:?}",
+            palindrome.unhonoured
+        );
+        assert!(!open.playing.palindrome);
     }
 
     /// Table 307's negative `/Rate` — "the movie shall be played backward with respect to Start
-    /// and Duration" — reaches the player as `backward`, and the sound it does not yet reverse is
-    /// said; a rate of -2 also says its speed, and a positive one plays forward (ADR 3837).
+    /// and Duration" — reaches the player as `backward`, pictures and sound together, with nothing
+    /// set aside; a rate of -2 also says its speed, and a positive one plays forward (ADRs 3837,
+    /// 3841).
     #[test]
-    fn a_negative_rate_plays_the_pictures_backward_and_says_the_sound() {
+    fn a_negative_rate_plays_the_movie_backward() {
         let movie_at = |rate: &str| {
             let doc = document(&[
                 "<< /Type /Catalog >>",
@@ -948,12 +945,7 @@ mod tests {
         };
         let backward = movie_at("-1");
         assert!(backward.playing.backward);
-        assert_eq!(backward.unhonoured.len(), 1, "{:?}", backward.unhonoured);
-        assert!(
-            backward.unhonoured[0].contains("backward in silence"),
-            "{:?}",
-            backward.unhonoured
-        );
+        assert!(backward.unhonoured.is_empty(), "{:?}", backward.unhonoured);
         let faster = movie_at("-2");
         assert!(faster.playing.backward);
         assert!(

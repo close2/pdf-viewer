@@ -617,3 +617,94 @@ fn a_long_sound_starts_before_it_is_whole() {
         samples.len()
     );
 }
+
+/// A ramp of `count` 8-bit samples whose value is its own place, and the fractions of full scale
+/// the device is handed for it at 8000 Hz mono: sample `k` is `k ÷ 128`.
+fn ramp(count: u8) -> (Vec<u8>, Vec<f32>) {
+    let bytes: Vec<u8> = (0..count).collect();
+    let fractions = bytes.iter().map(|&k| f32::from(k) / 128.0).collect();
+    (bytes, fractions)
+}
+
+/// **A movie's sound played backward** — ISO 32000-2 §13.4, Table 307: "If the value of this
+/// entry is negative, the movie shall be played backward with respect to Start and Duration" (ADR
+/// 3841): sixteen samples, each carrying its own place, reach the device last first, and a section
+/// of them (§13.2.4.3) is turned from its own end. The wrong answers excluded: the sound declined,
+/// played forward, and turned before it was cut (which would sound the section's mirror image).
+#[test]
+fn a_sound_played_backward_reaches_the_device_last_sample_first() {
+    let format = DeviceFormat {
+        rate: 8000,
+        channels: 1,
+    };
+    let (bytes, fractions) = ramp(16);
+    let (mut whole, recorded, woken) = player(format, true);
+    let mut backward = played(1, &bytes);
+    backward.sound.playing.backward = true;
+    whole.play(backward);
+    let said = heard(&mut whole, &woken, 2);
+    assert!(
+        matches!(said.as_slice(), [Heard::Playing(_), Heard::Ended(_)]),
+        "the worker must be built: `cargo build -p pdf-media-worker --bins`; {said:?}"
+    );
+    let reversed: Vec<f32> = fractions.iter().rev().copied().collect();
+    assert_eq!(record(&recorded).started, vec![reversed]);
+    // Samples 4 to 11 — half a millisecond to a millisecond and a half at 8000 Hz — turned.
+    let (mut cut_player, recorded, woken) = player(format, true);
+    let mut section = played(2, &bytes);
+    section.sound.playing.backward = true;
+    section.sound.playing.section = pdf_model::media::Section {
+        begin: 0.0005,
+        end: Some(0.0015),
+    };
+    cut_player.play(section);
+    let said = heard(&mut cut_player, &woken, 2);
+    assert!(
+        matches!(said.as_slice(), [Heard::Playing(_), Heard::Ended(_)]),
+        "{said:?}"
+    );
+    let cut: Vec<f32> = fractions[4..12].iter().rev().copied().collect();
+    assert_eq!(record(&recorded).started, vec![cut]);
+}
+
+/// **`Palindrome`** — Table 307's `/Mode`, "Play continuously forward and backward until stopped"
+/// (ADR 3842): three passes of a sound whose samples carry their place sound forward, backward and
+/// forward again from one decode, and with a negative `/Rate` the first pass is the backward one.
+/// The wrong answers excluded: every pass forward (`Repeat`), and a second pass that reads the
+/// first copy again.
+#[test]
+fn a_palindrome_s_sound_alternates_pass_by_pass() {
+    let format = DeviceFormat {
+        rate: 8000,
+        channels: 1,
+    };
+    let (bytes, forward) = ramp(16);
+    let backward: Vec<f32> = forward.iter().rev().copied().collect();
+    for (first_backward, expected) in [
+        (
+            false,
+            vec![forward.clone(), backward.clone(), forward.clone()],
+        ),
+        (
+            true,
+            vec![backward.clone(), forward.clone(), backward.clone()],
+        ),
+    ] {
+        let (mut sounding, recorded, woken) = player(format, true);
+        let mut palindrome = played(1, &bytes);
+        palindrome.sound.playing.palindrome = true;
+        palindrome.sound.playing.backward = first_backward;
+        palindrome.sound.playing.repeat = 3.0;
+        sounding.play(palindrome);
+        let said = heard(&mut sounding, &woken, 2);
+        assert!(
+            matches!(said.as_slice(), [Heard::Playing(_), Heard::Ended(_)]),
+            "{said:?}"
+        );
+        assert_eq!(
+            record(&recorded).started,
+            expected,
+            "first backward: {first_backward}"
+        );
+    }
+}

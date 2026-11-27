@@ -32,6 +32,7 @@ fn shown(repeat: f64) -> Shown {
         window: None,
         quarter_turns: 0,
         backward: false,
+        palindrome: false,
     }
 }
 

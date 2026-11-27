@@ -32,8 +32,9 @@
 //!
 //! **A movie played backward** — Table 307's negative `/Rate` — is decoded one group of pictures at
 //! a time, the last group first, each let out last picture first by the worker; each picture's time
-//! counts down from the section's end, so the pass is timed as a forward one is, on the clip's own
-//! clock, its sound not yet reversed and so not sounded (ADR 3837).
+//! counts down from the section's end, so the pass is timed as a forward one is (ADR 3837), on the
+//! clock of its sound, which the sound player plays reversed from the same end (ADR 3841). Table
+//! 307's `/Mode` `Palindrome` turns every second pass against the first (ADR 3842).
 //!
 //! **A movie's poster** — Table 306's `/Poster` `true` — is its first picture, decoded once by
 //! [`Posters`] and drawn over the movie annotation's rectangle while the movie is not playing
@@ -84,9 +85,11 @@ const WAITING_LOOK: Duration = Duration::from_millis(5);
 pub const DECODING_LOOK: Duration = Duration::from_millis(4);
 
 impl InHand {
-    /// How the clip's passes are decoded backward, where Table 307's `/Rate` is negative.
+    /// How the pass in hand is decoded backward: every pass where Table 307's `/Rate` is negative,
+    /// and under its `/Mode` `Palindrome` every second pass turned against the first (ADR 3842).
     fn backward(&self) -> Option<Backward> {
-        self.shown.backward.then(|| Backward {
+        let turned = self.shown.palindrome && self.passes.is_multiple_of(2);
+        (self.shown.backward != turned).then(|| Backward {
             begin: self.timeline.begin(),
             until: self.timeline.end(),
         })
@@ -142,6 +145,11 @@ impl InHand {
 }
 
 /// A clip to show, as the window was handed it in `viewer_core::Event::Media`'s sound.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "one field per table entry, as `pdf_model::media::Playing` has them: Table 291's /A \
+              and /C, and Table 307's /Rate's sign and /Mode Palindrome are independent flags"
+)]
 #[derive(Debug, Clone)]
 pub struct Shown {
     /// The document the clip belongs to.
@@ -173,8 +181,11 @@ pub struct Shown {
     /// Table 306's `/Rotate` in clockwise quarter turns, for a movie (ADR 3817).
     pub quarter_turns: u8,
     /// Table 307's negative `/Rate`: each pass's pictures played backward, from the section's end
-    /// down to its beginning, on the clip's own clock (ADR 3837).
+    /// down to its beginning (ADR 3837), its sound reversed with them (ADR 3841).
     pub backward: bool,
+    /// Table 307's `/Mode` `Palindrome`: each pass after the first in the direction opposite to
+    /// the one before it, the first in [`Self::backward`]'s (ADR 3842).
+    pub palindrome: bool,
 }
 
 impl Shown {
@@ -207,6 +218,7 @@ impl Shown {
             window: sound.window.clone(),
             quarter_turns: playing.quarter_turns,
             backward: playing.backward,
+            palindrome: playing.palindrome,
         })
     }
 }
@@ -727,9 +739,6 @@ impl VideoPlayer {
             )));
             return;
         }
-        // A movie played backward is silent until its sound is reversed with it (ADR 3818); the
-        // sound player declines its sound, and the pictures run on their own clock.
-        let sound = sound.filter(|_| !shown.backward);
         let mut clock = MediaClock::new(CLOCK_RATE);
         let now = Instant::now();
         if shown.auto_play {

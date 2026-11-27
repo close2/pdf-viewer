@@ -26,7 +26,9 @@
 //! A movie played backward (ISO 32000-2 §13.4, Table 307's negative `/Rate`) is decoded one group
 //! of pictures at a time, each from its sync sample in a session of its own, and held as a [`Group`]
 //! until the group ends; its pictures are then let out last picture first (ADR 3837). A group whose
-//! planes pass [`MAX_GROUP_BYTES`] is refused by its size.
+//! planes pass [`MAX_GROUP_BYTES`] is let out in parts, each a range of its output places decoded
+//! from the sync sample again, the pictures before the range decoded and not held (ADR 3843); a
+//! part whose planes still pass the bound is refused by its size.
 //!
 //! # What is refused
 //!
@@ -52,7 +54,7 @@ pub const MAX_PICTURE_PIXELS: usize = 1920 * 1088;
 /// be decoded forward from its sync sample, so the whole group is decoded and held before its first
 /// picture is let out. The bound is what `Profile::Media`'s 256 MiB address space leaves beside a
 /// session's sixteen reference frames and the ring (`tests/video.rs` measures the peak); a group
-/// past it is refused by its size, never cut short.
+/// past it is let out in parts of at most this many bytes each (ADR 3843), never cut short.
 pub const MAX_GROUP_BYTES: usize = 96 << 20;
 
 /// What a stream says of its pictures' colour, read from its sequence parameter set's VUI (ITU-T
@@ -273,14 +275,42 @@ impl Session {
 /// One group of pictures decoded for a backward pass, held in output order until the group ends and
 /// then let out last picture first (ISO 32000-2 §13.4, Table 307: "If the value of this entry is
 /// negative, the movie shall be played backward with respect to Start and Duration"; ADR 3837).
-#[derive(Debug, Default)]
+///
+/// A group holds the pictures in a range of output places, so that a group longer than
+/// [`MAX_GROUP_BYTES`] holds is let out in parts (ADR 3843): every picture is decoded from the
+/// sync sample on, because a later one may refer to it, and only those in the range are held.
+#[derive(Debug)]
 pub struct Group {
     pictures: Vec<Picture>,
     bytes: usize,
+    /// The output places held: the first, and the one after the last.
+    from: usize,
+    to: usize,
+    /// The pictures the session has let out so far, held or not.
+    seen: usize,
 }
 
 impl Group {
-    /// Holds `pictures`, the next a session let out.
+    /// A group holding the pictures at output places `from` up to `to`.
+    #[must_use]
+    pub fn keeping(from: usize, to: usize) -> Self {
+        Self {
+            pictures: Vec::new(),
+            bytes: 0,
+            from,
+            to,
+            seen: 0,
+        }
+    }
+
+    /// Whether a picture the group holds is still to come: once the last place held has been let
+    /// out, nothing after it need be decoded.
+    #[must_use]
+    pub fn wants_more(&self) -> bool {
+        self.seen < self.to
+    }
+
+    /// Holds those of `pictures` — the next a session let out — that fall in the group's range.
     ///
     /// # Errors
     ///
@@ -288,6 +318,11 @@ impl Group {
     /// [`MAX_GROUP_BYTES`]; the group is then not to be played, and nothing of it has been let out.
     pub fn hold(&mut self, pictures: Vec<Picture>) -> Result<(), VideoError> {
         for picture in pictures {
+            let place = self.seen;
+            self.seen = self.seen.saturating_add(1);
+            if place < self.from || place >= self.to {
+                continue;
+            }
             let planes = picture
                 .y
                 .len()
@@ -346,6 +381,27 @@ fn refusal(error: DecodeError) -> VideoError {
 mod tests {
     use super::{Group, MAX_GROUP_BYTES, Picture, Signal, VideoError};
 
+    /// A part of a group holds only its range of output places, and wants no picture after it
+    /// (ADR 3843): of pictures 0 to 9, places 4 to 7 come out as 6, 5, 4.
+    #[test]
+    fn a_part_holds_its_range_and_wants_nothing_after_it() {
+        let small = |index: u8| Picture {
+            width: 2,
+            height: 2,
+            y: vec![index; 4],
+            u: vec![index; 1],
+            v: vec![index; 1],
+            signal: Signal::default(),
+        };
+        let mut part = Group::keeping(4, 7);
+        part.hold((0..6).map(small).collect()).expect("held");
+        assert!(part.wants_more());
+        part.hold((6..10).map(small).collect()).expect("held");
+        assert!(!part.wants_more());
+        let order: Vec<u8> = part.reversed().map(|picture| picture.y[0]).collect();
+        assert_eq!(order, vec![6, 5, 4]);
+    }
+
     /// A 1920 by 1088 picture whose every sample is `index`.
     fn picture(index: u8) -> Picture {
         const LUMA: usize = 1920 * 1088;
@@ -364,7 +420,7 @@ mod tests {
     /// bytes of planes each — and refuses the thirty-third by name (ADR 3837).
     #[test]
     fn a_group_reverses_and_refuses_past_its_bound() {
-        let mut group = Group::default();
+        let mut group = Group::keeping(0, usize::MAX);
         group
             .hold((0..32).map(picture).collect())
             .expect("thirty-two pictures");
