@@ -2493,17 +2493,33 @@ fn tally_references(object: &Object, counts: &mut HashMap<u32, usize>, depth: us
             }
         }
         Object::Dictionary(dict) => {
-            for (_key, value) in dict.iter() {
-                tally_references(value, counts, next);
+            for (key, value) in dict.iter() {
+                if !names_a_content_stream(key) {
+                    tally_references(value, counts, next);
+                }
             }
         }
         Object::Stream(stream) => {
-            for (_key, value) in stream.dict.iter() {
-                tally_references(value, counts, next);
+            for (key, value) in stream.dict.iter() {
+                if !names_a_content_stream(key) {
+                    tally_references(value, counts, next);
+                }
             }
         }
         _ => {}
     }
+}
+
+/// Whether `key` is a marked-content reference's `/Stm`, which names the content stream a
+/// structure element's sequence is in (ISO 32000-2 §14.7.5.2, Table 357) and draws nothing.
+///
+/// [`reference_counts`] counts placements a removal could destroy by overwriting an object, and a
+/// tagged form is named by one `/Stm` per sequence besides the `Do` that draws it: counted, every
+/// tagged form would read as shared, be copied for its page, and leave the producer's stream,
+/// marks the region covered included, carried into the output by the structure tree's
+/// references (ADR 3849).
+fn names_a_content_stream(key: &Name) -> bool {
+    key.as_bytes() == b"Stm"
 }
 
 /// A positive integer dimension entry (`/Width`, `/Height`), or a refusal naming it.
@@ -3402,6 +3418,19 @@ fn restated_dict(
         kids.extend(item.kids_added.iter().copied().map(Object::Reference));
         dict.insert(Name::new(&b"Kids"[..]), Object::Array(kids));
     }
+    // `parent_tree::with_pairs` wrote a directly held tree's `/Kids` into it as an array, so
+    // the leaf's reference is added to that array, after every producer kid (ADR 3850).
+    if !item.parent_tree_kids.is_empty()
+        && let Some(Object::Dictionary(mut tree)) = dict.remove("ParentTree")
+    {
+        let mut kids = match tree.remove("Kids") {
+            Some(Object::Array(kids)) => kids,
+            _ => Vec::new(),
+        };
+        kids.extend(item.parent_tree_kids.iter().copied().map(Object::Reference));
+        tree.insert(Name::new(&b"Kids"[..]), Object::Array(kids));
+        dict.insert(Name::new(&b"ParentTree"[..]), Object::Dictionary(tree));
+    }
     dict
 }
 
@@ -3432,13 +3461,18 @@ struct Keyed {
     node: Option<traces::Restated>,
     /// The new leaf a root with `/Kids` takes.
     leaf: Option<Dictionary>,
+    /// The object holding the structure tree root, whose `/ParentTree` takes the leaf where the
+    /// tree is written in it rather than as an object of its own (ADR 3850).
+    holder: Option<ObjectId>,
 }
 
-/// Each placement copy of a form that states `/StructParents` (ADR 1363) given a key and an entry
-/// of its own in the structural parent tree (`parent_tree`, ADR 3846): the structure tree root
-/// in `restated` is restated, or added, with the new `/ParentTreeNextKey` and, where it holds the
-/// parent tree directly, the tree; a parent tree that is an object is answered to be restated.
-/// Nothing is keyed where the tree cannot be read or extended, and the copies keep the form's.
+/// Each copy of a form that states `/StructParents` given a key and an entry of its own in the
+/// structural parent tree (`parent_tree`): a placement's copy (ADR 1363, ADR 3846) and a page's
+/// copy of a form it does not own (ADR 1196, ADR 3849). The structure tree root in `restated` is
+/// restated, or added, with the new `/ParentTreeNextKey` and, where it holds the parent tree
+/// directly, the tree (with its new leaf, where it has `/Kids`, added once numbered: ADR 3850); a
+/// parent tree that is an object is answered to be restated. Nothing is keyed where the tree
+/// cannot be read or extended, and the copies keep the form's.
 fn key_placement_copies(
     document: &Document,
     (root, catalog): (ObjectId, &Dictionary),
@@ -3452,7 +3486,9 @@ fn key_placement_copies(
                 .get(form.id)
                 .as_stream()
                 .and_then(|stream| document.get_key(&stream.dict, "StructParents").as_integer());
-            let Some(key) = key.filter(|_| form.placement_copy) else {
+            // Every copy, whether of one placement or of the whole form for this page: the
+            // producer's form stays in the output for whatever else draws it, with its own key.
+            let Some(key) = key.filter(|_| form.private) else {
                 continue;
             };
             let taken = page
@@ -3491,14 +3527,9 @@ fn key_placement_copies(
         return Keyed::default();
     };
     let (node, leaf) = parent_tree::with_pairs(document, parents, &extension.pairs);
-    // A leaf's reference goes into the root's own `/Kids`; a tree the structure tree root holds
-    // directly has no object for it to be added to once the leaf is numbered.
-    if at.is_none() && leaf.is_some() {
-        return Keyed::default();
-    }
     let detail = format!(
-        "the structural parent tree given an entry of its own for each of {} placement copies of \
-         a form, the copy's /StructParents its key",
+        "the structural parent tree given an entry of its own for each of {} copies of a \
+         form, the copy's /StructParents its key",
         extension.keys.len()
     );
     let position = restated.iter().position(|item| item.id == holder);
@@ -3514,6 +3545,7 @@ fn key_placement_copies(
             detail,
             added: Vec::new(),
             kids_added: Vec::new(),
+            parent_tree_kids: Vec::new(),
         });
         let Some(item) = restated.last_mut() else {
             return Keyed::default();
@@ -3531,6 +3563,7 @@ fn key_placement_copies(
             detail: String::new(),
             added: Vec::new(),
             kids_added: Vec::new(),
+            parent_tree_kids: Vec::new(),
         })
     } else {
         item.dict
@@ -3541,6 +3574,7 @@ fn key_placement_copies(
         keys: extension.keys,
         node,
         leaf,
+        holder: Some(holder),
     }
 }
 
@@ -3591,7 +3625,7 @@ fn cut_traces(
             page.forms
                 .iter()
                 .enumerate()
-                .filter(|(_, form)| form.placement_copy)
+                .filter(|(_, form)| form.private)
                 .map(|(edit, form)| (page.page_id, edit, form.id))
         })
         .collect();
@@ -3618,30 +3652,66 @@ fn cut_traces(
         replaced.insert(item.id);
         restated_slots.push((slot, item));
     }
-    // The parent tree's root, where it is an object, takes the new leaf as its last kid; a root
-    // this could not restate takes nothing, and no copy is keyed into a tree that lacks its entry.
-    if let Some(node) = node {
-        let Some(at) = restated_slots.iter().position(|(_, item)| item.id == node) else {
-            return Ok((replaced, restated_slots, tree, Vec::new()));
-        };
-        if let Some(leaf) = keyed.leaf.take() {
-            let slot = assembly.reserve().map_err(assembly_error)?;
-            if let Some((_, item)) = restated_slots.get_mut(at) {
-                item.kids_added.push(slot);
-            }
-            restated_slots.push((
-                slot,
-                traces::Restated {
-                    id: node,
-                    dict: leaf,
-                    detail: String::new(),
-                    added: Vec::new(),
-                    kids_added: Vec::new(),
-                },
-            ));
-        }
+    if !place_leaf(assembly, &mut keyed, node, (&mut restated_slots, &mut tree))? {
+        return Ok((replaced, restated_slots, tree, Vec::new()));
     }
     Ok((replaced, restated_slots, tree, keyed.keys))
+}
+
+/// Gives the parent tree's new leaf a slot and its reference a place after every producer kid:
+/// the `/Kids` of the tree's root where that is an object of its own (`node`), or of the tree the
+/// structure tree root holds directly (ADR 3850). Answers `false` where the object that takes the
+/// new pairs was not restated, so that no copy is keyed into a tree that lacks its entry.
+fn place_leaf(
+    assembly: &mut Assembly<'_>,
+    keyed: &mut Keyed,
+    node: Option<ObjectId>,
+    (restated_slots, tree): (
+        &mut Vec<(ObjectId, traces::Restated)>,
+        &mut Option<traces::Restated>,
+    ),
+) -> Result<bool, Refusal> {
+    // A tree held directly with `/Nums` took its pairs in the root, which is restated already.
+    if node.is_none() && keyed.leaf.is_none() {
+        return Ok(true);
+    }
+    let item = match node.or(keyed.holder) {
+        Some(id) if node.is_none() && tree.as_ref().is_some_and(|tree| tree.id == id) => {
+            tree.as_mut()
+        }
+        Some(id) => restated_slots
+            .iter_mut()
+            .find(|(_, item)| item.id == id)
+            .map(|(_, item)| item),
+        None => None,
+    };
+    let Some(item) = item else {
+        return Ok(false);
+    };
+    let Some(leaf) = keyed.leaf.take() else {
+        return Ok(true);
+    };
+    let slot = assembly
+        .reserve()
+        .map_err(|error| Refusal::Assembly(error.to_string()))?;
+    if node.is_some() {
+        item.kids_added.push(slot);
+    } else {
+        item.parent_tree_kids.push(slot);
+    }
+    let id = item.id;
+    restated_slots.push((
+        slot,
+        traces::Restated {
+            id,
+            dict: leaf,
+            detail: String::new(),
+            added: Vec::new(),
+            kids_added: Vec::new(),
+            parent_tree_kids: Vec::new(),
+        },
+    ));
+    Ok(true)
 }
 
 /// Writes the catalog into the slot `placed` with every entry but `/PieceInfo` carried (§14.5,

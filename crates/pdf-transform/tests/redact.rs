@@ -5992,6 +5992,257 @@ fn a_placement_copy_is_given_a_parent_tree_entry_of_its_own() {
     );
 }
 
+/// Each stream of `document` whose decoded data holds `marker`, with its data and its
+/// `/StructParents`.
+fn streams_holding(
+    document: &Document,
+    marker: &str,
+) -> Vec<(pdf_syntax::ObjectId, String, Option<i64>)> {
+    (1..64)
+        .filter_map(|number| {
+            let id = pdf_syntax::ObjectId {
+                number,
+                generation: 0,
+            };
+            let object = document.get(id);
+            let stream = object.as_stream()?;
+            let data = document.decoded_stream_data(stream)?;
+            let text = String::from_utf8_lossy(&data).into_owned();
+            text.contains(marker).then(|| {
+                let key = document.get_key(&stream.dict, "StructParents").as_integer();
+                (id, text, key)
+            })
+        })
+        .collect()
+}
+
+/// The value under `key` in the `/Nums` of `node`, read as an array.
+fn entry_in(document: &Document, node: &pdf_syntax::object::Dictionary, key: i64) -> Vec<Object> {
+    let nums = document.get_key(node, "Nums");
+    let nums = nums.as_array().expect("the node holds /Nums");
+    let at = nums
+        .iter()
+        .position(|item| item.as_integer() == Some(key))
+        .expect("the key is in the node");
+    document
+        .resolve(&nums[at + 1])
+        .as_array()
+        .expect("an array")
+        .to_vec()
+}
+
+/// Two pages drawing one tagged form of two sequences, the first page's first sequence under a
+/// redaction; the form states `/StructParents 2`, and the element of its second sequence names
+/// the second page as its `/Pg`.
+fn a_tagged_form_shared_by_two_pages() -> Vec<u8> {
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 9 0 R /MarkInfo << /Marked true >> >>"
+            .to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Fm0 \
+          7 0 R >> >> /Contents 5 0 R /Annots [6 0 R] /StructParents 0 >>"
+            .to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Fm0 \
+          7 0 R >> >> /Contents 13 0 R /StructParents 1 >>"
+            .to_vec(),
+        stream_object("", b"q 1 0 0 1 20 120 cm /Fm0 Do Q"),
+        b"<< /Type /Annot /Subtype /Redact /Rect [15 125 60 150] >>".to_vec(),
+        stream_object(
+            "/Type /XObject /Subtype /Form /BBox [0 0 150 30] /StructParents 2 /Resources << \
+             /Font << /F1 8 0 R >> >>",
+            b"/Span <</MCID 0>> BDC BT /F1 12 Tf 0 10 Td (AAAA) Tj ET EMC /Span <</MCID 1>> BDC \
+              BT /F1 12 Tf 60 10 Td (BBBB) Tj ET EMC",
+        ),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+        b"<< /Type /StructTreeRoot /K [10 0 R 11 0 R] /ParentTree 12 0 R /ParentTreeNextKey 3 >>"
+            .to_vec(),
+        b"<< /Type /StructElem /S /Span /P 9 0 R /Pg 3 0 R /K << /Type /MCR /Stm 7 0 R /MCID 0 \
+          >> /ActualText (AAAA) >>"
+            .to_vec(),
+        b"<< /Type /StructElem /S /Span /P 9 0 R /Pg 4 0 R /K << /Type /MCR /Stm 7 0 R /MCID 1 \
+          >> >>"
+            .to_vec(),
+        b"<< /Nums [0 [] 1 [] 2 [10 0 R 11 0 R]] >>".to_vec(),
+        stream_object("", b"q 1 0 0 1 20 120 cm /Fm0 Do Q"),
+    ];
+    assemble_bytes(&objects)
+}
+
+/// A tagged form two pages draw, redacted on one: the page's copy of the form (ADR 1196) is given
+/// a parent-tree key and entry of its own (§14.7.5.4, Table 359, ADR 3849), its entry the form's
+/// with a null for the sequence the copy no longer holds. The form, which the other page still
+/// draws, keeps the producer's key, entry and elements: the redaction on one page leaves the
+/// other page's structure as the producer wrote it, and the element of the sequence the copy
+/// kept names the copy, whatever page its reference to the form states.
+#[test]
+fn a_shared_form_copied_for_one_page_is_given_a_parent_tree_entry_of_its_own() {
+    let (report, out) = redact(&a_tagged_form_shared_by_two_pages());
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let document = Document::open_with_limits(out, Limits::DEFAULT).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    let root = document.get_key(&catalog, "StructTreeRoot");
+    let root = root.as_dict().expect("a root");
+    let Object::Array(top) = document.get_key(root, "K") else {
+        panic!("the root's /K is an array");
+    };
+    let (cut, kept) = (document.resolve(&top[0]), document.resolve(&top[1]));
+    let (cut, kept) = (cut.as_dict().expect("cut"), kept.as_dict().expect("kept"));
+    let streams = streams_holding(&document, "BBBB");
+    assert_eq!(streams.len(), 2, "the form and one copy: {streams:#?}");
+    let form = streams.iter().find(|(_, text, _)| text.contains("AAAA"));
+    let copy = streams.iter().find(|(_, text, _)| !text.contains("AAAA"));
+    let (Some(form), Some(copy)) = (form, copy) else {
+        panic!("the form keeps both sequences and the copy only the second: {streams:#?}");
+    };
+    assert_eq!(form.2, Some(2), "the form keeps the producer's key");
+    assert_eq!(copy.2, Some(3), "the copy takes /ParentTreeNextKey");
+    assert_eq!(
+        document.get_key(root, "ParentTreeNextKey").as_integer(),
+        Some(4)
+    );
+    // The second page still draws the producer's form.
+    let pages = pdf_model::Pages::new(&document);
+    let second = pages.get(1).expect("page two");
+    let resources = document.get_key(&second.dict, "Resources");
+    let xobjects = document.get_key(resources.as_dict().expect("resources"), "XObject");
+    assert_eq!(
+        xobjects
+            .as_dict()
+            .expect("xobjects")
+            .get("Fm0")
+            .and_then(Object::as_reference),
+        Some(form.0),
+        "the other page draws the form"
+    );
+    let tree = document.get_key(root, "ParentTree");
+    let tree = tree.as_dict().expect("a parent tree");
+    let element = |object: &Object| object.as_reference();
+    let (cut_id, kept_id) = (top[0].as_reference(), top[1].as_reference());
+    assert_eq!(
+        entry_in(&document, tree, 2)
+            .iter()
+            .map(element)
+            .collect::<Vec<_>>(),
+        vec![cut_id, kept_id],
+        "the form's entry is as the producer wrote it"
+    );
+    let own = entry_in(&document, tree, 3);
+    assert_eq!(own.len(), 2, "{own:?}");
+    assert_eq!(
+        own[0],
+        Object::Null,
+        "the sequence the copy lost is found nowhere"
+    );
+    assert_eq!(
+        element(&own[1]),
+        kept_id,
+        "the sequence it kept finds its element"
+    );
+    // The other page's sequence keeps its element, which names the form and nothing else; the
+    // kept sequence's element names the form and the copy.
+    assert_eq!(streams_named(&document, cut), vec![Some(form.0)]);
+    assert_eq!(
+        streams_named(&document, kept),
+        vec![Some(form.0), Some(copy.0)]
+    );
+}
+
+/// [`a_tagged_form_of_two_sequences_drawn_twice`] with the parent tree written directly inside
+/// the structure tree root, its one leaf an object under the root's `/Kids`.
+fn a_tagged_form_drawn_twice_under_a_parent_tree_of_kids_held_in_the_root() -> Vec<u8> {
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 8 0 R /MarkInfo << /Marked true >> >>"
+            .to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Fm0 \
+          6 0 R >> >> /Contents 4 0 R /Annots [5 0 R] /StructParents 0 >>"
+            .to_vec(),
+        stream_object(
+            "",
+            b"q 1 0 0 1 20 20 cm /Fm0 Do Q q 1 0 0 1 20 120 cm /Fm0 Do Q",
+        ),
+        b"<< /Type /Annot /Subtype /Redact /Rect [15 125 60 150] >>".to_vec(),
+        stream_object(
+            "/Type /XObject /Subtype /Form /BBox [0 0 150 30] /StructParents 1 /Resources << \
+             /Font << /F1 7 0 R >> >>",
+            b"/Span <</MCID 0>> BDC BT /F1 12 Tf 0 10 Td (AAAA) Tj ET EMC /Span <</MCID 1>> BDC \
+              BT /F1 12 Tf 60 10 Td (BBBB) Tj ET EMC",
+        ),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+        b"<< /Type /StructTreeRoot /K [9 0 R 10 0 R] /ParentTree << /Kids [11 0 R] >> \
+          /ParentTreeNextKey 2 >>"
+            .to_vec(),
+        b"<< /Type /StructElem /S /Span /P 8 0 R /Pg 3 0 R /K << /Type /MCR /Stm 6 0 R /MCID 0 \
+          >> >>"
+            .to_vec(),
+        b"<< /Type /StructElem /S /Span /P 8 0 R /Pg 3 0 R /K << /Type /MCR /Stm 6 0 R /MCID 1 \
+          >> >>"
+            .to_vec(),
+        b"<< /Limits [0 1] /Nums [0 [] 1 [9 0 R 10 0 R]] >>".to_vec(),
+    ];
+    assemble_bytes(&objects)
+}
+
+/// A parent tree the structure tree root holds directly, with `/Kids`: the placement copy's new
+/// entry goes into one new leaf with `/Limits`, an object whose reference is added after the
+/// producer's kids in the root's own `/ParentTree` (Table 37 asks `/Kids` to hold indirect
+/// references and `/Limits` of every leaf; ADR 3850). The producer's leaf is not rewritten.
+#[test]
+fn a_parent_tree_of_kids_held_in_the_root_takes_the_copy_s_entry_in_a_new_leaf() {
+    let (report, out) =
+        redact(&a_tagged_form_drawn_twice_under_a_parent_tree_of_kids_held_in_the_root());
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let document = Document::open_with_limits(out, Limits::DEFAULT).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    let root = document.get_key(&catalog, "StructTreeRoot");
+    let root = root.as_dict().expect("a root");
+    let streams = streams_holding(&document, "BBBB");
+    let copy = streams.iter().find(|(_, text, _)| !text.contains("AAAA"));
+    let Some(copy) = copy else {
+        panic!("one copy holds only the second sequence: {streams:#?}");
+    };
+    assert_eq!(copy.2, Some(2), "the copy takes /ParentTreeNextKey");
+    assert_eq!(
+        document.get_key(root, "ParentTreeNextKey").as_integer(),
+        Some(3)
+    );
+    let Some(Object::Dictionary(tree)) = root.get("ParentTree") else {
+        panic!("the tree is still written in the root");
+    };
+    let Some(Object::Array(kids)) = tree.get("Kids") else {
+        panic!("the tree keeps its /Kids");
+    };
+    assert_eq!(kids.len(), 2, "the producer's leaf and one more: {kids:?}");
+    assert!(
+        kids.iter().all(|kid| kid.as_reference().is_some()),
+        "every kid is an indirect reference"
+    );
+    let producer = document.resolve(&kids[0]);
+    let producer = producer.as_dict().expect("the producer's leaf");
+    assert_eq!(
+        document
+            .get_key(producer, "Limits")
+            .as_array()
+            .map(<[Object]>::to_vec),
+        Some(vec![Object::Integer(0), Object::Integer(1)]),
+        "the producer's leaf is as written"
+    );
+    let added = document.resolve(&kids[1]);
+    let added = added.as_dict().expect("the new leaf");
+    assert_eq!(
+        document
+            .get_key(added, "Limits")
+            .as_array()
+            .map(<[Object]>::to_vec),
+        Some(vec![Object::Integer(2), Object::Integer(2)])
+    );
+    let Object::Array(top) = document.get_key(root, "K") else {
+        panic!("the root's /K is an array");
+    };
+    let own = entry_in(&document, added, 2);
+    assert_eq!(own, vec![Object::Null, top[1].clone()]);
+}
+
 /// A form drawn twice from inside another form is split in that form's own stream: the copy is
 /// named in the enclosing form's resources, which the enclosing form's edited stream states.
 #[test]
@@ -7202,4 +7453,32 @@ fn a_shallow_two_component_raw_codestream_is_cleared_under_flate() {
         ("FlateDecode".to_owned(), "DeviceN".to_owned(), 8),
         "the shallow image goes back under Flate, as before the JPX writer"
     );
+}
+
+/// A tagged form one page draws once, its first sequence under a redaction. The structure tree's
+/// marked-content references name the form (§14.7.5.2's `/Stm`) and draw nothing, so the page
+/// owns the form and its own stream is edited (ADR 1196, ADR 3849): no stream of the output holds
+/// the covered text, and the form keeps the producer's key.
+#[test]
+fn a_tagged_form_one_page_draws_is_edited_in_its_own_place() {
+    let mut bytes = a_tagged_form_of_two_sequences_drawn_twice();
+    let from = b"q 1 0 0 1 20 20 cm /Fm0 Do Q q 1 0 0 1 20 120 cm /Fm0 Do Q";
+    // The second placement alone, padded so that the cross-reference offsets still hold.
+    let mut to = b"q 1 0 0 1 20 120 cm /Fm0 Do Q".to_vec();
+    to.resize(from.len(), b' ');
+    let at = bytes
+        .windows(from.len())
+        .position(|window| window == from)
+        .expect("the page's content");
+    bytes[at..at + from.len()].copy_from_slice(&to);
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let document = Document::open_with_limits(out, Limits::DEFAULT).expect("it opens");
+    assert!(
+        streams_holding(&document, "AAAA").is_empty(),
+        "the covered text is in no stream of the output"
+    );
+    let streams = streams_holding(&document, "BBBB");
+    assert_eq!(streams.len(), 1, "{streams:#?}");
+    assert_eq!(streams[0].2, Some(1), "the form keeps the producer's key");
 }

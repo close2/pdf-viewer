@@ -220,7 +220,7 @@ impl Walk<'_> {
         if self.split.contains_key(&id) {
             return self.place_split(id, Some(edit), (entered, reached_from));
         }
-        self.record_form_edit(edit)
+        self.record_form_edit(edit, reached_from)
     }
 
     /// Sets the page's per-stream state aside and starts a form's, returning what to put back.
@@ -294,31 +294,51 @@ impl Walk<'_> {
         (edits, states, (named, overrides, masks), resources)
     }
 
-    /// Records one form's edited content in the form's own place.
+    /// Records one form's edited content in the form's own place, the walk's sequences from
+    /// `reached_from` on being the ones this placement reached.
     ///
     /// A form drawn twice on the page is one stream, so this place can hold it only one way: two
     /// placements asking for the same edit are one edit. Two asking for different ones are what
     /// the first walk of a page notes and the second splits ([`super::forms`], ADR 1363), so on the
     /// first walk the disagreement is left for [`super::forms::split`] to find.
-    pub(super) fn record_form_edit(&mut self, edit: FormEdit) -> Result<(), String> {
+    ///
+    /// A form the page does not own is written as a copy for the page (ADR 1196), and the
+    /// sequences the placement reached are then in the copy's stream rather than the form's,
+    /// which every other placement still draws: they are recorded as the copy's, so that the
+    /// structure tree and the copy's own parent-tree entry find them there (ADR 3849).
+    pub(super) fn record_form_edit(
+        &mut self,
+        edit: FormEdit,
+        reached_from: usize,
+    ) -> Result<(), String> {
+        let (id, private) = (edit.id, edit.private);
         if let Some(earlier) = self
             .form_edits
             .iter()
             .find(|earlier| earlier.id == edit.id && !earlier.placement_copy)
         {
-            if earlier.content == edit.content {
-                return Ok(());
+            if earlier.content != edit.content && !self.split.is_empty() {
+                return Err(format!(
+                    "§8.10.1: the second walk of the page asked form object {} for an edit the \
+                     first did not; the page is refused rather than written from two readings",
+                    edit.id.number
+                ));
             }
-            if self.split.is_empty() {
-                return Ok(());
-            }
-            return Err(format!(
-                "§8.10.1: the second walk of the page asked form object {} for an edit the first \
-                 did not; the page is refused rather than written from two readings",
-                edit.id.number
-            ));
+        } else {
+            self.form_edits.push(edit);
         }
-        self.form_edits.push(edit);
+        if private
+            && let Some(index) = self
+                .form_edits
+                .iter()
+                .position(|earlier| earlier.id == id && !earlier.placement_copy)
+        {
+            for reached in self.reached.iter_mut().skip(reached_from) {
+                if reached.stream == Some(id) && reached.copy.is_none() {
+                    reached.copy = Some(index);
+                }
+            }
+        }
         Ok(())
     }
 

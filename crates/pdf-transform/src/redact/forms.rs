@@ -135,7 +135,7 @@ impl Walk<'_> {
         };
         match (slot, edit) {
             (Some(Slot::Original), None) => Ok(()),
-            (Some(Slot::Original), Some(edit)) => self.record_form_edit(edit),
+            (Some(Slot::Original), Some(edit)) => self.record_form_edit(edit, reached_from),
             (Some(Slot::Copy(copy)), Some(mut edit)) => {
                 edit.private = true;
                 edit.placement_copy = true;

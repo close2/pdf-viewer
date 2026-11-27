@@ -4875,10 +4875,9 @@ fn a_file_no_part_admits_under_a_specification_written_in_place_is_taken_out_whe
 }
 
 #[test]
-fn a_file_no_part_admits_in_place_under_an_action_is_refused_by_name() {
-    // An embedded go-to action's `/F` (§12.6.4.4) is neither an `/AF` element nor an annotation's
-    // own `/FS`: what taking the specification out of it would leave has not been read, so the
-    // conversion says so rather than guessing (ADR 3847).
+fn a_file_no_part_admits_in_place_under_an_action_loses_its_embedded_file_where_it_stands() {
+    // An embedded go-to action's `/F` (§12.6.4.4) is the action's own: the specification stays
+    // there naming its file, its `/EF` goes, and the link and its action are kept (ADR 3851).
     let source = Conforming {
         page: "/Annots [6 0 R]".to_owned(),
         objects: vec![
@@ -4898,13 +4897,143 @@ fn a_file_no_part_admits_in_place_under_an_action_is_refused_by_name() {
     let mut authorised = Authorisations::default();
     authorised.authorise(Loss::EmbeddedFile);
     let (report, output) = convert(&source, Target::Two(Level::B), authorised);
-    let Decision::Refused(Because::NotBuiltYet(why)) =
-        decision(&report, "embedded-files/embedded-file-is-itself-pdfa")
-    else {
-        panic!("a specification written in place under an action is refused by name");
-    };
-    assert!(why.contains("directly inside another object"), "{why}");
-    assert!(output.is_none(), "and no file is written");
+    assert_eq!(
+        conversion(&report).removed_files,
+        vec!["notes.txt".to_owned()]
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let document = Document::open(output).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let annotations = document.get_key(&page.dict, "Annots");
+    let link = document.resolve(&annotations.as_array().expect("annotations")[0]);
+    let action = document.get_key(link.as_dict().expect("the link is kept"), "A");
+    let action = action.as_dict().expect("its action is kept");
+    let specification = document.get_key(action, "F");
+    let specification = specification.as_dict().expect("the action's /F is kept");
+    assert!(
+        specification.get("EF").is_none(),
+        "the embedded file is gone"
+    );
+    assert_eq!(
+        document.get_key(specification, "F").as_string(),
+        Some(&b"notes.txt"[..]),
+        "the specification still names its file"
+    );
+}
+
+#[test]
+fn a_file_no_part_admits_in_place_in_a_name_tree_leaf_leaves_the_tree_with_its_name() {
+    // §7.9.6 makes a leaf's `/Names` a list of key and value pairs: a specification written in
+    // place in one leaves with the name beside it, as a referenced one's pair does (ADR 3851).
+    let source = Conforming {
+        catalog: "/Names << /EmbeddedFiles << /Names [(notes.txt) << /Type /Filespec \
+                  /F (notes.txt) /UF (notes.txt) /EF << /F 6 0 R >> /AFRelationship /Data >>] \
+                  >> >>"
+            .to_owned(),
+        binary_objects: vec![stream(
+            "/Type /EmbeddedFile /Subtype /text#2Fplain \
+             /Params << /ModDate (D:20260101000000Z) >> /Length 6",
+            b"notes\n",
+        )],
+        ..Conforming::part_two()
+    }
+    .build();
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::EmbeddedFile);
+    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
+    assert_eq!(
+        conversion(&report).removed_files,
+        vec!["notes.txt".to_owned()]
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let document = Document::open(output).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    let names = document.get_key(&catalog, "Names");
+    let files = document.get_key(
+        names.as_dict().expect("the name dictionary"),
+        "EmbeddedFiles",
+    );
+    let leaf = document.get_key(files.as_dict().expect("the tree"), "Names");
+    assert_eq!(
+        leaf.as_array().map(<[pdf_syntax::object::Object]>::len),
+        Some(0),
+        "{leaf:?}"
+    );
+}
+
+#[test]
+fn a_file_no_part_admits_named_by_a_kept_file_attachment_loses_its_embedded_file() {
+    // §12.5.6.15's Table 184 requires a file attachment annotation's `/FS`, and the annotation is
+    // kept: the specification object it names stays, naming its file, without `/EF`; the name
+    // tree, which only lists it, no longer does (ADR 3851, ADR 1099).
+    let source = Conforming {
+        catalog: "/Names << /EmbeddedFiles << /Names [(notes.txt) 7 0 R] >> >>".to_owned(),
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /FileAttachment /Rect [20 30 40 60] /F 4 /FS 7 0 R \
+             /AP << /N 9 0 R >> >>"
+                .to_owned(),
+            "<< /Type /Filespec /F (notes.txt) /UF (notes.txt) /EF << /F 8 0 R >> \
+             /AFRelationship /Unspecified >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![
+            stream(
+                "/Type /EmbeddedFile /Subtype /text#2Fplain \
+                 /Params << /ModDate (D:20260101000000Z) >> /Length 6",
+                b"notes\n",
+            ),
+            stream(
+                "/Type /XObject /Subtype /Form /BBox [0 0 20 30] /Length 15",
+                b"0 0 20 30 re f\n",
+            ),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::EmbeddedFile);
+    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
+    assert_eq!(
+        conversion(&report).removed_files,
+        vec!["notes.txt".to_owned()]
+    );
+    let output = output.expect("the document converts");
+    let held = holds(&output, Target::Two(Level::B));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let document = Document::open(output).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let annotations = document.get_key(&page.dict, "Annots");
+    let annotation = document.resolve(&annotations.as_array().expect("annotations")[0]);
+    let annotation = annotation.as_dict().expect("the annotation is kept");
+    assert!(annotation.get("AP").is_some(), "the appearance is kept");
+    let specification = document.get_key(annotation, "FS");
+    let specification = specification.as_dict().expect("its /FS is kept");
+    assert!(
+        specification.get("EF").is_none(),
+        "the embedded file is gone"
+    );
+    assert_eq!(
+        document.get_key(specification, "F").as_string(),
+        Some(&b"notes.txt"[..]),
+        "the specification still names its file"
+    );
+    let catalog = document.catalog().expect("a catalog");
+    let names = document.get_key(&catalog, "Names");
+    let files = document.get_key(
+        names.as_dict().expect("the name dictionary"),
+        "EmbeddedFiles",
+    );
+    let leaf = document.get_key(files.as_dict().expect("the tree"), "Names");
+    assert_eq!(
+        leaf.as_array().map(<[pdf_syntax::object::Object]>::len),
+        Some(0),
+        "{leaf:?}"
+    );
 }
 
 #[test]

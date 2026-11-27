@@ -3250,11 +3250,14 @@ pub(super) fn xfa_form_is_dynamic(document: &Document) -> bool {
 ///
 /// ISO 19005-2 section 6.8 requires every embedded file to conform to a part of ISO 19005, and
 /// ISO 19005-4 section 6.9 requires the same of a plain PDF/A-4 file. Neither offers anywhere to
-/// put one that does not, so the `discard` this population is built for takes the whole file
-/// specification out of the document — and **what is removed is every reference to it**, on
-/// `doc/adr/1099`'s rule: the walk copies what the converted document reaches, so a specification
-/// nothing names is a specification the output does not hold, and the embedded stream under it
-/// goes the same way.
+/// put one that does not, so the `discard` this population is built for takes the embedded file
+/// out of the document — and **what is removed is every reference to its specification** that
+/// only lists it (a name tree's entry, an `/AF` element), on `doc/adr/1099`'s rule: the walk
+/// copies what the converted document reaches, so a specification nothing names is a
+/// specification the output does not hold, and the embedded stream under it goes the same way.
+/// A specification something the conversion keeps still names — a file attachment annotation's
+/// `/FS`, an action's `/F`, a media clip's data — stays where it is, naming its file by name, and
+/// loses its `/EF` and `/RF` (ADRs 3847, 3851).
 #[derive(Debug, Default)]
 pub(super) struct EmbeddedFiles {
     /// The specifications themselves, for the report and for the reference removal to match on.
@@ -3277,7 +3280,7 @@ pub(super) struct EmbeddedFiles {
     /// (`doc/adr/2536`).
     pub(super) each: Vec<(ObjectId, String)>,
     /// The objects a specification of a file this target does not admit is written in place
-    /// inside, where it stands in an `/AF` array or is the object's own `/FS` (ADR 3847).
+    /// inside (ADRs 3847, 3851).
     pub(super) in_place_by: BTreeSet<ObjectId>,
     /// The embedded file streams of those specifications, by which the rewrite knows them: a
     /// specification written in place has no number of its own.
@@ -3295,7 +3298,8 @@ pub(super) struct EmbeddedFiles {
 /// conversion: a file attachment annotation in it reaches nothing in the output, so its `/FS` is
 /// not a reason to keep the file (`doc/adr/2536`). `as_pages` says the files are laid out as
 /// pages, where a file attachment annotation that stays on its page is recorded in
-/// [`EmbeddedFiles::annotations`] rather than refused (`doc/adr/2537`).
+/// [`EmbeddedFiles::annotations`] (`doc/adr/2537`); otherwise the specification it names stays,
+/// written without its embedded file (ADR 3851).
 pub(super) fn embedded_files(
     document: &Document,
     input: &pdf_archive::Report,
@@ -3349,26 +3353,21 @@ pub(super) fn embedded_files(
         let Some(dict) = object.as_dict() else {
             continue;
         };
-        // §12.5.6.15's Table 184 makes a file attachment annotation's `/FS` required, and
-        // §12.6.4.4's embedded `GoTo` action names a specification the same way. A specification
-        // one of those still reaches survives the removal, and the requirement with it — so the
-        // document is refused here rather than half-converted and caught by the output's verdict.
-        if let Some(named) = dict
-            .get("FS")
-            .and_then(Object::as_reference)
-            .filter(|named| found.at.contains(named))
+        // §12.5.6.15's Table 184 makes a file attachment annotation's `/FS` required. Where the
+        // files are laid out as pages, the annotation stops naming a file and points at the page
+        // that now carries it (`doc/adr/2537`); anywhere else the specification it names stays
+        // and is written without its embedded file (ADR 3851), as is one anything else keeps.
+        if as_pages
+            && let Some(named) = dict
+                .get("FS")
+                .and_then(Object::as_reference)
+                .filter(|named| found.at.contains(named))
             && !removed_annotations.is_some_and(|removed| removed.contains(&id))
-        {
-            // §12.5.6.15's annotation, where the file goes to pages: the annotation stops naming
-            // a file and points at the page that now carries it. An embedded `GoTo` names a
-            // target inside the file, which a page of its text does not hold, so it still refuses.
-            let is_attachment_annotation = dict
+            && dict
                 .get("Subtype")
                 .and_then(Object::as_name)
-                .is_some_and(|subtype| subtype.as_bytes() == b"FileAttachment");
-            if !(as_pages && is_attachment_annotation) {
-                return Err(Because::NotBuiltYet(EMBEDDED_FILE_STILL_REACHED));
-            }
+                .is_some_and(|subtype| subtype.as_bytes() == b"FileAttachment")
+        {
             found.annotations.insert(id, named);
         }
         if names_one_of(document, dict, "AF", &found.at) {
@@ -3418,14 +3417,12 @@ pub(super) fn embedded_files(
 /// - **in an `/AF` array**, at any depth of the holder, the element leaves the array, as a
 ///   referenced one does (ISO 32000-2 §14.13.2: the array lists the associated files, and one
 ///   that is gone is listed nowhere);
-/// - **as the holder's own `/FS`**, which §12.5.6.15's Table 184 makes required of a file
-///   attachment annotation, the specification stays and its `/EF` and `/RF` go: what is left is
-///   §7.11.3's specification of a file by name, which an annotation the conversion keeps (its
-///   appearance, its place, its `/Contents`) still states, and the embedded file is the loss.
-///
-/// A failing specification anywhere else inside the holder — an action's `/F`, a collection
-/// item, a media clip — still refuses by name: each stands under an entry with a reading of its
-/// own, and none has been made here.
+/// - **in a name tree leaf's `/Names` array** (§7.9.6), the pair leaves the array, name and
+///   specification, as a referenced one's does (ADR 3851);
+/// - **anywhere else** — the holder's own `/FS`, which §12.5.6.15's Table 184 makes required of
+///   a file attachment annotation, an action's `/F`, a media clip's data — the specification
+///   stays and its `/EF` and `/RF` go: what is left is §7.11.3's specification of a file by name,
+///   which the object the conversion keeps still states, and the embedded file is the loss.
 #[derive(Default)]
 struct InPlace {
     holders: BTreeSet<ObjectId>,
@@ -3442,16 +3439,11 @@ impl InPlace {
         dict: &Dictionary,
     ) -> Result<(), Because> {
         let mut failing = 0_usize;
-        let mut unplaced = false;
-        let mut visit = |specification: &Dictionary, removable: bool| {
+        let mut visit = |specification: &Dictionary| {
             if !pdf_archive::table::embedded_file_fails(document, specification) {
                 return;
             }
             failing = failing.saturating_add(1);
-            if !removable {
-                unplaced = true;
-                return;
-            }
             let files = document.get_key(specification, "EF");
             self.files.extend(
                 files
@@ -3462,19 +3454,12 @@ impl InPlace {
             self.names
                 .push((id, specification_file_name(document, specification)));
         };
-        for (key, value) in dict.iter() {
-            let at_fs = key.as_bytes() == b"FS";
-            in_place_specifications(
-                document,
-                value,
-                (at_fs, key.as_bytes() == b"AF"),
-                0,
-                &mut visit,
-            );
+        for (_, value) in dict.iter() {
+            in_place_specifications(document, value, 0, &mut visit);
         }
         // A holder the rows named in which no specification fails on its own failed for one this
         // reading does not find, and nothing here says which to take out.
-        if unplaced || failing == 0 {
+        if failing == 0 {
             return Err(Because::NotBuiltYet(EMBEDDED_FILE_WRITTEN_IN_PLACE));
         }
         self.holders.insert(id);
@@ -3482,15 +3467,13 @@ impl InPlace {
     }
 }
 
-/// Visits each specification written in place inside `value`, saying whether it stands where the
-/// removal takes it out: as the holder's own `/FS` (`at_fs`, only for `value` itself) or in an
-/// `/AF` array (`in_af`). Bounded by [`MAX_NAME_TREE_DEPTH`], as a document controls its nesting.
+/// Visits each specification written in place inside `value`. Bounded by
+/// [`MAX_NAME_TREE_DEPTH`], as a document controls its nesting.
 fn in_place_specifications(
     document: &Document,
     value: &Object,
-    (at_fs, in_af): (bool, bool),
     depth: usize,
-    visit: &mut impl FnMut(&Dictionary, bool),
+    visit: &mut impl FnMut(&Dictionary),
 ) {
     if depth > MAX_NAME_TREE_DEPTH {
         return;
@@ -3499,16 +3482,15 @@ fn in_place_specifications(
     match value {
         Object::Array(items) => {
             for item in items {
-                in_place_specifications(document, item, (false, in_af), deeper, visit);
+                in_place_specifications(document, item, deeper, visit);
             }
         }
         Object::Dictionary(dict) => {
             if document.get_key(dict, "EF").as_dict().is_some() {
-                visit(dict, at_fs || in_af);
+                visit(dict);
             }
-            for (key, entry) in dict.iter() {
-                let in_af = key.as_bytes() == b"AF";
-                in_place_specifications(document, entry, (false, in_af), deeper, visit);
+            for (_, entry) in dict.iter() {
+                in_place_specifications(document, entry, deeper, visit);
             }
         }
         _ => {}
@@ -3614,17 +3596,9 @@ const EMBEDDED_FILE_ROWS: [&str; 2] = [
 /// Why an embedded file whose specification is written in place somewhere this converter does not
 /// take one out of is not removed.
 const EMBEDDED_FILE_WRITTEN_IN_PLACE: &str = "this document writes the file specification of an \
-     embedded file this target does not admit directly inside another object — its EmbeddedFiles \
-     name tree, an action's F, a collection item or a media clip — rather than as an object of \
-     its own, in an AF array or as an annotation's FS, and this verb has no reading of what \
-     taking it out of that entry would leave";
-
-/// Why an embedded file something else in the document still reaches is not removed.
-const EMBEDDED_FILE_STILL_REACHED: &str = "an embedded file this target does not admit is named \
-     by a file attachment annotation's FS entry or by an embedded GoTo action, which ISO 32000-2 \
-     \u{a7}12.5.6.15's Table 184 makes required — so taking the specification out of the name \
-     tree would leave it in the file, reached from a page, and the requirement failing. Removing \
-     that annotation is a different loss, over the marks it draws, and it is not this one";
+     embedded file this target does not admit directly inside another object, and the validator's \
+     finding names a place that is not an object, or an object in which no specification fails \
+     on its own reading, so nothing says which specification to take out";
 
 /// The requirement [`media_types`] answers (ISO 19005-4 section 6.9).
 const MEDIA_TYPE_ROW: &str = "embedded-files/associated-file-media-type";

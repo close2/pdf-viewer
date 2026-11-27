@@ -52,9 +52,10 @@ pub(super) struct Reached {
     pub(super) mcid: i64,
     /// Whether every glyph it showed was removed, rather than part of what it showed.
     pub(super) whole: bool,
-    /// Where `stream` is a form drawn more than once and this placement was written as a copy of
-    /// its own (ADR 1363), the page's form edit that copy is: the sequence is in the copy's
-    /// stream, not the form's, and the structure tree reaches it by the copy's number (ADR 3811).
+    /// Where `stream` is a form this placement drew from a copy — its own, for a form drawn more
+    /// than once (ADR 1363), or the page's, for a form the page does not own (ADR 1196) — the
+    /// page's form edit that copy is: the sequence is in the copy's stream, not the form's, and
+    /// the structure tree reaches it by the copy's number (ADRs 3811, 3849).
     pub(super) copy: Option<usize>,
 }
 

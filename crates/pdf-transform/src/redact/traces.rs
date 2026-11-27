@@ -175,6 +175,10 @@ pub(super) struct Restated {
     /// Objects of the output, by their numbers there, to add at the end of `dict`'s `/Kids`: a
     /// parent tree's new leaf (ADR 3846).
     pub(super) kids_added: Vec<ObjectId>,
+    /// Objects of the output, by their numbers there, to add at the end of the `/Kids` of the
+    /// parent tree `dict` states directly as its `/ParentTree`: the new leaf of a tree the
+    /// structure tree root holds in itself (ADR 3850).
+    pub(super) parent_tree_kids: Vec<ObjectId>,
 }
 
 /// Adds to the element at `path` below `dict` one content item per `items` entry: a §14.7.5.2
@@ -259,6 +263,7 @@ pub(super) fn field_values(document: &Document, removed: &HashSet<ObjectId>) -> 
                     dict,
                     added: Vec::new(),
                     kids_added: Vec::new(),
+                    parent_tree_kids: Vec::new(),
                     detail: format!(
                         "field {}'s {} not written; its widget {} met the region and was removed",
                         field.number,
@@ -424,6 +429,10 @@ fn marks_of(
         })
     };
     let mut copies: Vec<Copied> = Vec::new();
+    // Each copy's sequence already counted as one of this element's content items, as the copy's
+    // page, its edit and the `/MCID`: an element may name the form's sequence once per page that
+    // draws it, and the copy holds it once.
+    let mut seen: Vec<(ObjectId, usize, i64)> = Vec::new();
     let mut marks = Marks::default();
     let mut count = |hit: Option<bool>| {
         marks.items = marks.items.saturating_add(1);
@@ -445,22 +454,24 @@ fn marks_of(
                     mcid.and_then(|mcid| reached(at, stream, mcid))
                         .map(|item| item.reached.whole),
                 );
-                // A form drawn more than once and written as copies (ADR 1363): the sequence is
+                // A form written as copies — one per placement the region met differently (ADR
+                // 1363), or one for a page that does not own the form (ADR 1196): the sequence is
                 // in each copy too, one content item more for each, and a copy that still shows
-                // part of it is named to the element by the copy's own number (ADR 3811).
-                let mut seen: Vec<usize> = Vec::new();
-                for copied in items.iter().filter(|item| {
-                    Some(item.page) == at
-                        && item.reached.stream == stream
-                        && Some(item.reached.mcid) == mcid
-                }) {
+                // part of it is named to the element by the copy's own number (ADRs 3811, 3849).
+                // The copy is matched by its stream whatever page the reference states, since
+                // the copy's own parent-tree entry names this element either way.
+                for copied in items
+                    .iter()
+                    .filter(|item| item.reached.stream == stream && Some(item.reached.mcid) == mcid)
+                {
                     let Some(copy) = copied.reached.copy else {
                         continue;
                     };
-                    if seen.contains(&copy) {
+                    let key = (copied.page, copy, copied.reached.mcid);
+                    if seen.contains(&key) {
                         continue;
                     }
-                    seen.push(copy);
+                    seen.push(key);
                     count(Some(copied.reached.whole));
                     if !copied.reached.whole {
                         copies.push(Copied {
@@ -472,12 +483,14 @@ fn marks_of(
                 }
                 // A copy the removal reached no sequence of this element in holds the sequence
                 // as the form does: one content item more, not reached, named the same way.
-                for (copy_page, copy, _) in placements.iter().filter(|(copy_page, copy, form)| {
-                    Some(*copy_page) == at && Some(*form) == stream && !seen.contains(copy)
-                }) {
+                for (copy_page, copy, form) in placements {
                     let Some(mcid) = mcid else {
                         break;
                     };
+                    if Some(*form) != stream || seen.contains(&(*copy_page, *copy, mcid)) {
+                        continue;
+                    }
+                    seen.push((*copy_page, *copy, mcid));
                     count(None);
                     copies.push(Copied {
                         page: *copy_page,
@@ -705,6 +718,7 @@ fn restate(document: &Document, wanted: &[Restatement], tree: &Dictionary) -> Ve
                 detail: details.join("; "),
                 added,
                 kids_added: Vec::new(),
+                parent_tree_kids: Vec::new(),
             });
         }
     }

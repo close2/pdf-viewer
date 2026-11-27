@@ -103,6 +103,7 @@ pub(super) fn indirect_form(
         detail,
         added: Vec::new(),
         kids_added: Vec::new(),
+        parent_tree_kids: Vec::new(),
     })
 }
 

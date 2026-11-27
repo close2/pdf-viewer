@@ -305,14 +305,30 @@ impl Rewriter<'_> {
             count(applied, Rewrite::EmbeddedFileRemoved);
             changed = true;
         }
+        // A specification of its own that something the conversion keeps still names — a file
+        // attachment annotation's `/FS`, an action's `/F`, a media clip's data — is carried by
+        // that reference, and is written naming its file without embedding it (ADR 3851); one
+        // nothing names any more is not carried, and this is never asked of it.
+        if at.is_some_and(|id| removed.at.contains(&id)) && without_the_file(out) {
+            count(applied, Rewrite::EmbeddedFileRemoved);
+            changed = true;
+        }
         changed
     }
 }
 
+/// `specification` without its embedded file: §7.11.4's `/EF`, and `/RF`, which Table 43 asks
+/// only beside it. What is left is §7.11.3's specification of a file by name, every entry of
+/// which the producer wrote. Answers whether anything went.
+fn without_the_file(specification: &mut Dictionary) -> bool {
+    let embedded = specification.remove("EF").is_some();
+    specification.remove("RF").is_some() || embedded
+}
+
 /// Takes each specification written in place inside `dict` whose embedded file stream is one
-/// of `files` out where it stands (`sites::InPlace`, ADR 3847): an `/AF` array's element
-/// leaves the array, and the object's own `/FS` (`depth` 0) keeps naming its file with its
-/// `/EF` and `/RF` gone. Bounded by [`MAX_IN_PLACE_DEPTH`].
+/// of `files` out where it stands (`sites::InPlace`, ADRs 3847 and 3851): an `/AF` array's element
+/// leaves the array, a name tree leaf's pair leaves its `/Names`, and one anywhere else keeps
+/// naming its file with its `/EF` and `/RF` gone. Bounded by [`MAX_IN_PLACE_DEPTH`].
 fn forget_in_place(
     document: &Document,
     dict: &mut Dictionary,
@@ -324,15 +340,32 @@ fn forget_in_place(
     }
     let mut changed = false;
     let mut out = Dictionary::new();
+    // The holder itself is never one (`sites` names a specification of its own by itself), so a
+    // dictionary carrying one of `files` is one written in place inside it.
+    let specification = carries_one_of(document, dict, files);
     for (key, value) in dict.iter() {
+        if specification && matches!(key.as_bytes(), b"EF" | b"RF") {
+            changed = true;
+            continue;
+        }
         let mut value = value.clone();
         match (key.as_bytes(), &mut value) {
-            (b"FS", Object::Dictionary(specification))
-                if depth == 0 && carries_one_of(document, specification, files) =>
-            {
-                specification.remove("EF");
-                specification.remove("RF");
-                changed = true;
+            // §7.9.6: a leaf's `/Names` is "[ key1 value1 key2 value2 … keyn valuen ]", so a
+            // specification leaves with the name beside it, as a referenced one's pair does.
+            (b"Names", Object::Array(items)) => {
+                let before = items.len();
+                let mut kept = Vec::with_capacity(before);
+                for pair in items.chunks(2) {
+                    let gone = pair
+                        .get(1)
+                        .and_then(Object::as_dict)
+                        .is_some_and(|value| carries_one_of(document, value, files));
+                    if !gone {
+                        kept.extend(pair.iter().cloned());
+                    }
+                }
+                changed |= kept.len() != before;
+                *items = kept;
             }
             (b"AF", Object::Array(items)) => {
                 let before = items.len();

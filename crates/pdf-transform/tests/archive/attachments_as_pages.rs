@@ -361,11 +361,34 @@ fn an_annotation_naming_a_file_laid_out_as_pages_links_to_them_at_part_two() {
 }
 
 #[test]
-fn an_annotation_naming_a_file_still_refuses_where_no_page_answers_the_row() {
-    // Without the pages, nothing answers the annotation's `/FS`, and the refusal is the old one.
+fn an_annotation_naming_a_file_keeps_naming_it_without_the_file_where_no_page_answers_the_row() {
+    // Without the pages, each annotation keeps its `/FS`, which §12.5.6.15's Table 184 requires,
+    // and the specification it names stays, naming its file, without `/EF` (ADR 3851): the
+    // annotations and their appearance are kept, and both files are the stated loss.
     let target = Target::Two(Level::B);
     let source = a_page_whose_annotations_name_both();
     let row = "[site.\"embedded-files/embedded-file-is-itself-pdfa\"]\nremedy = \"discard\"\n";
-    let (report, output) = convert_with_plan(&source, &plan_from(row, target));
-    assert!(output.is_none(), "{:?}", conversion(&report).decided);
+    let mut plan = plan_from(row, target);
+    plan.authorised.authorise(Loss::EmbeddedFile);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let output = output.unwrap_or_else(|| panic!("{:?}", conversion(&report).decided));
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    assert_eq!(
+        conversion(&report).removed_files,
+        vec!["blob.bin".to_owned(), "note.txt".to_owned()]
+    );
+    let document = Document::open(output.clone()).expect("the output opens");
+    let annotations = annotations_of(&output);
+    assert_eq!(annotations.len(), 2);
+    for annotation in &annotations {
+        assert!(annotation.get("AP").is_some(), "the appearance is kept");
+        let specification = document.get_key(annotation, "FS");
+        let specification = specification.as_dict().expect("the /FS is kept");
+        assert!(
+            specification.get("EF").is_none(),
+            "the embedded file is gone"
+        );
+        assert!(specification.get("F").is_some(), "the file is still named");
+    }
 }

@@ -2988,14 +2988,16 @@ ISO 19005-2 6.8, ISO 19005-4 6.9 · today **`derive` built, `discard` built** (A
 
 - **Where the specification stands.** Every dictionary carrying `/EF` that the cross-referenced
   objects state is held to the row, a direct `/FS`, `GoToE` `/F` or `/AF` element included, and
-  reported at the object it is written in (ADR 3834). `discard` removes references to
-  specification objects, and takes a specification written in place out where it stands (ADR
-  3847): each in the holder is judged on its own, a failing one in an `/AF` array leaves the
-  array, and an annotation's own `/FS` keeps naming its file with `/EF` and `/RF` gone. One
-  written anywhere else (a `GoToE` `/F`, a collection item, a media clip, a name tree's leaf) is
-  refused by name (`EMBEDDED_FILE_WRITTEN_IN_PLACE`) unless section 6.3.1's removal takes its
-  annotation off the page; `file-and-unicode-names` and `relationship-stated` are completed where
-  the specification stands.
+  reported at the object it is written in (ADR 3834). `discard` removes the references that only
+  list a specification (a name tree's pair, an `/AF` element), and a specification something the
+  conversion keeps still names — an annotation's `/FS`, an action's `/F`, a media clip's data —
+  stays there naming its file with `/EF` and `/RF` gone, whether it is an object of its own or
+  written in place (ADRs 3847, 3851). Written in place, each in the holder is judged on its own:
+  a failing one in an `/AF` array leaves the array, one in a name tree leaf leaves it with its
+  name. Refused by name (`EMBEDDED_FILE_WRITTEN_IN_PLACE`) only where the finding names no
+  object, or an object in which no specification fails on its own reading;
+  `file-and-unicode-names` and `relationship-stated` are completed where the specification
+  stands.
 - **What the rule reaches.** An embedded PDF is held to the part its own identification names; one
   naming part 1 or 3 is passed over, a claim this validator cannot judge, and one naming no part
   fails, because it has established nothing the section's condition rests on (ADR 2278).
