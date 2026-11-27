@@ -1083,7 +1083,8 @@ fn draw_separated(
     // colour space of the output device", and a press's is its process and spot colourants, so a
     // backend applies the functions to the planes before steps b) to d) compose them rather than
     // to the composed colour (ADR 3769). A page whose group composites in one or three components
-    // has no process plates to apply them on (ADR 1329), and keeps the screen's application.
+    // has no process plates to apply them on (ADR 1329), and keeps the screen's application, which
+    // is a departure from §11.7.4.2's conversion to the device's colourants (ADR 3805).
     if list.blending().is_some() {
         list.set_transfer_device(pdf_render::TransferDevice::SimulatedPress);
     }
@@ -1670,6 +1671,7 @@ impl<'a> Interpreter<'a> {
             opaque_ancestry: true,
             transfers: pdf_render::TransferBuilder::default(),
             transfer_maps: Vec::new(),
+            overprint_opaque_for: [None, None],
             tiling_cell: false,
             tiling_cell_opaque: true,
             nested_space_departed: false,
@@ -1797,6 +1799,9 @@ impl<'a> Interpreter<'a> {
             opaque_ancestry,
             transfers,
             transfer_maps,
+            // Read only by the mark its overprint decision was made for, which is drawn before
+            // any checkpoint could be taken between the two.
+            overprint_opaque_for: _,
             // Scoped by `Interpreter::tile` with `mem::replace`, so a checkpoint's rollback
             // cannot land inside a cell and nothing has to be carried across one.
             tiling_cell: _,
@@ -3348,6 +3353,14 @@ struct Interpreter<'a> {
     /// page states a handful of transfers against thousands of marks, so the answer is memoised
     /// against the `Arc` the graphics state holds rather than rebuilt per mark.
     transfer_maps: Vec<(Arc<Transfer>, Arc<pdf_render::TransferMap>)>,
+    /// The components of §10.8.3's simulated press the latest non-stroking (`[0]`) and stroking
+    /// (`[1]`) overprint decision found its mark opaque for, read by [`Interpreter::draw_mark`] for
+    /// a mark that carries §11.7.4.3's special mode; `None` where no press made that decision. Two,
+    /// because §8.6.7 gives each kind of operation its own parameter and a `B` decides both before
+    /// it paints either. Written by every route that answers with
+    /// [`pdf_render::BlendMode::Overprint`] and nowhere else, so neither is older than the mark it
+    /// is read for (ADR 3806).
+    overprint_opaque_for: [Option<Arc<pdf_render::OpaqueFor>>; 2],
     /// Whether a tiling pattern's cell is being interpreted.
     ///
     /// §8.7.3.1's cell is interpreted **once** and its commands copied to every site

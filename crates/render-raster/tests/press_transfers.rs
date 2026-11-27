@@ -1,7 +1,8 @@
 //! ISO 32000-2 §10.5's transfer functions on §10.8.3's simulated press, a CMYK device, on every
 //! lane that draws it: the CPU oracle, `rasterize`, and the window's present
-//! (`rasterize_frame`, ADR 3701). `render-gpu` refuses a list with a transfer channel and hands
-//! the frame to the CPU oracle, so it has no picture of its own to compare. ADR 3769, ADR 3770.
+//! (`rasterize_frame`, ADR 3701). `render-gpu` refuses a list with a transfer channel, and a
+//! separated page, by name and hands the frame to the CPU oracle, so it has no picture of its own
+//! to compare; [`agree`] asks it for the refusal. ADR 3769, ADR 3770, ADR 3806 to ADR 3808.
 //!
 //! `pdf-model`'s `rendering_10_5_10_8_spec_audit` asks the oracle alone; a test of one lane is not
 //! a test of the window (review 2248).
@@ -114,8 +115,24 @@ fn three_lanes(list: &Arc<DisplayList>) -> ([u8; 3], [u8; 3], [u8; 3], String) {
     )
 }
 
-/// Every lane within a level of rounding of the oracle, and the oracle as `expected` says.
+/// Every lane within a level of rounding of the oracle, and the oracle as `expected` says; and
+/// `render-gpu`, which has no pass over its result on either device, refusing the page by name.
 fn agree(list: &Arc<DisplayList>, expected: impl Fn([u8; 3]) -> bool, what: &str) {
+    let target = TargetSpec::for_page(list, 1.0, 1 << 20).expect("a 40 by 40 target");
+    {
+        // `render-gpu` makes its device outside `raster_gpu`'s hook, so the lock is held around
+        // its whole life here and released before the hooked lanes take it.
+        let _gpu = gpu_lock::Hold::unless_software("vello-device");
+        let mut vello = render_gpu::GpuRasterizer::new_headless().expect("a device for render-gpu");
+        let refused = vello.rasterize(list, target);
+        assert!(
+            matches!(
+                &refused,
+                Err(render_gpu::GpuRasterError::UnsupportedCommand(_))
+            ),
+            "{what}: render-gpu draws a page it has no pass for: {refused:?}"
+        );
+    }
     let (oracle, drawn, shown, adapter) = three_lanes(list);
     assert!(expected(oracle), "{what}: the oracle draws {oracle:?}");
     for (lane, colour) in [("rasterize", drawn), ("the window's frame", shown)] {
@@ -200,5 +217,124 @@ fn every_lane_puts_a_halftones_default_on_the_press_spot_plane() {
         &interpreted(page(&resources, content), true),
         |[red, green, blue]| red > 200 && green < 100 && blue < 100,
         "the press's spot plane takes the halftone's default and its process plates the identity",
+    );
+}
+
+/// A Type 5 halftone whose cyan and `/Default` take [`ZERO`] and whose magenta, yellow and black
+/// take the identity: on the press a component that takes its function is full ink, and one left
+/// to the page's default keeps its value.
+fn cyan_and_spots_zero() -> String {
+    let screen = "/HalftoneType 1 /Frequency 60 /Angle 0 /SpotFunction /Round";
+    format!(
+        "<< /HalftoneType 5 \
+         /Cyan << {screen} /TransferFunction {ZERO} >> \
+         /Magenta << {screen} /TransferFunction /Identity >> \
+         /Yellow << {screen} /TransferFunction /Identity >> \
+         /Black << {screen} /TransferFunction /Identity >> \
+         /Default << {screen} /TransferFunction {ZERO} >> >>"
+    )
+}
+
+/// A spot colourant `/Spot` whose alternate at full tint is red.
+const SPOT: &str = "/ColorSpace << /CS0 [/Separation /Spot /DeviceRGB << /FunctionType 2 \
+                    /Domain [0 1] /C0 [1 1 1] /C1 [1 0 0] /N 1 >>] >>";
+
+/// §11.7.5.2: "If a graphics object is painted with overprinting enabled … the halftone and
+/// transfer function to use at a given point shall be determined independently for each colour
+/// component. An object is opaque for a given component only if overprinting yields the source
+/// colour (not the backdrop colour) for that component." A process colour over a spot one: Table
+/// 146 gives `0 0 0 0 k` under `OP` true and `OPM` 0 `C_s` on the four process components and `C_b`
+/// on the spot, so on the press its four take their functions — cyan's [`ZERO`] is full cyan ink —
+/// and the spot colourant takes the page's default and keeps its tint 0. Cyan, where the function
+/// on every component would add full red spot ink and the default on every component would leave
+/// the page white.
+#[test]
+fn every_lane_gives_a_process_overprint_its_function_on_the_process_components_alone() {
+    gpu_lock_hook::install();
+    let resources = format!(
+        "/ExtGState << /GS << /OP true /op true /OPM 0 /HT {} >> >> {SPOT}",
+        cyan_and_spots_zero()
+    );
+    let content = "/CS0 cs 0 scn 0 0 40 40 re f /GS gs 0 0 0 0 k 0 0 40 40 re f";
+    agree(
+        &interpreted(page(&resources, content), true),
+        |[red, green, blue]| red < 100 && green > 120 && blue > 120,
+        "a process mark overprinting a spot takes its function on cyan alone",
+    );
+}
+
+/// The same paragraph the other way round: a spot colour at tint 0 overprinting a white page.
+/// Table 146 gives it `C_s` on its own spot colourant and `C_b` on the four process components, so
+/// on the press the spot takes `/Default`'s [`ZERO`] — full spot ink, the alternate's red — and
+/// cyan takes the page's default and stays without ink. Red, where the function on every component
+/// would add full cyan and the default on every component would leave the page white.
+#[test]
+fn every_lane_gives_a_spot_overprint_its_function_on_the_spot_alone() {
+    gpu_lock_hook::install();
+    let resources = format!(
+        "/ExtGState << /GS << /OP true /op true /OPM 0 /HT {} >> >> {SPOT}",
+        cyan_and_spots_zero()
+    );
+    let content = "/GS gs /CS0 cs 0 scn 0 0 40 40 re f";
+    agree(
+        &interpreted(page(&resources, content), true),
+        |[red, green, blue]| red > 200 && green < 100 && blue < 100,
+        "a spot mark overprinting takes its function on the spot alone",
+    );
+}
+
+/// §10.5's special case — "When the current colour space is DeviceGray and the output device's
+/// native colour space is DeviceCMYK , a PDF processor shall use only the gray transfer function"
+/// — for "colours specified in the DeviceGray colour space" by an image's samples. A one-sample
+/// `DeviceGray` image of white under `/TR [zero zero zero identity]`: black on the screen, which
+/// takes the first three, and white on the press, whose cyan, magenta and yellow are 0 and
+/// "rendered directly".
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "the paragraph quotes §10.5 verbatim, and a quotation may not gain backticks"
+)]
+fn every_lane_gives_a_grey_images_samples_the_gray_function_alone_on_the_press() {
+    gpu_lock_hook::install();
+    let resources = format!("/ExtGState << /GS << /TR [{ZERO} {ZERO} {ZERO} {IDENTITY}] >> >>");
+    let content = "/GS gs q 40 0 0 40 0 0 cm BI /W 1 /H 1 /CS /G /BPC 8 /F /AHx ID ff> EI Q";
+    agree(
+        &interpreted(page(&resources, content), false),
+        |colour| colour.iter().all(|&level| level < 8),
+        "control: the screen takes the three zero functions",
+    );
+    agree(
+        &interpreted(page(&resources, content), true),
+        |colour| colour.iter().all(|&level| level > 240),
+        "a DeviceGray image's white on the press takes the gray function alone",
+    );
+}
+
+/// §10.6.5.6, Table 132's "any colourant name": "The halftone corresponding to the colourant or
+/// colour component named by the key", whose `TransferFunction` overrides the current transfer
+/// function "for the same component" (Table 128). A Type 5 halftone gives `/Spot` its own
+/// [`ZERO`] and `/Default` the identity, so a spot colour at tint 0 is full spot ink on the press —
+/// red — where `/Default`'s function would leave it white; and the screen, whose red, green and
+/// blue have no entry and take `/Default`'s identity, is white.
+#[test]
+fn every_lane_puts_a_type5_entry_on_the_spot_colourant_it_names() {
+    gpu_lock_hook::install();
+    let screen = "/HalftoneType 1 /Frequency 60 /Angle 0 /SpotFunction /Round";
+    let halftone = format!(
+        "<< /HalftoneType 5 \
+         /Spot << {screen} /TransferFunction {ZERO} >> \
+         /Default << {screen} /TransferFunction /Identity >> >>"
+    );
+    let resources = format!("/ExtGState << /GS << /HT {halftone} >> >> {SPOT}");
+    let content = "/GS gs /CS0 cs 0 scn 0 0 40 40 re f";
+    agree(
+        &interpreted(page(&resources, content), false),
+        |colour| colour.iter().all(|&level| level > 247),
+        "control: the screen takes the default's identity",
+    );
+    agree(
+        &interpreted(page(&resources, content), true),
+        |[red, green, blue]| red > 200 && green < 100 && blue < 100,
+        "the press's spot colourant takes the entry that names it",
     );
 }

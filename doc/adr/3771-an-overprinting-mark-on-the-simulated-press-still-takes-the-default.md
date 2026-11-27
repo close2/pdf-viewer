@@ -1,6 +1,6 @@
 # 3771 — An overprinting mark on the simulated press still takes the page's default
 
-Session 2267. Status: accepted, as a departure. Context: ISO 32000-2 §11.7.5.2, §10.8.3; ADRs 1279,
+Session 2267. Status: **superseded by ADR 3806**, which builds the per-component choice. Context: ISO 32000-2 §11.7.5.2, §10.8.3; ADRs 1279,
 3769; review 2248's D01.
 
 §11.7.5.2: "If a graphics object is painted with overprinting enabled … the halftone and transfer

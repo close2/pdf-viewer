@@ -357,7 +357,7 @@ impl Interpreter<'_> {
         // graphics state — "[i]f the object is an image XObject and there is not an SMask entry
         // in its image dictionary" — so it is answered here, where the dictionary is.
         let soft_mask = !matches!(self.document.get_key(&stream.dict, "SMask"), Object::Null);
-        let transfer = self.mark_transfer(state, Painted::Image { soft_mask });
+        let transfer = self.image_transfer(state, soft_mask, stencil, &stream.dict, resources);
         let fill = if stencil {
             self.solid_colour(state, true)
         } else {

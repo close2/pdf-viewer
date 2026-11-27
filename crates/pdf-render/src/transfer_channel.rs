@@ -31,7 +31,8 @@
 //!
 //! - [`TransferMap`] is one stated transfer as each device sees it: 256-entry tables, three for
 //!   the screen's additive components and five for §10.8.3's simulated press — its four process
-//!   colourants and its spot colourants. Exact rather than sampled, because the value it maps is
+//!   colourants and its spot colourants — with one more for each spot colourant a Type 5 halftone
+//!   names (ADR 3808). Exact rather than sampled, because the value it maps is
 //!   one byte and the table holds every byte there is — the same argument [`crate::Transfer`]
 //!   makes for §11.5.3's mask curve.
 //! - [`TransferChannel`] is the page's elementary marks grouped into **runs**: a maximal stretch
@@ -77,8 +78,14 @@ pub struct TransferMap {
     /// the component is subtractive … it shall be converted to additive form by subtracting it
     /// from 1.0 before it is passed to the transfer function".
     process: [[u8; 256]; 4],
-    /// The simulated press's spot colourants, on their complements as well.
+    /// The simulated press's spot colourants that `named` does not name, on their complements as
+    /// well.
     nonprimary: [u8; 256],
+    /// The spot colourants a Type 5 halftone gives an entry of their own, by colourant name, each
+    /// with its table: ISO 32000-2 §10.6.5.6's "any colourant name" key, whose halftone "shall
+    /// apply only to the single colour ant or colour component named by that entry's key".
+    /// Empty wherever no such entry was stated, which is every page but a few. ADR 3808.
+    named: Vec<(Arc<[u8]>, [u8; 256])>,
 }
 
 impl TransferMap {
@@ -94,7 +101,29 @@ impl TransferMap {
             additive,
             process,
             nonprimary,
+            named: Vec::new(),
         }
+    }
+
+    /// The same map, with the tables of the spot colourants a Type 5 halftone names one by one
+    /// (`named`, each colourant's name and its table). ADR 3808.
+    #[must_use]
+    pub fn with_named_spots(mut self, named: Vec<(Arc<[u8]>, [u8; 256])>) -> Self {
+        self.named = named;
+        self
+    }
+
+    /// The table the simulated press maps the spot colourant `name` through: its own where a
+    /// Type 5 halftone named it, and the one every other spot colourant takes where not.
+    #[must_use]
+    pub fn spot_table(&self, name: Option<&[u8]>) -> &[u8; 256] {
+        name.and_then(|name| {
+            self.named
+                .iter()
+                .find(|(named, _)| named.as_ref() == name)
+                .map(|(_, table)| table)
+        })
+        .unwrap_or(&self.nonprimary)
     }
 
     /// One function's samples on every component of every device: §10.5's "If only a single
@@ -121,6 +150,7 @@ impl TransferMap {
         self.additive.iter().all(identity)
             && self.process.iter().all(identity)
             && identity(&self.nonprimary)
+            && self.named.iter().all(|(_, table)| identity(table))
     }
 
     /// Maps one RGBA pixel of the screen in place, leaving its alpha alone.
@@ -173,8 +203,64 @@ pub struct TransferRun {
     /// chooses by the topmost object whatever function that object turns out to have, so a
     /// default-function mark painted over a transferred one takes the pixel back to the default.
     map: Option<Arc<TransferMap>>,
+    /// The components of §10.8.3's simulated press the run's marks are opaque for, where they were
+    /// painted with overprinting that keeps a component from the backdrop; `None` where they are
+    /// opaque for every component.
+    opaque_for: Option<Arc<OpaqueFor>>,
     /// The run's marks, as opaque shapes in painting order.
     shapes: Vec<Command>,
+}
+
+/// The components of §10.8.3's simulated press a mark painted with overprinting is opaque for.
+/// ISO 32000-2 §11.7.5.2:
+///
+/// > If a graphics object is painted with overprinting enabled -that is, if the applicable
+/// > (stroking or nonstroking) overprint parameter in the graphics state is true -the halftone and
+/// > transfer function to use at a given point shall be determined independently for each colour
+/// > component. An object is opaque for a given component only if overprinting yields the source
+/// > colour (not the backdrop colour) for that component.
+///
+/// The press's components are its four process colourants and its spot colourants, so the answer
+/// is one flag for each: `true` where §11.7.4.3's blend function is `C_s`. A component the mark is
+/// not opaque for takes the page's default at a pixel where the mark is topmost, as a mark that is
+/// not fully opaque does for every component; it still occludes, because the topmost object is
+/// chosen by shape. On the screen, an RGB device, each device component is made from every process
+/// colourant (ADR 1279), so a mark opaque for some of them is opaque for none. ADR 3806.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpaqueFor {
+    /// Cyan, magenta, yellow and black.
+    process: [bool; 4],
+    /// The spot colourants, in [`crate::SpotSeparation::colourants`]' order; one past the end is
+    /// read as opaque.
+    spots: Vec<bool>,
+}
+
+impl OpaqueFor {
+    /// The components a mark is opaque for: `process` in cyan, magenta, yellow and black's order,
+    /// and `spots` in the spot colourants' order.
+    #[must_use]
+    pub fn new(process: [bool; 4], spots: Vec<bool>) -> Self {
+        Self { process, spots }
+    }
+
+    /// Whether the mark is opaque for process colourant `index`, in cyan, magenta, yellow and
+    /// black's order.
+    #[must_use]
+    pub fn process(&self, index: usize) -> bool {
+        self.process.get(index).copied().unwrap_or(true)
+    }
+
+    /// Whether the mark is opaque for spot colourant `index`.
+    #[must_use]
+    pub fn spot(&self, index: usize) -> bool {
+        self.spots.get(index).copied().unwrap_or(true)
+    }
+
+    /// Whether it is opaque for every component, which is a mark overprinting keeps nothing for.
+    #[must_use]
+    pub fn is_every(&self) -> bool {
+        self.process.iter().all(|&opaque| opaque) && self.spots.iter().all(|&opaque| opaque)
+    }
 }
 
 impl TransferRun {
@@ -182,6 +268,12 @@ impl TransferRun {
     #[must_use]
     pub fn map(&self) -> Option<&TransferMap> {
         self.map.as_deref()
+    }
+
+    /// The press components the run's marks are opaque for, or `None` for every one.
+    #[must_use]
+    pub fn opaque_for(&self) -> Option<&OpaqueFor> {
+        self.opaque_for.as_deref()
     }
 
     /// The run's marks, as opaque shapes in painting order.
@@ -253,7 +345,22 @@ impl TransferBuilder {
     /// command with no shape — a group, which §11.7.5.2 does not call an elementary object — is
     /// dropped.
     pub fn push(&mut self, map: Option<Arc<TransferMap>>, command: &Command) {
+        self.push_opaque_for(map, None, command);
+    }
+
+    /// [`TransferBuilder::push`] for a mark painted with overprinting that keeps a component of
+    /// §10.8.3's simulated press from the backdrop: `opaque_for` names the components it is opaque
+    /// for (§11.7.5.2's last paragraph), and `None` is every one.
+    pub fn push_opaque_for(
+        &mut self,
+        map: Option<Arc<TransferMap>>,
+        opaque_for: Option<Arc<OpaqueFor>>,
+        command: &Command,
+    ) {
         let map = map.filter(|map| !map.is_identity());
+        // A mark with no function to apply chooses the default for every component, so which
+        // components it is opaque for decides nothing.
+        let opaque_for = opaque_for.filter(|opaque| map.is_some() && !opaque.is_every());
         if map.is_none() && self.runs.is_empty() {
             // Nothing has carried a function yet, so every pixel this mark could occlude already
             // takes the page's default. Recording it would cost a clone and decide nothing.
@@ -263,9 +370,12 @@ impl TransferBuilder {
             return;
         };
         match self.runs.last_mut() {
-            Some(last) if last.map == map => last.shapes.push(shape),
+            Some(last) if last.map == map && last.opaque_for == opaque_for => {
+                last.shapes.push(shape);
+            }
             _ => self.runs.push(TransferRun {
                 map,
+                opaque_for,
                 shapes: vec![shape],
             }),
         }
@@ -497,6 +607,11 @@ pub fn resolve_transfers<E>(
 /// keeps "a single shape value and opacity value" for process and spot components alike.
 /// ADR 3769.
 ///
+/// A spot colourant takes its own table where a Type 5 halftone named it and the spot colourants'
+/// common one where not ([`TransferMap::spot_table`], ADR 3808). And a run whose marks were painted
+/// with overprinting that keeps a component from the backdrop leaves that component to the page's
+/// default, by §11.7.5.2's per-component reading ([`OpaqueFor`], ADR 3806).
+///
 /// A spot plane's channels past the colourants it carries are mapped too and never read.
 ///
 /// # Errors
@@ -512,31 +627,81 @@ pub fn resolve_press_transfers<E>(
     coverage: impl FnMut(&DisplayList) -> Result<Vec<u8>, E>,
 ) -> Result<(), E> {
     let chosen = choose(channel, list, target, coverage)?;
-    for (index, map) in chosen_maps(channel, &chosen) {
+    let colourants = list
+        .separation()
+        .map_or(&[][..], crate::SpotSeparation::colourants);
+    // Each run's tables for every component of the press, resolved once rather than per pixel:
+    // `None` is the page's default, which leaves the component as it is.
+    let tables: Vec<Option<PressTables<'_>>> = channel
+        .runs()
+        .iter()
+        .map(|run| {
+            let map = run.map()?;
+            let every = OpaqueFor::new([true; 4], Vec::new());
+            let opaque_for = run.opaque_for().unwrap_or(&every);
+            Some(PressTables {
+                process: std::array::from_fn(|index| {
+                    map.process.get(index).filter(|_| opaque_for.process(index))
+                }),
+                spots: (0..spots
+                    .len()
+                    .saturating_mul(crate::separation::COLOURANTS_PER_PLANE))
+                    .map(|index| {
+                        let name = colourants.get(index).map(crate::SpotColourant::name);
+                        opaque_for.spot(index).then(|| map.spot_table(name))
+                    })
+                    .collect(),
+            })
+        })
+        .collect();
+    for (index, slot) in chosen.iter().enumerate() {
+        let Some(tables) = slot
+            .and_then(|number| tables.get(number as usize))
+            .and_then(Option::as_ref)
+        else {
+            continue;
+        };
         let at = index.saturating_mul(4);
         let range = at..at.saturating_add(4);
         if let Some(pixel) = chromatic.get_mut(range.clone()) {
             let alpha = pixel[3];
-            for (component, table) in pixel.iter_mut().take(3).zip(map.process.iter()) {
+            for (component, table) in pixel.iter_mut().take(3).zip(tables.process) {
+                if let Some(table) = table {
+                    *component = premultiplied_through(table, *component, alpha);
+                }
+            }
+        }
+        if let (Some(pixel), Some(table)) = (black.get_mut(range.clone()), tables.process[3]) {
+            let alpha = pixel[3];
+            for component in pixel.iter_mut().take(3) {
                 *component = premultiplied_through(table, *component, alpha);
             }
         }
-        if let Some(pixel) = black.get_mut(range.clone()) {
+        for (plane_index, plane) in spots.iter_mut().enumerate() {
+            let Some(pixel) = plane.get_mut(range.clone()) else {
+                continue;
+            };
             let alpha = pixel[3];
-            for component in pixel.iter_mut().take(3) {
-                *component = premultiplied_through(&map.process[3], *component, alpha);
-            }
-        }
-        for plane in spots.iter_mut() {
-            if let Some(pixel) = plane.get_mut(range.clone()) {
-                let alpha = pixel[3];
-                for component in pixel.iter_mut().take(3) {
-                    *component = premultiplied_through(&map.nonprimary, *component, alpha);
+            for (channel, component) in pixel.iter_mut().take(3).enumerate() {
+                let colourant = plane_index
+                    .saturating_mul(crate::separation::COLOURANTS_PER_PLANE)
+                    .saturating_add(channel);
+                if let Some(table) = tables.spots.get(colourant).copied().flatten() {
+                    *component = premultiplied_through(table, *component, alpha);
                 }
             }
         }
     }
     Ok(())
+}
+
+/// One run's table for each component of §10.8.3's simulated press, or `None` where the run leaves
+/// the component to the page's default ([`OpaqueFor`]).
+struct PressTables<'map> {
+    /// Cyan, magenta, yellow and black.
+    process: [Option<&'map [u8; 256]>; 4],
+    /// Each spot colourant, in plane order: colourant `3 × n + c` in channel `c` of plane `n`.
+    spots: Vec<Option<&'map [u8; 256]>>,
 }
 
 /// Every pixel §11.7.5.2 hands a function other than the page's default, with that function.
@@ -546,9 +711,12 @@ fn chosen_maps<'channel>(
 ) -> impl Iterator<Item = (usize, &'channel TransferMap)> {
     chosen.iter().enumerate().filter_map(move |(index, slot)| {
         let number = (*slot)?;
+        // A run opaque for only some components is opaque for none on the screen, whose every
+        // component is made from all of them (ADR 1279).
         let map = channel
             .runs()
             .get(number as usize)
+            .filter(|run| run.opaque_for().is_none())
             .and_then(TransferRun::map)?;
         Some((index, map))
     })

@@ -71,6 +71,8 @@
     reason = "this module's prose is largely quotation, and a quotation may not gain backticks"
 )]
 
+use std::sync::Arc;
+
 use pdf_render::{BlendMode, Command, Overprint};
 
 use crate::colour::{Compositing, Plane, Press};
@@ -178,6 +180,32 @@ impl ProcessTints {
 /// own order of magnitude for the two `overprint_blend` calls beside it.
 /// `Interpreter::wrap_in_the_implicit_group` carries the other figure and the whole.
 #[inline]
+/// The components of §10.8.3's simulated press a mark painted in `space` with overprinting is
+/// opaque for, on every plane of the device: §11.7.5.2's "\[a]n object is opaque for a given
+/// component only if overprinting yields the source colour (not the backdrop colour) for that
+/// component", read off the same decision ([`crate::colour::DeviceSpots::overprint`]) each plane's
+/// run paints by, so the planes and the channel cannot disagree. `None` where that decision keeps
+/// nothing on some plane, which it then keeps on none (ADR 3806).
+fn opaque_for(
+    spots: &crate::colour::DeviceSpots,
+    press: &Press,
+    space: &crate::colour::ColourSpace,
+    tints: Option<[f32; 4]>,
+    nonzero_mode: bool,
+) -> Option<Arc<pdf_render::OpaqueFor>> {
+    let kept = |plane| spots.overprint(plane, press, space, tints, nonzero_mode);
+    let [cyan, magenta, yellow] = kept(Plane::Chromatic)?;
+    let [black, _, _] = kept(Plane::Black)?;
+    let mut spot_colourants = Vec::new();
+    for index in 0..spots.planes() {
+        spot_colourants.extend(kept(Plane::Spot(index))?.map(|kept| !kept));
+    }
+    Some(Arc::new(pdf_render::OpaqueFor::new(
+        [!cyan, !magenta, !yellow, !black],
+        spot_colourants,
+    )))
+}
+
 pub(super) fn implicit_group_owed(state: &GraphicsState, parts: [BlendMode; 2]) -> bool {
     state.blend != BlendMode::Normal
         && parts
@@ -261,6 +289,14 @@ impl Interpreter<'_> {
         self.special_overprint(state, stroking)
     }
 
+    /// Records which press components the overprint decision just made for a stroking or a
+    /// non-stroking mark found it opaque for (`Interpreter::overprint_opaque_for`, ADR 3806).
+    fn note_opaque_for(&mut self, stroking: bool, opaque_for: Option<Arc<pdf_render::OpaqueFor>>) {
+        if let Some(slot) = self.overprint_opaque_for.get_mut(usize::from(stroking)) {
+            *slot = opaque_for;
+        }
+    }
+
     /// [`Interpreter::overprint_blend`]'s cold half: everything past the two tests above.
     #[inline(never)]
     fn special_overprint(&mut self, state: &GraphicsState, stroking: bool) -> BlendMode {
@@ -300,6 +336,15 @@ impl Interpreter<'_> {
             return state.blend;
         }
         self.list.note_overprinting();
+        // §11.7.5.2: the mark is opaque for the components whose tint is nonzero, which are the
+        // ones the bullet gives `C_s`; the run carries no spot plane (ADR 3806).
+        self.note_opaque_for(
+            stroking,
+            Some(Arc::new(pdf_render::OpaqueFor::new(
+                tints.map(|tint| tint != 0.0),
+                Vec::new(),
+            ))),
+        );
         // Which of the raster's three channels this half carries, and therefore which of the
         // four tints decides each of them (`crate::colour::Plane`).
         BlendMode::Overprint(Overprint::new(match half {
@@ -368,15 +413,18 @@ impl Interpreter<'_> {
         state: &GraphicsState,
         space: &crate::colour::ColourSpace,
     ) -> BlendMode {
-        let kept = match &self.compositing {
-            Compositing::Subtractive(plane, press, spots) if !spots.is_empty() => {
-                spots.overprint(*plane, press, space, None, false)
-            }
-            _ => self.spots_beside.overprint_beside(space),
+        let (kept, opaque_for) = match &self.compositing {
+            Compositing::Subtractive(plane, press, spots) if !spots.is_empty() => (
+                spots.overprint(*plane, press, space, None, false),
+                opaque_for(spots, press, space, None, false),
+            ),
+            _ => (self.spots_beside.overprint_beside(space), None),
         };
         let Some(kept) = kept else {
             return state.blend;
         };
+        // Images, shadings and stencil masks: §8.6.7's non-stroking parameter.
+        self.note_opaque_for(false, opaque_for);
         self.list.note_overprinting();
         BlendMode::Overprint(Overprint::new(kept))
     }
@@ -407,10 +455,12 @@ impl Interpreter<'_> {
             return state.blend;
         }
         let tints = tints.and_then(|tints| tints.on(press));
-        let Some(kept) = spots.overprint(*plane, press, space, tints, state.overprint_mode == 1)
-        else {
+        let nonzero_mode = state.overprint_mode == 1;
+        let Some(kept) = spots.overprint(*plane, press, space, tints, nonzero_mode) else {
             return state.blend;
         };
+        let opaque_for = opaque_for(spots, press, space, tints, nonzero_mode);
+        self.note_opaque_for(stroking, opaque_for);
         self.list.note_overprinting();
         BlendMode::Overprint(Overprint::new(kept))
     }
@@ -436,6 +486,8 @@ impl Interpreter<'_> {
         let Some(kept) = self.spots_beside.overprint_beside(space) else {
             return state.blend;
         };
+        // The process components here are the group's, not a press's (ADR 1329).
+        self.note_opaque_for(stroking, None);
         self.list.note_overprinting();
         BlendMode::Overprint(Overprint::new(kept))
     }

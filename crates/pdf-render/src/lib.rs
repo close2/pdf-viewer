@@ -124,6 +124,6 @@ pub use thin_segment::{
     thin_dots, thin_segment,
 };
 pub use transfer_channel::{
-    TransferBuilder, TransferChannel, TransferDevice, TransferMap, TransferRun,
+    OpaqueFor, TransferBuilder, TransferChannel, TransferDevice, TransferMap, TransferRun,
     resolve_press_transfers, resolve_transfers, shape_of,
 };

@@ -565,6 +565,53 @@ impl Interpreter<'_> {
         Some(Arc::clone(chosen))
     }
 
+    /// [`Interpreter::mark_transfer`] for an image `XObject` or an inline image, whose colours are
+    /// specified in its own `/ColorSpace` — or, for a stencil mask, in the current non-stroking
+    /// colour's (§8.9.6.2) — rather than in the graphics state's.
+    ///
+    /// §10.5's special case is for "colours specified in the DeviceGray colour space", and an
+    /// image's samples are colours specified in its space as much as a fill's operands are in the
+    /// fill's: on §10.8.3's simulated press §10.4.2.3 puts a `DeviceGray` sample on the black ink
+    /// alone and leaves cyan, magenta and yellow at 0, which "shall not be passed through their
+    /// respective transfer functions but are rendered directly". So such an image carries
+    /// [`crate::content::Transfer::grey_alone`] as a grey fill does. The space is read under
+    /// [`Interpreter::reading`], the reading the decode reads it under, so a `/DefaultGray` that
+    /// outranks the reading by §8.6.5.6 outranks it here too; and only where a function is in
+    /// force and `DeviceGray` can be the black ink at all, so no other page parses the entry twice.
+    /// ADR 3807.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the paragraph quotes §10.5 verbatim, and a quotation may not gain backticks"
+    )]
+    pub(super) fn image_transfer(
+        &mut self,
+        state: &GraphicsState,
+        soft_mask: bool,
+        stencil: bool,
+        dict: &Dictionary,
+        resources: &Dictionary,
+    ) -> Option<Arc<crate::content::Transfer>> {
+        let chosen = self.transfer_for_mark(state, Painted::Image { soft_mask })?;
+        if self.grey == crate::colour::GreyReading::Device {
+            return Some(Arc::clone(chosen));
+        }
+        let grey = if stencil {
+            state.fill_space.is_grey_as_intent_black()
+        } else {
+            crate::colour::ColourSpace::parse_under(
+                self.document,
+                &self.document.get_key(dict, "ColorSpace"),
+                resources,
+                self.reading(),
+            )
+            .is_some_and(|space| space.is_grey_as_intent_black())
+        };
+        if grey {
+            return state.transfer.shared_grey_alone().cloned();
+        }
+        Some(Arc::clone(chosen))
+    }
+
     /// Reads the invoking mark's opacity and transfer before definition-state evaluation.
     fn cell_paint_parameters(
         &mut self,

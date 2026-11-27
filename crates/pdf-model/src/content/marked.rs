@@ -202,18 +202,37 @@ impl Interpreter<'_> {
     /// **On §10.8.3's simulated press**, a CMYK device, the four *are* the device's components and
     /// a component taken from the backdrop is that one component alone, so the clause's answer
     /// differs per component: opaque for the components the mark paints, and not for the one it
-    /// keeps. This tree still hands such a mark no function for any component — the screen's
-    /// answer — which on the press is the page's default for the components it paints as well
-    /// (ADR 3771 records it as the departure it is).
+    /// keeps. So the press's overprint decision says which components the mark is opaque for
+    /// (`Interpreter::overprint_opaque_for`, set where the decision is made), and the channel
+    /// carries that beside the mark's function: on the press each component it paints takes the
+    /// function and each it keeps takes the page's default, and on the screen the mark is opaque
+    /// for none, as above (ADR 3806).
     ///
     /// Asked only of a mark that carries a function, so a page that states none pays the one
     /// `Option` test it already paid.
     pub(super) fn draw_mark(&mut self, command: Command, transfer: Option<Arc<Transfer>>) {
-        if self.soft_mask_depth == 0 {
-            let map = transfer
-                .filter(|_| !matches!(command.blend(), pdf_render::BlendMode::Overprint(_)))
-                .map(|transfer| self.transfer_map(&transfer));
-            self.transfers.push(map, &command);
+        // A mark with no function on a page where none has been stated yet decides nothing: every
+        // pixel it could occlude already takes the default. Asked before anything about the mark
+        // is, so that the pages that state no transfer — all but a handful — pay two tests per
+        // mark and not the per-component reading below; the launch gate's `opt_demo.pdf` counts
+        // the difference in its first frame (`frame_kinstructions`).
+        let recording = transfer.is_some() || self.transfers.is_live();
+        if self.soft_mask_depth == 0 && recording {
+            let overprinting = matches!(command.blend(), pdf_render::BlendMode::Overprint(_));
+            let stroking = matches!(command, Command::Stroke { .. });
+            let decided = self
+                .overprint_opaque_for
+                .get(usize::from(stroking))
+                .and_then(Option::as_ref);
+            let (transfer, opaque_for) = match (overprinting, decided) {
+                (false, _) => (transfer, None),
+                // The components the press's overprint decision found this mark opaque for.
+                (true, Some(opaque_for)) => (transfer, Some(Arc::clone(opaque_for))),
+                // An overprint no press decided — the screen's — is opaque for none.
+                (true, None) => (None, None),
+            };
+            let map = transfer.map(|transfer| self.transfer_map(&transfer));
+            self.transfers.push_opaque_for(map, opaque_for, &command);
         }
         self.draw(command);
     }
@@ -276,9 +295,26 @@ impl Interpreter<'_> {
                 *slot = byte(transfer.on_a_spot_colourant(value));
             }
         }
-        let map = Arc::new(pdf_render::TransferMap::from_samples(
-            additive, process, nonprimary,
-        ));
+        let named = transfer
+            .named_spot_colourants()
+            .iter()
+            .map(|(name, function)| {
+                let mut table = [0_u8; 256];
+                for (index, slot) in table.iter_mut().enumerate() {
+                    #[expect(
+                        clippy::cast_precision_loss,
+                        reason = "an index of a 256-entry table is exactly representable in f32"
+                    )]
+                    let value = index as f32 / 255.0;
+                    *slot = byte(Transfer::through(function.as_ref(), value));
+                }
+                (Arc::clone(name), table)
+            })
+            .collect();
+        let map = Arc::new(
+            pdf_render::TransferMap::from_samples(additive, process, nonprimary)
+                .with_named_spots(named),
+        );
         self.transfer_maps
             .push((Arc::clone(transfer), Arc::clone(&map)));
         map

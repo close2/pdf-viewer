@@ -62,14 +62,22 @@ pub struct Transfer {
     /// Cyan, magenta, yellow and black, as §10.8.3's simulated press takes them: Table 57's four
     /// functions in its order, "red, green, blue, and gray or their complements".
     process: [Channel; 4],
-    /// Every other component of the press: a spot colourant. §10.5: a halftone dictionary "is the
-    /// only way to set transfer functions for nonprimary colour components", and a single function
-    /// "shall apply to all components" — so Table 57's array of four leaves this `None`.
+    /// Every other component of the press: a spot colourant `named` does not name. §10.5: a
+    /// halftone dictionary "is the only way to set transfer functions for nonprimary colour
+    /// components", and a single function "shall apply to all components" — so Table 57's array
+    /// of four leaves this `None` as it is read, and `pdf_model`'s composition with the halftone
+    /// decides it (ADR 3808).
     nonprimary: Channel,
+    /// The spot colourants a Type 5 halftone names by their own keys, each with its function.
+    named: Vec<NamedSpot>,
 }
 
 /// One component's function, `Arc` so that one stated function fills several without a clone.
 type Channel = Option<Arc<crate::function::Function>>;
+
+/// A spot colourant a Type 5 halftone names by its own key, and its function (`None` is the
+/// identity). ISO 32000-2 §10.6.5.6, Table 132's "any colourant name"; ADR 3808.
+pub type NamedSpot = (Arc<[u8]>, Option<Arc<crate::function::Function>>);
 
 /// A process colourant of §10.8.3's simulated press, in Table 57's order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,6 +158,7 @@ impl Transfer {
                     additive: [red.clone(), green.clone(), blue.clone()],
                     process: [red, green, blue, gray],
                     nonprimary: None,
+                    named: Vec::new(),
                 })
             }
             // An array of any other length is not what the clause states, and a state this reader
@@ -169,6 +178,7 @@ impl Transfer {
                         Some(one.clone()),
                     ],
                     nonprimary: Some(one),
+                    named: Vec::new(),
                 })
             }
         }
@@ -197,10 +207,25 @@ impl Transfer {
         map(self.process[colourant.index()].as_ref(), additive)
     }
 
-    /// The value the simulated press would receive for a spot colourant, in additive form.
+    /// The value the simulated press would receive for a spot colourant no Type 5 halftone names,
+    /// in additive form.
     #[must_use]
     pub fn on_a_spot_colourant(&self, additive: f32) -> f32 {
         map(self.nonprimary.as_ref(), additive)
+    }
+
+    /// The spot colourants a Type 5 halftone names one by one, each with its function (`None` is
+    /// the identity), in the order the halftone was read.
+    #[must_use]
+    pub fn named_spot_colourants(&self) -> &[NamedSpot] {
+        &self.named
+    }
+
+    /// The value the simulated press would receive for one function of
+    /// [`Transfer::named_spot_colourants`], in additive form.
+    #[must_use]
+    pub fn through(function: Option<&Arc<crate::function::Function>>, additive: f32) -> f32 {
+        map(function, additive)
     }
 
     /// The transfer a `DeviceGray` colour takes on §10.8.3's simulated press, a CMYK device:
@@ -222,6 +247,7 @@ impl Transfer {
             additive: self.additive.clone(),
             process: [None, None, None, gray],
             nonprimary: self.nonprimary.clone(),
+            named: self.named.clone(),
         }
     }
 
@@ -229,17 +255,19 @@ impl Transfer {
     /// §10.5's two bullets in `pdf_model::content` — the one place besides [`Transfer::read`] that
     /// makes one, combining Table 57's `/TR` with a halftone's per-component override. `additive`
     /// is the screen's red, green and blue, `process` the press's cyan, magenta, yellow and black,
-    /// and `nonprimary` its spot colourants'.
+    /// and `nonprimary` its spot colourants', but for those `named` gives by name.
     #[must_use]
     pub fn from_components(
         additive: [Option<Arc<crate::function::Function>>; 3],
         process: [Option<Arc<crate::function::Function>>; 4],
         nonprimary: Option<Arc<crate::function::Function>>,
+        named: Vec<NamedSpot>,
     ) -> Self {
         Self {
             additive,
             process,
             nonprimary,
+            named,
         }
     }
 
@@ -268,6 +296,7 @@ impl Transfer {
         self.additive.iter().any(Option::is_some)
             || self.process.iter().any(Option::is_some)
             || self.nonprimary.is_some()
+            || self.named.iter().any(|(_, function)| function.is_some())
     }
 }
 

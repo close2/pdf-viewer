@@ -129,7 +129,18 @@ impl TransferState {
             &self.halftone.nonprimary,
             stated.and_then(Transfer::nonprimary_channel),
         );
-        let effective = Transfer::from_components(additive, process, nonprimary);
+        let named = self
+            .halftone
+            .named
+            .iter()
+            .map(|(name, component)| {
+                (
+                    Arc::clone(name),
+                    pick(component, stated.and_then(Transfer::nonprimary_channel)),
+                )
+            })
+            .collect();
+        let effective = Transfer::from_components(additive, process, nonprimary, named);
         self.grey_alone = effective
             .maps_anything()
             .then(|| Arc::new(effective.grey_alone()));
@@ -148,8 +159,11 @@ struct HalftoneTransfer {
     additive: [Component; 3],
     /// The simulated press's cyan, magenta, yellow and black.
     process: [Component; 4],
-    /// The simulated press's spot colourants, which only a halftone's `/Default` reaches here.
+    /// The simulated press's spot colourants that have no entry of their own.
     nonprimary: Component,
+    /// A Type 5 halftone's entries by any other colourant name, which on the simulated press are
+    /// its spot colourants of those names (ADR 3808).
+    named: Vec<(Arc<[u8]>, Component)>,
 }
 
 impl HalftoneTransfer {
@@ -159,6 +173,7 @@ impl HalftoneTransfer {
             additive: std::array::from_fn(|_| component.clone()),
             process: std::array::from_fn(|_| component.clone()),
             nonprimary: component.clone(),
+            named: Vec::new(),
         }
     }
 }
@@ -179,8 +194,10 @@ impl HalftoneTransfer {
 ///   `TransferFunction`, and a component with no entry of its own takes `/Default`'s, which Table
 ///   132 requires. §10.6.5.6 names each device's primaries — "Red , Green , and Blue for
 ///   `DeviceRGB` ; Cyan , Magenta , Yellow , and Black for `DeviceCMYK`" — so the screen reads the
-///   first three and §10.8.3's simulated press the four; a spot colourant's own entry is not read,
-///   and the press's spot planes take `/Default`'s.
+///   first three and §10.8.3's simulated press the four. Every other key is Table 132's "any
+///   colourant name", "\[t]he halftone corresponding to the colourant or colour component named by
+///   the key": on the press a spot colourant of that name takes its entry's function, and one with
+///   no entry takes `/Default`'s (ADR 3808).
 /// - **any other dictionary or stream**, whose single `TransferFunction` applies to every
 ///   component. §10.6.5.6 used to say so in a sentence contrasting the two uses of a component
 ///   dictionary, and **erratum #311 strikes that whole paragraph**, so the reason is the one that
@@ -239,12 +256,45 @@ fn halftone_transfer(
             Object::Null => default.clone(),
             named => component_transfer(document, &named, repaired),
         };
-        let additive = ["Red", "Green", "Blue"].map(&mut own);
         let process = ["Cyan", "Magenta", "Yellow", "Black"].map(&mut own);
+        // Table 132's other keys are the dictionary's own, and the press's four are read above;
+        // what is left names a colourant, which on the press is a spot colourant. `Red`, `Green`
+        // and `Blue` are among them — §10.6.5.6 calls them primaries only "for DeviceRGB", and on
+        // a CMYK device a colourant of those names is a spot one — and the screen reads its three
+        // out of the same list, so each entry is read once.
+        let named: Vec<(Arc<[u8]>, Component)> = halftone
+            .iter()
+            .filter(|(key, _)| {
+                !matches!(
+                    key.as_bytes(),
+                    b"Type"
+                        | b"HalftoneType"
+                        | b"HalftoneName"
+                        | b"Default"
+                        | b"Cyan"
+                        | b"Magenta"
+                        | b"Yellow"
+                        | b"Black"
+                )
+            })
+            .map(|(key, value)| {
+                (
+                    Arc::<[u8]>::from(key.as_bytes()),
+                    component_transfer(document, &document.resolve(value), repaired),
+                )
+            })
+            .collect();
+        let additive = [b"Red".as_slice(), b"Green", b"Blue"].map(|colourant| {
+            named
+                .iter()
+                .find(|(name, _)| name.as_ref() == colourant)
+                .map_or_else(|| default.clone(), |(_, component)| component.clone())
+        });
         return Some(HalftoneTransfer {
             additive,
             process,
             nonprimary: default,
+            named,
         });
     }
     Some(HalftoneTransfer::every(&component_transfer(
