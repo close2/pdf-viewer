@@ -697,9 +697,12 @@ const IN_CONTENT_BY_CLASS: &[(&str, &str, &str)] = &[
          this verb byte for byte; a profile granting page-as-image photographs the page instead \
          — doc/pdf-a-conversion-limits.md section 5.2",
     ),
-    in_content_operator!(
+    // Answered where the operator is written as the device operator this reader drew it as
+    // (ADR 3679); a form drawn in two colour spaces is judged in neither (ADR 3697, ADR 3802).
+    in_content_because!(
         "model/colour-operands-do-not-fit-the-space",
-        "ISO 32000-2 §8.6.8"
+        "ISO 32000-2 §8.6.8",
+        "the operator is written as the device operator this reader drew it as, its operands kept          (ADR 3679), only where the profile grants content-as-drawn, the stream is drawn in one          colour space wherever it is drawn, and this reader draws the page the same; a form          painted under two spaces — one its operands fit and one they do not — has one stream for          both, which no write draws the same under each (ADR 3802), and here one of those does          not hold"
     ),
     // Answered where the `BDC` naming the list is written out with its section (ADR 3615).
     in_content_operator!("model/property-list-unresolved", "ISO 32000-2 §14.6.2"),

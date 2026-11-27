@@ -4106,6 +4106,35 @@ fn a_rich_text_values_markup_is_drawn_as_the_characters_it_encloses() {
     );
 }
 
+/// A rich text value holding a reference XML 1.0 does not define is read with the reference kept
+/// as the characters it is written in, and that reading is logged as `model/rich-text-malformed`,
+/// as the `/RC` walk logs it (ADR 3795, ADR 3803): XML 1.0 section 4.1's well-formedness
+/// constraint "Entity Declared" makes `&nbsp;` with no declaration no well-formed markup. The
+/// control is the same value with `&amp;`, which section 4.6 predefines, and logs nothing.
+#[test]
+fn a_rich_text_values_undefined_reference_is_logged() {
+    let logged = |reference: &str| {
+        let document = Document::open(pdf_with_appearance(
+            "/NeedAppearances true",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+                 /Ff 33554432 /T (field) /V (<body xmlns=\"http://www.w3.org/1999/xhtml\">\
+                 <p>A{reference}B</p></body>) /AP << /N 6 0 R >> /DA (/Helv 12 Tf 0 g) >>"
+            ),
+            "/Tx BMC EMC",
+        ))
+        .expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        let _ = pdf_model::interpret(&document, &page);
+        document
+            .repairs()
+            .iter()
+            .any(|repair| repair.class.name == pdf_model::repair::RICH_TEXT_MALFORMED.name)
+    };
+    assert!(logged("&nbsp;"));
+    assert!(!logged("&amp;"));
+}
+
 /// A value the flag calls rich text and the parser cannot is drawn as it stands.
 ///
 /// Bit 26's `shall` binds the *file*, and a file that sets the flag over plain characters — the

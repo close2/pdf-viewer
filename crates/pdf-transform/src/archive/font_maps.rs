@@ -1,7 +1,7 @@
 //! A font's maps that this reader read past, restated as it read them (ADR 3570).
 //!
 //! `fonts/font-maps-read-as-written` (ISO 19005-2 and ISO 19005-4 section 5.1) fails where the
-//! reader's log holds one of three repairs `pdf_font` makes reading a font dictionary:
+//! reader's log holds one of the repairs `pdf_font` makes reading a font dictionary:
 //!
 //! - **a `/ToUnicode` that is not a stream** — ISO 32000-2 Table 109 and §9.10.3 give the entry
 //!   as a stream holding a `CMap`, and this reader reads any other value as no map, so the entry
@@ -16,7 +16,11 @@
 //! - **a `/ToUnicode` `CMap` with entries that do not read** — §9.10.3 states the map's grammar,
 //!   and this reader reads an entry outside it as no mapping, so the map is written again from the
 //!   mappings it read, at the producer's object, and proved to answer every code as it answered
-//!   ([`to_unicode`], ADR 3781).
+//!   ([`to_unicode`], ADR 3781);
+//! - **a composite font's encoding `CMap` with entries that do not read** — §9.7.5.3 states its
+//!   grammar too, and the map is written again from the codespace ranges and mappings this reader
+//!   read, proved to read back into exactly those, which is every string cut and selected alike
+//!   ([`encoding_cmap`], ADR 3804).
 //!
 //! Each is checked before it is written: a simple font loaded from the dictionary as restated
 //! draws every single-byte code's outline at the advance it drew from the dictionary as written,
@@ -55,6 +59,7 @@ use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
 use super::decision::Because;
 
+mod encoding_cmap;
 mod to_unicode;
 
 /// The requirement this module answers, by the identifier the validator reports it under.
@@ -64,7 +69,8 @@ pub(super) const ROW: &str = "fonts/font-maps-read-as-written";
 pub(super) const NOT_RESTATED: &str = "a font dictionary states a ToUnicode that is not a \
      stream, an Encoding or BaseEncoding naming no encoding ISO 32000-2 predefines, or a \
      Differences array with an element out of its grammar, and this reader read past it (a \
-     ToUnicode CMap whose entries do not all read is answered on its own terms); this \
+     ToUnicode CMap or a composite font's encoding CMap whose entries do not all read is \
+     answered on its own terms); this \
      conversion restates such a font as it was read only where an encoding dictionary it \
      restates is read alike by every font naming it, and every code the font shows draws the \
      outline and the advance it drew, or for a Type 3 font names the glyph it named; this font is \
@@ -75,7 +81,8 @@ pub(super) const NOT_RESTATED: &str = "a font dictionary states a ToUnicode that
 pub(super) struct Restated {
     /// Each dictionary written again, by its object: a font, or an encoding dictionary.
     pub(super) dictionaries: BTreeMap<ObjectId, Dictionary>,
-    /// Each damaged `/ToUnicode` stream written again as read, by its own object.
+    /// Each damaged `/ToUnicode` stream, and each damaged encoding `CMap` of a composite font,
+    /// written again as read, by its own object.
     pub(super) streams: BTreeMap<ObjectId, Object>,
     /// The objects a font restated here is written directly inside, each font rewritten there by
     /// [`direct_as_read`] (ADR 3794).
@@ -104,6 +111,7 @@ pub(super) fn restated(document: &Document) -> Result<Restated, Because> {
         if is_font(holder) {
             let label = format!("object {} {}", id.number, id.generation);
             restate_damaged_map(document, &label, holder, &mut restated)?;
+            restate_damaged_encoding(document, &label, holder, &mut restated)?;
             if let Some((written, lines)) = font_as_read(document, &label, holder, &mut restated)? {
                 restated.entries.extend(lines);
                 if written != *holder {
@@ -137,6 +145,7 @@ fn restate_direct_fonts(
             return None;
         }
         let answer = restate_damaged_map(document, &label, font, restated)
+            .and_then(|()| restate_damaged_encoding(document, &label, font, restated))
             .and_then(|()| font_as_read(document, &label, font, restated));
         match answer {
             Ok(Some((written, lines))) => {
@@ -328,6 +337,50 @@ fn restate_damaged_map(
     }
     restated.entries.push(line);
     restated.streams.insert(at, written.stream);
+    Ok(())
+}
+
+/// A composite font's encoding `CMap` stream this reader read past entries of, written again as
+/// read at its own object ([`encoding_cmap`], ADR 3804); a stream two fonts name is written once,
+/// its reading being the stream's own.
+///
+/// # Errors
+///
+/// [`encoding_cmap::NOT_WRITTEN`] where the map is not written as read.
+fn restate_damaged_encoding(
+    document: &Document,
+    label: &str,
+    font: &Dictionary,
+    restated: &mut Restated,
+) -> Result<(), Because> {
+    let composite = document
+        .resolve(font.get("Subtype").unwrap_or(&Object::Null))
+        .as_name()
+        .is_some_and(|name| name.as_bytes() == b"Type0");
+    let Some(at) = font.get("Encoding").and_then(Object::as_reference) else {
+        return Ok(());
+    };
+    if !composite || restated.streams.contains_key(&at) {
+        return Ok(());
+    }
+    let Object::Stream(stream) = document.get(at) else {
+        return Ok(());
+    };
+    // A map this reader does not resolve at all is no map read past: the font is refused on its
+    // own terms elsewhere.
+    let Ok(read) = pdf_font::composite_cmap(document, font, label) else {
+        return Ok(());
+    };
+    if !read.damaged() {
+        return Ok(());
+    }
+    let written = encoding_cmap::written(&stream, &read).map_err(Because::NotBuiltYet)?;
+    restated.entries.push(format!(
+        "{label}: Encoding CMap object {} {} written as read, its entries outside \u{a7}9.7.5.3's \
+         syntax dropped",
+        at.number, at.generation
+    ));
+    restated.streams.insert(at, written);
     Ok(())
 }
 

@@ -256,7 +256,7 @@ fn prove(old: &ToUnicode, program: &[u8]) -> Result<(), &'static str> {
 }
 
 /// The stream a program goes in, compressed where that is shorter.
-fn stream_object(mut dict: Dictionary, data: Vec<u8>) -> Object {
+pub(super) fn stream_object(mut dict: Dictionary, data: Vec<u8>) -> Object {
     let data = match flate_encode(&data, COMPRESSION_LEVEL) {
         Some(encoded) if encoded.len() < data.len() => {
             dict.insert(

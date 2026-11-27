@@ -784,3 +784,148 @@ fn inline_image_data_past_the_extent_its_decoding_reads_is_cut() {
     );
     assert!(!contents.windows(3).any(|window| window == b"XYZ"));
 }
+
+/// §8.10.1 starts a form in the graphics state in force at its `Do`, so the form here is drawn
+/// twice in two spaces: in §8.4.1's initial `DeviceGray`, where its three `scn` operands do not
+/// fit (§8.6.8) and this reader draws them as `rg`, and under `Lab`, where they do. Its one stream
+/// is judged in neither (`doc/adr/3697`): written as `rg` it would draw the `Lab` occurrence as
+/// RGB, so no write of it draws both the same. `as-shown` refuses by the class's own sentence,
+/// which says so (`doc/adr/3802`), and `as-if-printed` photographs the page.
+#[test]
+fn a_form_drawn_in_two_colour_spaces_is_refused_by_name() {
+    let source = a_page_painting_a_three_operand_form_twice();
+    let target = Target::Two(Level::B);
+    let (report, output) = convert_with_plan(&source, &under("as-shown", target));
+    assert!(output.is_none(), "as-shown writes no file");
+    let refused = refusals(&report);
+    assert!(
+        refused.iter().any(|sentence| {
+            sentence.contains("model/colour-operands-do-not-fit-the-space")
+                && sentence.contains("ADR 3802")
+        }),
+        "{refused:?}"
+    );
+    let (report, output) = convert_with_plan(&source, &under("as-if-printed", target));
+    let output = output.expect("as-if-printed photographs the page");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert_eq!(conversion(&report).photographed.len(), 1);
+}
+
+/// [`a_page_painting_a_three_operand_form`]'s form, painted first in the initial `DeviceGray` and
+/// then after the page selected `Lab`.
+fn a_page_painting_a_three_operand_form_twice() -> Vec<u8> {
+    let form = b"1 0 0 scn 0 0 10 10 re f";
+    Conforming {
+        resources: "/ColorSpace << /CS0 [/Lab << /WhitePoint [0.9505 1 1.089] >>] >> \
+                    /XObject << /Fm0 6 0 R >>"
+            .to_owned(),
+        contents: Some((String::new(), b"q /Fm0 Do Q /CS0 cs /Fm0 Do".to_vec())),
+        binary_objects: vec![stream(
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length {}",
+                form.len()
+            ),
+            form,
+        )],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// The text of `source`'s output under `as-shown`, for both parts, each asserted to lose only
+/// `content-as-drawn`.
+fn written_as_shown(source: &[u8]) -> Vec<String> {
+    [Target::Two(Level::B), Target::Four(Flavour::Plain)]
+        .into_iter()
+        .map(|target| {
+            let (output, losses) = as_shown(source, target);
+            assert!(
+                losses.iter().eq([Loss::ContentAsDrawn]),
+                "{}",
+                losses.words()
+            );
+            contents_text(&output)
+        })
+        .collect()
+}
+
+/// Table 106's `T*` "has the same effect as the code 0 - T l TD where T l denotes the current
+/// leading parameter in the text state", and Table 107's `'` and `"` begin with that move, so each
+/// moves the line matrix by the leading the last `TL` set (`doc/adr/3801`). After a cut, the text
+/// object added around the next `Td` opens with the matrix each move stated: `10 100` moved down by
+/// the leading 14 is `10 86`.
+#[test]
+fn a_move_by_the_leading_is_restated_across_a_cut() {
+    for shown in [&b"T* (A) Tj"[..], b"(A) '", b"1 2 (A) \""] {
+        let mut source = b"/F1 12 Tf 14 TL 10 100 Td ".to_vec();
+        source.extend_from_slice(shown);
+        source.extend_from_slice(b" q Q 0 -20 Td (B) Tj");
+        for text in written_as_shown(&a_page_whose_stream_is(&source)) {
+            assert!(
+                text.contains("q Q BT 1 0 0 1 10 86 Tm 0 -20 Td (B) Tj ET"),
+                "{}: {text}",
+                String::from_utf8_lossy(shown)
+            );
+        }
+    }
+}
+
+/// Table 106's `TD` "shall have the same effect as this code: - t y TL t x t y Td", so it sets the
+/// leading to the negative of its `ty`, here −100, and the `T*` after it moves by `0 100` to
+/// `10 200`; and §8.4.2's `Q` restores the leading the `q` saved with the graphics state, so the
+/// `30 TL` between them is undone and the `T*` moves by the 14 before it (`doc/adr/3801`).
+#[test]
+fn the_leading_a_td_sets_and_a_restore_brings_back_moves_the_line() {
+    let cases: [(&[u8], &str); 2] = [
+        (b"10 100 TD T* (A) Tj", "BT 1 0 0 1 10 200 Tm 0 -20 Td"),
+        (
+            b"14 TL q 30 TL Q 10 100 Td T* (A) Tj",
+            "BT 1 0 0 1 10 86 Tm 0 -20 Td",
+        ),
+    ];
+    for (moves, expected) in cases {
+        let mut source = b"/F1 12 Tf ".to_vec();
+        source.extend_from_slice(moves);
+        source.extend_from_slice(b" q Q 0 -20 Td (B) Tj");
+        for text in written_as_shown(&a_page_whose_stream_is(&source)) {
+            assert!(text.contains(expected), "{expected}: {text}");
+        }
+    }
+}
+
+/// A `Td` composed onto a matrix a `Tm` stated (`doc/adr/3736`): Table 106 makes it the
+/// translation by `5 5` times `2 0 0 2 10 100`, whose origin is `10 + 2 × 5` and `100 + 2 × 5`.
+#[test]
+fn a_move_from_a_matrix_a_tm_stated_is_restated_across_a_cut() {
+    let source =
+        a_page_whose_stream_is(b"/F1 12 Tf 2 0 0 2 10 100 Tm 5 5 Td (A) Tj q Q 0 -20 Td (B) Tj");
+    for text in written_as_shown(&source) {
+        assert!(
+            text.contains("q Q BT 2 0 0 2 20 110 Tm 0 -20 Td (B) Tj ET"),
+            "{text}"
+        );
+    }
+}
+
+/// §8.9.7 reads an inline image's data through its filters, and §7.4.2's `ASCIIHexDecode` ends at
+/// its EOD marker `>`: the three bytes after it stand before `EI`, which this reader found by
+/// searching and never decoded. Cut, the data ends at the marker, the white space §8.9.7 asks for
+/// before `EI` stays, and the page draws the same (`doc/adr/3735`).
+#[test]
+fn inline_image_data_past_its_filters_end_of_data_is_cut() {
+    let source = a_page_whose_stream_is(
+        b"q 10 0 0 10 0 0 cm BI /W 1 /H 1 /BPC 8 /CS /G /F /AHx ID 80>XYZ EI Q",
+    );
+    for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
+        let (output, losses) = as_shown(&source, target);
+        assert!(
+            losses.iter().eq([Loss::ContentAsDrawn]),
+            "{}",
+            losses.words()
+        );
+        let contents = decoded_contents(&output);
+        let text = String::from_utf8_lossy(&contents);
+        assert!(text.contains("ID 80> EI Q"), "{text}");
+        assert!(!text.contains("XYZ"), "{text}");
+    }
+}

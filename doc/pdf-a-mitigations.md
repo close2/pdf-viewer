@@ -334,8 +334,10 @@ of repairs · all six · **built in session 2217**, `discard` at `font-maps-as-r
   A `/ToUnicode` `CMap` with entries that do not read is written again at its object from the
   mappings this reader read, proved to answer every code alike at every width, its dropped entries
   named in the report (ADR 3781); a map cut by one of this reader's bounds keeps the refusal. A
-  damaged encoding `CMap` selects glyphs, is section 5.1's own and refused by the output's check
-  (ADR 3782). A Type 3 font's maps are restated alike, its encoding name read as no table written
+  composite font's encoding `CMap` with entries that do not read is written again from its reading,
+  proved by reading back into the same codespace ranges and mappings, which is every string cut
+  and selected alike; one naming another with `usecmap` in its own text, or with an unusable
+  `/WMode`, keeps the refusal, by name (ADR 3804). A Type 3 font's maps are restated alike, its encoding name read as no table written
   as the encoding dictionary assigning no code (Table 110 requires one), proved by every code
   naming the glyph it named (ADR 3793); a font written directly inside another object is restated
   in its holder; and a damaged map that also states placeholders has them taken out of the map as

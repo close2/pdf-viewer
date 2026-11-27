@@ -1202,6 +1202,14 @@ pub struct Conversion {
     /// adjusted move, and each row's statement is the one the output's own `xmpMM:History` keeps.
     /// Empty for every conversion whose `/TR` entries were all `Identity` (`doc/adr/1964`).
     pub removed_transfer_functions: Vec<super::RemovedTransferFunction>,
+    /// Every font map this conversion restated as this reader read it, one line per entry: the
+    /// font, the entry, and what was written or dropped there (`doc/adr/3570`, `doc/adr/3804`).
+    ///
+    /// ISO 19005-2 and ISO 19005-4 section 5.1, answered by [`super::Loss::FontMapsAsRead`]: what
+    /// the producer wrote at those places is gone from the output, and a reader with a convention
+    /// of its own may have read it, so the report is where it is still named. Empty for every
+    /// conversion that restated none.
+    pub restated_font_maps: Vec<String>,
     /// Every annotation this conversion kept on its page and showed, rather than removing it.
     ///
     /// ISO 19005-2 section 6.3.2's other future, reached by `preserve` at the flag site: the page
@@ -1553,6 +1561,15 @@ impl Conversion {
                     self.removed_transfer_functions
                         .iter()
                         .map(transfer_to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "restated_font_maps".to_owned(),
+                Value::Array(
+                    self.restated_font_maps
+                        .iter()
+                        .map(|line| Value::text(line.clone()))
                         .collect(),
                 ),
             ),

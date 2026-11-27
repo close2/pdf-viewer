@@ -465,6 +465,15 @@ fn write_places(
     }
     let followed: BTreeSet<ObjectId> = follows.values().copied().collect();
     let began_in = streams_began_in(survey);
+    // A page's own content starts in §8.4.1's initial state; a stream the survey opened as
+    // something else inherits the state it was invoked in.
+    let page_content: BTreeSet<ObjectId> = pages
+        .every()
+        .into_iter()
+        .flatten()
+        .flat_map(|page| hexadecimal::contents_of(document, &page.dict))
+        .filter(|id| !began_in.contains_key(id))
+        .collect();
     // An operator no table defines is not written as white space in a file one of whose streams
     // did not decode, where such a keyword may be the damage's bytes rather than anything a
     // producer wrote (`doc/adr/3698`).
@@ -478,7 +487,10 @@ fn write_places(
     for (id, resources) in hexadecimal::streams(document, &pages, survey) {
         walk = match (walked, follows.get(&id)) {
             (Some(previous), Some(before)) if previous == *before => walk.into_the_next_stream(),
-            _ => Walk::starting_in(began_in.get(&id).copied().unwrap_or(Spaces::INITIAL)),
+            _ => Walk::starting_in(
+                began_in.get(&id).copied().unwrap_or(Spaces::INITIAL),
+                page_content.contains(&id),
+            ),
         };
         walked = Some(id);
         let object = document.get(id);
@@ -1025,7 +1037,65 @@ struct Walk {
     /// Where the text object this write adds around operators this reader ran outside one is to
     /// end, one past the last of them, while one is open (`doc/adr/3661`).
     added_text_object: Option<usize>,
+    /// The text leading this reader holds, where the walk can state it (`doc/adr/3801`).
+    leading: Leading,
 }
+
+/// What the walk knows of the text leading Tl (ISO 32000-2 §9.3.5), which `T*`, `'` and `"` move
+/// the line matrix by, and of the leadings each `q` saved with the graphics state (§8.4.2), so that
+/// a move by the leading from a matrix the walk can state is one it states too (`doc/adr/3801`).
+#[derive(Default)]
+struct Leading {
+    /// The leading in force, in the single precision the reader holds it in; `None` where it
+    /// cannot be stated: in a stream that inherits the invoking state's (§8.10.1), after a `TL`
+    /// or `TD` this reader may not have run as written, or once more states were saved than the
+    /// walk keeps.
+    held: Option<f32>,
+    /// The leading each `q` saved, innermost last, at most [`MOST_SAVED`].
+    saved: Vec<Option<f32>>,
+    /// Whether a `q` was met with [`MOST_SAVED`] states saved, past which the walk keeps no
+    /// account of what a `Q` restores.
+    lost: bool,
+}
+
+impl Leading {
+    /// §9.3.1 Table 103's `TL`: "Initial value: 0", the leading a page's content starts with.
+    const fn initial() -> Self {
+        Self {
+            held: Some(0.0),
+            saved: Vec::new(),
+            lost: false,
+        }
+    }
+
+    /// The leading after `q` (`saved` false) or `Q` (`saved` true) ran.
+    fn saved_or_restored(&mut self, restored: bool) {
+        if self.lost {
+            return;
+        }
+        if restored {
+            // A `Q` with nothing saved restores nothing, as the reader ignores it.
+            if let Some(held) = self.saved.pop() {
+                self.held = held;
+            }
+        } else if self.saved.len() < MOST_SAVED {
+            self.saved.push(self.held);
+        } else {
+            self.lost = true;
+            self.held = None;
+        }
+    }
+
+    /// The leading after a `TL` or `TD` set it to `value`, `None` where the walk cannot state it.
+    fn set(&mut self, value: Option<f32>) {
+        self.held = value.filter(|_| !self.lost);
+    }
+}
+
+/// How many saved states [`Leading`] keeps: the reader's own bound on the graphics state stack
+/// (`pdf_model::content`'s `MAX_STATE_DEPTH`), past which it refuses a `q`. A walk that meets a
+/// deeper stack stops stating the leading rather than guess which `Q` restores what.
+const MOST_SAVED: usize = 256;
 
 /// What the walk knows of this reader's text matrix Tm and text line matrix Tlm (ISO 32000-2
 /// §9.4.2), so that a text object added around operators it ran outside one can start where they
@@ -1042,8 +1112,8 @@ enum Matrices {
     /// A glyph was shown since the text line matrix was set, so the text matrix has moved past it
     /// by the glyphs' widths, which the walk does not measure; the line matrix is the one held.
     Shown(Box<Self>),
-    /// A move the walk does not compute: `Td`, `TD`, `T*`, `'`, `"`, or a `Tm` this reader may
-    /// not have run as written.
+    /// A move the walk does not compute: `Td`, `TD`, `T*`, `'` or `"` from a matrix or by a
+    /// leading it cannot state, or one of them or a `Tm` this reader may not have run as written.
     Moved,
 }
 
@@ -1078,25 +1148,17 @@ impl Matrices {
     /// Table 106's `Td` sets Tm and Tlm to the product of a translation by its operands and the
     /// line matrix held, so a move from a matrix the walk can state is one it can state too:
     /// computed as the reader computes it, in single precision, and written as the shortest
-    /// decimal that reads back as the same number (`doc/adr/3736`). `T*`, `'` and `"` move by the
-    /// leading, which the walk does not follow.
+    /// decimal that reads back as the same number (`doc/adr/3736`). Table 106's `T*` "has the
+    /// same effect as the code 0 - T l TD", and Table 107's `'` and `"` begin with it, so each is
+    /// the move by the leading the walk states (`doc/adr/3801`); `'` and `"` then show a glyph.
     fn after(&mut self, word: &[u8], stated: Option<Moved>) {
         *self = match (word, stated) {
             (b"Tm", Some(Moved::To(matrix))) => Self::Stated(matrix),
-            (b"Td" | b"TD", Some(Moved::By(x, y))) => {
-                let line = match std::mem::take(self) {
-                    Self::Shown(held) => *held,
-                    held => held,
-                };
-                let value = match &line {
-                    Self::Identity => Some(Transform::IDENTITY),
-                    Self::Stated(matrix) => Some(matrix.value),
-                    Self::Shown(_) | Self::Moved => None,
-                };
-                value
-                    .and_then(|value| StatedMatrix::of(Transform::translate(x, y).then(value)))
-                    .map_or(Self::Moved, Self::Stated)
-            }
+            (b"Td" | b"TD" | b"T*", Some(Moved::By(x, y))) => self.moved_by(x, y),
+            (b"'" | b"\"", Some(Moved::By(x, y))) => match self.moved_by(x, y) {
+                Self::Moved => Self::Moved,
+                line => Self::Shown(Box::new(line)),
+            },
             (b"Tm" | b"Td" | b"TD" | b"T*" | b"'" | b"\"", _) => Self::Moved,
             (b"Tj" | b"TJ", _) => match std::mem::take(self) {
                 Self::Moved => Self::Moved,
@@ -1105,6 +1167,23 @@ impl Matrices {
             },
             _ => return,
         };
+    }
+
+    /// The matrices after a move by `x` and `y` from the line matrix held: Table 106's
+    /// translation times it, where the walk can state it.
+    fn moved_by(&mut self, x: f32, y: f32) -> Self {
+        let line = match std::mem::take(self) {
+            Self::Shown(held) => *held,
+            held => held,
+        };
+        let value = match &line {
+            Self::Identity => Some(Transform::IDENTITY),
+            Self::Stated(matrix) => Some(matrix.value),
+            Self::Shown(_) | Self::Moved => None,
+        };
+        value
+            .and_then(|value| StatedMatrix::of(Transform::translate(x, y).then(value)))
+            .map_or(Self::Moved, Self::Stated)
     }
 }
 
@@ -1131,13 +1210,16 @@ impl StatedMatrix {
     }
 }
 
-/// What a `Tm`, `Td` or `TD` this reader ran as written states: the matrix a `Tm` sets, or the
-/// move a `Td` or `TD` makes.
+/// What a text-positioning operator or a `TL` this reader ran as written states: the matrix a `Tm`
+/// sets, the move a `Td`, `TD`, `T*`, `'` or `"` makes, or the leading a `TL` sets.
 enum Moved {
     /// A `Tm`'s matrix.
     To(StatedMatrix),
-    /// A `Td`'s or `TD`'s two operands, narrowed as the reader narrows them.
+    /// A `Td`'s or `TD`'s two operands, narrowed as the reader narrows them, or the move by the
+    /// leading a `T*`, `'` or `"` makes.
     By(f32, f32),
+    /// A `TL`'s operand, narrowed the same way (`doc/adr/3801`).
+    Leading(f32),
 }
 
 /// The bytes that close one marked-content section left open at its stream's end (`doc/adr/3734`):
@@ -1232,10 +1314,17 @@ const MOST_STARTS: usize = 64;
 const MOST_SECTIONS: usize = 1024;
 
 impl Walk {
-    /// The walk at the start of a stream that begins in `spaces` ([`streams_began_in`]).
-    fn starting_in(spaces: Spaces) -> Self {
+    /// The walk at the start of a stream that begins in `spaces` ([`streams_began_in`]): a page's
+    /// content with §9.3.1's initial leading (`page`), any other stream with the one in force where
+    /// it was invoked, which the walk does not state.
+    fn starting_in(spaces: Spaces, page: bool) -> Self {
         Self {
             grammar: Grammar::starting_in(spaces),
+            leading: if page {
+                Leading::initial()
+            } else {
+                Leading::default()
+            },
             ..Self::default()
         }
     }
@@ -1476,7 +1565,8 @@ impl Walk {
     /// a `BT` begins an object at the identity, an `ET` ending one discards its matrices to the
     /// identity (ADR 3353), and a stray `ET` acts on nothing. A `Tm` this reader ran as written
     /// states its six numbers, respelled as §7.3.3 spells them; the operands are the last six
-    /// before `start`, from `own_from`.
+    /// before `start`, from `own_from`. The leading is followed through `TL`, `TD`, `q` and `Q`,
+    /// so that `T*`, `'` and `"` state their move by it (`doc/adr/3801`).
     fn text_matrices_after(
         &mut self,
         word: &[u8],
@@ -1494,13 +1584,30 @@ impl Walk {
                 self.in_text = false;
                 self.matrices = Matrices::Identity;
             }
-            b"Tm" | b"Td" | b"TD" => {
+            b"q" | b"Q" => self.leading.saved_or_restored(word == b"Q"),
+            b"Tm" | b"Td" | b"TD" | b"TL" | b"T*" | b"'" | b"\"" => {
                 let as_written = found.classes().all(|class| {
                     class.name == pdf_model::repair::TEXT_OPERATOR_OUTSIDE_A_TEXT_OBJECT.name
                         || class.name == pdf_model::repair::OPERANDS_LEFT_OVER.name
                 });
                 let span = data.get(own_from..start).unwrap_or_default();
                 let stated = as_written.then(|| moved(word, span)).flatten();
+                match (word, &stated) {
+                    // Table 106: `TD` "shall have the same effect as this code: - t y TL t x t y Td".
+                    (b"TD", Some(Moved::By(_, y))) => self.leading.set(Some(-*y)),
+                    (b"TL", Some(Moved::Leading(value))) => self.leading.set(Some(*value)),
+                    (b"TD" | b"TL", _) => self.leading.set(None),
+                    _ => {}
+                }
+                let stated = match (word, stated) {
+                    // Table 106's `T*` "has the same effect as the code 0 - T l TD", and Table
+                    // 107's `'` and `"` begin with it; `"`'s `aw` and `ac` set `Tw` and `Tc`, text
+                    // state a `BT` does not reset (§9.3.1), so nothing added restates them.
+                    (b"T*" | b"'" | b"\"", _) if as_written => {
+                        self.leading.held.map(|leading| Moved::By(0.0, -leading))
+                    }
+                    (_, stated) => stated,
+                };
                 self.matrices.after(word, stated);
             }
             _ => self.matrices.after(word, None),
@@ -1508,8 +1615,8 @@ impl Walk {
     }
 }
 
-/// What the `Tm`, `Td` or `TD` `word` whose own operands are `span` states, or `None` where they
-/// are not the numbers it takes, each read whole.
+/// What the `Tm`, `Td`, `TD` or `TL` `word` whose own operands are `span` states, or `None` where
+/// they are not the numbers it takes, each read whole.
 fn moved(word: &[u8], span: &[u8]) -> Option<Moved> {
     let numbers = numbers_in(span)?;
     // The reader narrows each operand to single precision (`pdf_model::content::run`).
@@ -1527,6 +1634,7 @@ fn moved(word: &[u8], span: &[u8]) -> Option<Moved> {
             value: Transform::new(x0, x1, x2, x3, x4, x5),
         })),
         (b"Td" | b"TD", &[x, y]) => Some(Moved::By(x, y)),
+        (b"TL", &[value]) => Some(Moved::Leading(value)),
         _ => None,
     }
 }

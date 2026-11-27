@@ -453,3 +453,113 @@ fn a_font_written_inside_another_object_is_restated_in_place() {
     assert!(font.get("ToUnicode").is_none());
     assert!(font.get("Encoding").is_some());
 }
+
+/// A page showing `A` in a `Type0` font over a `CIDFontType2` whose program is Liberation Sans,
+/// encoded by the embedded `CMap` `map`, object 9, under `Adobe-Identity`, its CIDs the program's
+/// glyph indices.
+fn a_composite_page_encoded_by(map: &[u8]) -> Vec<u8> {
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (A) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans-Damaged-H /Encoding 9 0 R \
+             /DescendantFonts [7 0 R] >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /LiberationSans /CIDSystemInfo << \
+             /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 8 0 R \
+             /DW 1000 /W [36 [667]] /CIDToGIDMap /Identity >>"
+                .to_owned(),
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 4 /FontBBox [-543 -303 \
+             1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 /CapHeight 716 /StemV 80 \
+             /FontFile2 10 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![
+            stream(
+                &format!(
+                    "/Type /CMap /CMapName /Damaged-H /CIDSystemInfo << /Registry (Adobe) \
+                     /Ordering (Identity) /Supplement 0 >> /WMode 0 /Length {}",
+                    map.len()
+                ),
+                map,
+            ),
+            stream(
+                &format!(
+                    "/Length {} /Length1 {}",
+                    LIBERATION_SANS.len(),
+                    LIBERATION_SANS.len()
+                ),
+                LIBERATION_SANS,
+            ),
+        ],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// ISO 32000-2 §9.7.5.3 gives a `cidchar` entry a code and an integer CID, and `/B` is a name:
+/// this reader reads that entry as no mapping and logs the map `font/cmap-damaged`. The map is
+/// written again from its reading at its own object, proved to cut every string into the same
+/// codes and select the same CIDs (ADR 3804): `A` still selects CID 36, its glyph, and `B` still
+/// selects nothing, so §9.7.6.3 draws it as CID 0, as it did.
+#[test]
+fn a_damaged_encoding_cmap_is_written_as_read() {
+    let map = b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+        /CMapName /Damaged-H def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n\
+        2 begincidchar\n<41> 36\n<42> /B\nendcidchar\nendcmap\n\
+        CMapName currentdict /CMap defineresource pop\nend\nend\n";
+    let source = a_composite_page_encoded_by(map);
+    assert!(fails(&source, "fonts/font-maps-read-as-written"));
+    for profile in ["as-shown", "as-if-printed"] {
+        let (report, output) = convert(&source, TARGET, authorised_by(profile));
+        assert_eq!(
+            decision(&report, "fonts/font-maps-read-as-written"),
+            Decision::Authorised {
+                losses: Losses::one(Loss::FontMapsAsRead),
+                rewrite: Rewrite::FontMapsAsRead,
+            },
+            "{profile}"
+        );
+        let output = written(&report, output);
+        let held = holds(&output, TARGET);
+        assert_eq!(
+            held.verdict(),
+            Verdict::Conforms,
+            "{profile}: {}",
+            held.render()
+        );
+        let reopened = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+        let font = reopened
+            .get(ObjectId::new(6, 0))
+            .as_dict()
+            .cloned()
+            .expect("the font");
+        let read = pdf_font::composite_cmap(&reopened, &font, "F1").expect("the map reads");
+        assert!(!read.damaged(), "{profile}");
+        let before = Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("it opens");
+        let was = pdf_font::composite_cmap(
+            &before,
+            before.get(ObjectId::new(6, 0)).as_dict().expect("the font"),
+            "F1",
+        )
+        .expect("the map reads");
+        assert!(was.reads_alike(&read), "{profile}");
+        let codes: Vec<Option<u32>> = b"AB"
+            .iter()
+            .map(|byte| read.cid(read.next_code(&[*byte])))
+            .collect();
+        assert_eq!(codes, [Some(36), None], "{profile}");
+        let named = &conversion(&report).restated_font_maps;
+        assert!(
+            named
+                .iter()
+                .any(|line| line.contains("Encoding CMap object 9 0 written as read")),
+            "{profile}: {named:?}"
+        );
+    }
+}

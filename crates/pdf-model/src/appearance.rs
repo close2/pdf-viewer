@@ -4619,8 +4619,18 @@ impl Formatting<'_> {
 /// a token did not parse. Bit 26 binds the *file*, and a file that sets the flag over plain
 /// characters is one whose characters are still what the field shows — ADR 0111's rule that a
 /// malformed declaration may not erase what the clause states.
-fn rich_text_value(value: &str) -> Option<String> {
+///
+/// Where an element parsed, a token that did not, and a reference no entity defines kept as the
+/// characters it is written in, are each a reading of markup the flag declares well-formed, logged
+/// as `model/rich-text-malformed` at the file, as the `/RC` walk logs them (ADR 3795, ADR 3803).
+fn rich_text_value(document: &Document, value: &str) -> Option<String> {
     let read = crate::popup::rich_text_characters(value);
+    if read.elements > 0 && (!read.parsed_whole || read.kept_reference) {
+        document.record_repair(
+            &crate::repair::RICH_TEXT_MALFORMED,
+            pdf_syntax::Site::WholeFile,
+        );
+    }
     if !read.parsed_whole || read.elements == 0 {
         return None;
     }
@@ -5019,7 +5029,7 @@ fn text_field_text(document: &Document, field: &Field, value: &Object) -> Option
     }
     let text = variable_text::value_text(document, value)?;
     if field.flags & FLAG_RICH_TEXT != 0
-        && let Some(characters) = rich_text_value(&text)
+        && let Some(characters) = rich_text_value(document, &text)
     {
         return Some(characters);
     }

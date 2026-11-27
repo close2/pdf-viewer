@@ -867,6 +867,7 @@ fn conversion_before_deciding(
         ascii_data_restated: Vec::new(),
         damaged_data_restated: Vec::new(),
         removed_transfer_functions: Vec::new(),
+        restated_font_maps: Vec::new(),
         shown_annotations: Vec::new(),
         embedded_cmaps: Vec::new(),
         proxied_references: Vec::new(),
@@ -1986,6 +1987,13 @@ fn apply_the_decisions(
         && let Ok(functions) = &prepared.owed.transfers
     {
         conversion.removed_transfer_functions = functions.removed();
+    }
+    // `doc/adr/3804`: a font map restated as read leaves no trace of the producer's words in the
+    // output, so each font and entry is named with what was written or dropped there.
+    if wanted.contains(&Rewrite::FontMapsAsRead)
+        && let Ok(restated) = &prepared.owed.font_maps
+    {
+        conversion.restated_font_maps.clone_from(&restated.entries);
     }
     // section 3.9's condition on the loss: what went is named per property, because a removed
     // property leaves nothing in the output for a user to find it by.

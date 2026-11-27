@@ -33,6 +33,7 @@
 //! decides it.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 use pdf_syntax::{Lexer, Token};
 
@@ -155,7 +156,7 @@ impl Code {
 }
 
 /// One codespace range: a pair of bounds of equal length (§9.7.6.2).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Codespace {
     /// How many bytes the bounds have, from 1 to 4.
     length: u8,
@@ -207,7 +208,7 @@ impl Codespace {
 }
 
 /// The mappings for codes of one length: individual codes and ranges of them.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct Mapping {
     /// Codes given a selector one at a time, by `cidchar` or `notdefchar`.
     singles: BTreeMap<u32, u32>,
@@ -436,7 +437,12 @@ impl CMap {
                     operands.clear();
                     expecting_wmode = false;
                 }
-                Token::Name(name) => {
+                // A name outside a section begins a definition (`/WMode 0 def`) and ends the
+                // operands before it. Inside one it is an operand §9.7.5.3's syntax does not
+                // admit — a code is a string and a CID an integer — so it stays among the
+                // section's operands, where the entry it stands in reads as no mapping and the
+                // map as damaged, and the entries before it are kept (ADR 3804).
+                Token::Name(name) if section.is_none() => {
                     expecting_wmode = name.as_slice() == b"WMode";
                     operands.clear();
                 }
@@ -899,6 +905,76 @@ impl CMap {
         self.mappings.iter().any(|mapping| !mapping.is_empty())
     }
 
+    /// Whether `other` cuts every string into the codes this map cuts it into and selects the
+    /// character selector this map selects for each: the same codespace ranges in the same order,
+    /// which §9.7.6.2's extraction consults in turn, the same character and notdef mappings for
+    /// each code length, consulted in the same order, and the same writing mode (§9.7.5.1).
+    ///
+    /// These are everything [`Self::next_code`], [`Self::cid`] and [`Self::notdef_cid`] read, so
+    /// two maps alike here draw every shown string alike (ADR 3804).
+    #[must_use]
+    pub fn reads_alike(&self, other: &Self) -> bool {
+        self.codespace == other.codespace
+            && self.mappings == other.mappings
+            && self.notdef == other.notdef
+            && self.wmode == other.wmode
+    }
+
+    /// This map's codespace ranges and mappings written as §9.7.5.4's sections, in the order
+    /// [`Self::parse`] reads them back into the same map: the codespace ranges in the order
+    /// extraction consults them, and for each code length the single codes and then the ranges in
+    /// the order the lookup consults them, `cidchar` and `cidrange` for the character mappings
+    /// and `notdefchar` and `notdefrange` for the notdef ones (ADR 3804). Each section holds at most
+    /// a hundred entries, Adobe Technical Note #5014's limit, to which §9.7.5.3 sends the syntax.
+    ///
+    /// The frame around the sections — the procedure set, `/CIDSystemInfo`, `/CMapName`,
+    /// `/WMode` — is the caller's. `None` where one of this module's bounds cut the reading, so
+    /// that the sections would state less than the file did.
+    #[must_use]
+    pub fn sections_as_read(&self) -> Option<String> {
+        if self.truncated.is_some() {
+            return None;
+        }
+        let mut out = String::new();
+        let codespace: Vec<String> = self
+            .codespace
+            .iter()
+            .map(|range| {
+                let length = usize::from(range.length);
+                format!(
+                    "<{}> <{}>",
+                    hex_of(range.low.iter().take(length)),
+                    hex_of(range.high.iter().take(length))
+                )
+            })
+            .collect();
+        sections_of(&mut out, &codespace, "codespacerange");
+        for (kind, tables) in [("cid", &self.mappings), ("notdef", &self.notdef)] {
+            for (index, mapping) in tables.iter().enumerate() {
+                let length = index.saturating_add(1);
+                let singles: Vec<String> = mapping
+                    .singles
+                    .iter()
+                    .map(|(&code, &cid)| format!("<{}> {cid}", code_hex(code, length)))
+                    .collect();
+                sections_of(&mut out, &singles, &format!("{kind}char"));
+                let ranges: Vec<String> = mapping
+                    .ranges
+                    .iter()
+                    .map(|&(low, high, first)| {
+                        format!(
+                            "<{}> <{}> {first}",
+                            code_hex(low, length),
+                            code_hex(high, length)
+                        )
+                    })
+                    .collect();
+                sections_of(&mut out, &ranges, &format!("{kind}range"));
+            }
+        }
+        Some(out)
+    }
+
     /// The greatest character selector any of this `CMap`'s sections states.
     ///
     /// `None` for a `CMap` that states no mapping at all. Both kinds of section are read — the
@@ -1025,6 +1101,40 @@ impl CMap {
 }
 
 /// Reads a code from a `CMap` hex string, which is one to four bytes most significant first.
+/// How many entries [`CMap::sections_as_read`] puts in one section: Adobe Technical Note #5014's
+/// limit.
+const ENTRIES_PER_SECTION: usize = 100;
+
+/// Appends `entries` to `out` in sections of [`ENTRIES_PER_SECTION`], each between
+/// `begin<keyword>` and `end<keyword>` and preceded by its count.
+fn sections_of(out: &mut String, entries: &[String], keyword: &str) {
+    for chunk in entries.chunks(ENTRIES_PER_SECTION) {
+        // Writing to a `String` cannot fail.
+        let _ = writeln!(out, "{} begin{keyword}", chunk.len());
+        for entry in chunk {
+            out.push_str(entry);
+            out.push('\n');
+        }
+        let _ = writeln!(out, "end{keyword}");
+    }
+}
+
+/// `bytes` as a hexadecimal string's digits.
+fn hex_of<'a>(bytes: impl IntoIterator<Item = &'a u8>) -> String {
+    let mut out = String::new();
+    for byte in bytes {
+        // Writing to a `String` cannot fail.
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+/// A code's value as the `length` bytes it is written in, most significant first.
+fn code_hex(code: u32, length: usize) -> String {
+    let bytes = code.to_be_bytes();
+    hex_of(bytes.iter().skip(bytes.len().saturating_sub(length)))
+}
+
 fn code_of(bytes: &[u8]) -> Option<u32> {
     (!bytes.is_empty() && bytes.len() <= MAX_CODE_BYTES).then(|| value_of(bytes))
 }
@@ -1499,5 +1609,26 @@ mod tests {
         let cid = |bytes: &[u8]| map.cid(map.next_code(bytes));
         assert_eq!(cid(&[0x20]), Some(5));
         assert_eq!(cid(&[0x21]), Some(7));
+    }
+
+    /// §9.7.5.3's `cidchar` entry is a code string and an integer CID. A name standing as a CID
+    /// reads as no mapping and marks the map damaged; the entries before it in the section are
+    /// still read, and the map written again from the reading reads back alike (ADR 3804).
+    #[test]
+    fn a_name_inside_a_section_is_an_entry_read_past_and_the_rest_are_kept() {
+        let map = CMap::parse(
+            b"1 begincodespacerange\n<00> <ff>\nendcodespacerange\n\
+              3 begincidchar\n<41> 36\n<42> /B\n<43> 38\nendcidchar\n",
+            None,
+        );
+        assert!(map.damaged());
+        let cid = |bytes: &[u8]| map.cid(map.next_code(bytes));
+        assert_eq!(cid(&[0x41]), Some(36));
+        assert_eq!(cid(&[0x42]), None);
+        assert_eq!(cid(&[0x43]), Some(38));
+        let sections = map.sections_as_read().expect("no bound cut it");
+        let again = CMap::parse(sections.as_bytes(), None);
+        assert!(!again.damaged(), "{sections}");
+        assert!(map.reads_alike(&again), "{sections}");
     }
 }
