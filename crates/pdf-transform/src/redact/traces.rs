@@ -19,7 +19,10 @@
 //!   subtree (§14.9.4: the actual text "shall be used as a replacement, not a description, for
 //!   the content"). Whether all of the element's content was removed or part of it is reported,
 //!   never decided silently: the choice the clause leaves — keep a part's description or drop it
-//!   — is taken on the side that leaks nothing.
+//!   — is taken on the side that leaks nothing. An element written directly inside its parent's
+//!   `/K` is restated inside the object that holds it (ADR 3809), and an element whose form
+//!   sequence was written in a placement copy of the form gains a reference naming the copy by
+//!   its own number where the copy still shows part of it (ADR 3811).
 //!
 //! **What the clause does not bind**: an outline item's title, a named destination, an embedded
 //! file, an optional content group's name, the document's own XMP packet and information
@@ -35,7 +38,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use pdf_model::content::Interpretation;
 use pdf_syntax::Document;
-use pdf_syntax::object::{Dictionary, Object, ObjectId};
+use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
 
 use super::marked::{DESCRIBING, Reached};
 use super::{MAX_DEPTH, numbers, overlaps};
@@ -164,6 +167,38 @@ pub(super) struct Restated {
     pub(super) id: ObjectId,
     pub(super) dict: Dictionary,
     pub(super) detail: String,
+    /// Content items to add to elements of `dict`, each at the place of its element below the
+    /// object (see [`Place`]), naming a copy only the writer has a number for (ADR 3811).
+    pub(super) added: Vec<(Vec<usize>, Copied)>,
+}
+
+/// Adds to the element at `path` below `dict` one content item per `items` entry: a §14.7.5.2
+/// marked-content reference with `/Stm` the given copy's number in the output, `/Pg` its page's.
+pub(super) fn add_references(
+    dict: &mut Dictionary,
+    path: &[usize],
+    references: &[(ObjectId, ObjectId, i64)],
+) {
+    at_path(dict, path, &mut |element| {
+        let mut list = match element.remove("K") {
+            Some(Object::Array(items)) => items,
+            Some(Object::Null) | None => Vec::new(),
+            Some(single) => vec![single],
+        };
+        for (page, stream, mcid) in references {
+            let mut reference = Dictionary::new();
+            reference.insert(
+                Name::new(&b"Type"[..]),
+                Object::Name(Name::new(&b"MCR"[..])),
+            );
+            reference.insert(Name::new(&b"Pg"[..]), Object::Reference(*page));
+            reference.insert(Name::new(&b"Stm"[..]), Object::Reference(*stream));
+            reference.insert(Name::new(&b"MCID"[..]), Object::Integer(*mcid));
+            list.push(Object::Dictionary(reference));
+        }
+        element.insert(Name::new(&b"K"[..]), Object::Array(list));
+        Some(())
+    });
 }
 
 /// `dict` without `keys`, and the keys it held among them, or `None` where it held none.
@@ -217,6 +252,7 @@ pub(super) fn field_values(document: &Document, removed: &HashSet<ObjectId>) -> 
                 out.push(Restated {
                     id: field,
                     dict,
+                    added: Vec::new(),
                     detail: format!(
                         "field {}'s {} not written; its widget {} met the region and was removed",
                         field.number,
@@ -244,6 +280,21 @@ struct Marks {
     items: usize,
     whole: usize,
     reached: usize,
+    /// The placement copies holding part of one of its sequences (ADR 3811).
+    copies: Vec<Copied>,
+}
+
+/// A marked-content sequence of a form written in a placement copy of its own (ADR 1363) that
+/// still shows part of what it showed: the structure element that marks the form's sequence is
+/// given a reference to the copy's (§14.7.5.2's `/Stm`), since no reference names the copy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Copied {
+    /// The page the copy is drawn on.
+    pub(super) page: ObjectId,
+    /// The page's form edit the copy is.
+    pub(super) copy: usize,
+    /// The sequence's `/MCID` in the copy's stream, which is the form's.
+    pub(super) mcid: i64,
 }
 
 /// An element's `/K`, as a list (Table 355: one content item or kid, or an array of them).
@@ -255,21 +306,102 @@ fn kids(document: &Document, dict: &Dictionary) -> Vec<Object> {
     }
 }
 
+/// Where one structure element is written: the indirect object that holds it, and the positions
+/// in `/K` that lead from that object's dictionary down to it through elements written directly
+/// (§14.7.2 Table 355 lets `/K` hold a kid as a dictionary as well as a reference).
+///
+/// An element written directly has no object of its own to be restated in, so it is restated
+/// inside its holder: the holder is written again with the element's entries removed at its
+/// place.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+struct Place {
+    holder: ObjectId,
+    path: Vec<usize>,
+}
+
+impl Place {
+    /// The place of the kid at `position` of this element's `/K`, `kid` as written there.
+    fn kid(&self, kid: &Object, position: usize) -> Option<Self> {
+        match kid {
+            Object::Reference(id) => Some(Self {
+                holder: *id,
+                path: Vec::new(),
+            }),
+            Object::Dictionary(_) => {
+                let mut path = self.path.clone();
+                path.push(position);
+                Some(Self {
+                    holder: self.holder,
+                    path,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// The report's name for the element.
+    fn named(&self) -> String {
+        if self.path.is_empty() {
+            format!("structure element {}", self.holder.number)
+        } else {
+            format!(
+                "the structure element written directly in object {}'s /K (at {})",
+                self.holder.number,
+                self.path
+                    .iter()
+                    .map(usize::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+    }
+}
+
+/// Runs `edit` on the element at `path` below `dict`, followed through `/K` (see [`Place`]), and
+/// answers what it answered, or `None` where `path` leads to no element.
+fn at_path<T>(
+    dict: &mut Dictionary,
+    path: &[usize],
+    edit: &mut dyn FnMut(&mut Dictionary) -> Option<T>,
+) -> Option<T> {
+    let Some((first, rest)) = path.split_first() else {
+        return edit(dict);
+    };
+    let mut k = dict.remove("K")?;
+    let kid = match &mut k {
+        Object::Array(items) => items.get_mut(*first),
+        single @ Object::Dictionary(_) if *first == 0 => Some(single),
+        _ => None,
+    };
+    let answer = match kid {
+        Some(Object::Dictionary(kid)) => at_path(kid, rest, edit),
+        _ => None,
+    };
+    dict.insert(Name::new(&b"K"[..]), k);
+    answer
+}
+
 /// What element `dict`'s content items amount to against what the removal reached (§14.7.5),
-/// its child elements added to `children`. `page` is the page it states or inherits.
+/// its child elements, with their places below `place`, added to `children`. `page` is the page
+/// it states or inherits.
 fn marks_of(
     document: &Document,
     dict: &Dictionary,
-    page: Option<ObjectId>,
+    (place, page): (&Place, Option<ObjectId>),
     items: &[Item],
     removed: &HashSet<ObjectId>,
-    children: &mut Vec<ObjectId>,
+    children: &mut Vec<(Place, Dictionary)>,
 ) -> Marks {
+    // The form's own stream as written: a sequence reached in a placement copy is not in it.
     let reached = |page: Option<ObjectId>, stream: Option<ObjectId>, mcid: i64| {
         items.iter().find(|item| {
-            Some(item.page) == page && item.reached.stream == stream && item.reached.mcid == mcid
+            Some(item.page) == page
+                && item.reached.stream == stream
+                && item.reached.mcid == mcid
+                && item.reached.copy.is_none()
         })
     };
+    let mut copies: Vec<Copied> = Vec::new();
     let mut marks = Marks::default();
     let mut count = |hit: Option<bool>| {
         marks.items = marks.items.saturating_add(1);
@@ -278,8 +410,8 @@ fn marks_of(
             marks.whole = marks.whole.saturating_add(usize::from(whole));
         }
     };
-    for kid in kids(document, dict) {
-        match document.resolve(&kid) {
+    for (position, kid) in kids(document, dict).iter().enumerate() {
+        match document.resolve(kid) {
             Object::Integer(mcid) => {
                 count(reached(page, None, mcid).map(|item| item.reached.whole));
             }
@@ -291,6 +423,31 @@ fn marks_of(
                     mcid.and_then(|mcid| reached(at, stream, mcid))
                         .map(|item| item.reached.whole),
                 );
+                // A form drawn more than once and written as copies (ADR 1363): the sequence is
+                // in each copy too, one content item more for each, and a copy that still shows
+                // part of it is named to the element by the copy's own number (ADR 3811).
+                let mut seen: Vec<usize> = Vec::new();
+                for copied in items.iter().filter(|item| {
+                    Some(item.page) == at
+                        && item.reached.stream == stream
+                        && Some(item.reached.mcid) == mcid
+                }) {
+                    let Some(copy) = copied.reached.copy else {
+                        continue;
+                    };
+                    if seen.contains(&copy) {
+                        continue;
+                    }
+                    seen.push(copy);
+                    count(Some(copied.reached.whole));
+                    if !copied.reached.whole {
+                        copies.push(Copied {
+                            page: copied.page,
+                            copy,
+                            mcid: copied.reached.mcid,
+                        });
+                    }
+                }
             }
             Object::Dictionary(item) if item.get("Obj").is_some() => {
                 let object = item.get("Obj").and_then(Object::as_reference);
@@ -300,15 +457,27 @@ fn marks_of(
                         .then_some(true),
                 );
             }
-            Object::Dictionary(_) => children.extend(kid.as_reference()),
+            Object::Dictionary(child) => {
+                children.extend(place.kid(kid, position).map(|place| (place, child)));
+            }
             _ => {}
         }
     }
+    marks.copies = copies;
     marks
 }
 
+/// One element to be written without entries: which, and whether all of its content went.
+struct Restatement {
+    place: Place,
+    keys: Vec<&'static [u8]>,
+    whole: bool,
+    copies: Vec<Copied>,
+}
+
 /// The structure elements whose content the removal reached, and their ancestors, each written
-/// without what describes that content (§14.7.2 Table 355, §14.9.3–§14.9.5).
+/// without what describes that content (§14.7.2 Table 355, §14.9.3–§14.9.5) — an element written
+/// directly in its parent's `/K` restated inside the object that holds it.
 pub(super) fn elements(
     document: &Document,
     catalog: &Dictionary,
@@ -318,94 +487,161 @@ pub(super) fn elements(
     let Some(root) = catalog.get("StructTreeRoot") else {
         return Vec::new();
     };
-    // Breadth first from the root, each element with the page it inherits and its parent.
-    let mut queue: VecDeque<(ObjectId, Option<ObjectId>, Option<ObjectId>)> = VecDeque::new();
-    let mut seen: HashSet<ObjectId> = HashSet::new();
-    let mut parents: HashMap<ObjectId, ObjectId> = HashMap::new();
-    let mut marked: Vec<(ObjectId, Marks)> = Vec::new();
+    // §7.7.2's catalog states the root by reference in every file this verb restates elements of;
+    // a root written directly in the catalog has no holder for its direct kids, which are then
+    // read for their kids only.
     let tree = document.resolve(root);
-    let enqueue = |list: &[Object], page, parent, queue: &mut VecDeque<_>| {
-        for kid in list {
-            if let Some(id) = kid.as_reference() {
-                queue.push_back((id, page, parent));
-            }
-        }
+    let Some(tree) = tree.as_dict() else {
+        return Vec::new();
     };
-    if let Some(dict) = tree.as_dict() {
-        enqueue(&kids(document, dict), None, None, &mut queue);
+    let root_place = root.as_reference().map(|holder| Place {
+        holder,
+        path: Vec::new(),
+    });
+    // Breadth first from the root, each element with its place, the page it inherits and its
+    // parent's place.
+    let mut queue: VecDeque<(Place, Dictionary, Option<ObjectId>, Option<Place>)> = VecDeque::new();
+    for (position, kid) in kids(document, tree).iter().enumerate() {
+        let place = match (&root_place, kid) {
+            (_, Object::Reference(id)) => Some(Place {
+                holder: *id,
+                path: Vec::new(),
+            }),
+            (Some(root), _) => root.kid(kid, position),
+            (None, _) => None,
+        };
+        if let (Some(place), Some(dict)) = (place, document.resolve(kid).as_dict()) {
+            queue.push_back((place, dict.clone(), None, None));
+        }
     }
-    while let Some((id, inherited, parent)) = queue.pop_front() {
-        if !seen.insert(id) {
+    let mut seen: HashSet<Place> = HashSet::new();
+    let mut parents: HashMap<Place, Place> = HashMap::new();
+    let mut marked: Vec<(Place, Marks)> = Vec::new();
+    while let Some((place, dict, inherited, parent)) = queue.pop_front() {
+        if place.path.len() > MAX_DEPTH || !seen.insert(place.clone()) {
             continue;
         }
-        let object = document.get(id);
-        let Some(dict) = object.as_dict() else {
-            continue;
-        };
         if let Some(parent) = parent {
-            parents.insert(id, parent);
+            parents.insert(place.clone(), parent);
         }
         let page = dict.get("Pg").and_then(Object::as_reference).or(inherited);
         let mut children = Vec::new();
-        let marks = marks_of(document, dict, page, items, removed, &mut children);
-        queue.extend(children.into_iter().map(|child| (child, page, Some(id))));
+        let marks = marks_of(
+            document,
+            &dict,
+            (&place, page),
+            items,
+            removed,
+            &mut children,
+        );
+        queue.extend(
+            children
+                .into_iter()
+                .map(|(child, dict)| (child, dict, page, Some(place.clone()))),
+        );
         if marks.reached > 0 {
-            marked.push((id, marks));
+            marked.push((place, marks));
         }
     }
 
-    let mut out: Vec<Restated> = Vec::new();
-    let mut done: HashSet<ObjectId> = HashSet::new();
-    for (id, marks) in marked {
-        let whole = marks.whole == marks.items;
-        let mut keys: Vec<&[u8]> = DESCRIBING.to_vec();
+    let mut wanted: Vec<Restatement> = Vec::new();
+    let mut want = |place: &Place, keys: &[&'static [u8]], marks: Option<&Marks>| {
+        let at = if let Some(at) = wanted.iter().position(|item| item.place == *place) {
+            at
+        } else {
+            wanted.push(Restatement {
+                place: place.clone(),
+                keys: Vec::new(),
+                whole: false,
+                copies: Vec::new(),
+            });
+            wanted.len().saturating_sub(1)
+        };
+        if let Some(item) = wanted.get_mut(at) {
+            for key in keys {
+                if !item.keys.contains(key) {
+                    item.keys.push(key);
+                }
+            }
+            if let Some(marks) = marks {
+                item.whole |= marks.whole == marks.items;
+                item.copies.extend(marks.copies.iter().copied());
+            }
+        }
+    };
+    for (place, marks) in &marked {
+        let mut keys: Vec<&'static [u8]> = DESCRIBING.to_vec();
         keys.push(b"T");
-        restate(document, id, &keys, whole, &mut done, &mut out);
-        let mut at = parents.get(&id).copied();
+        want(place, &keys, Some(marks));
+        let mut at = parents.get(place);
         let mut depth = 0;
         while let Some(ancestor) = at
             && depth < MAX_DEPTH
         {
             depth = depth.saturating_add(1);
-            restate(document, ancestor, &DESCRIBING, false, &mut done, &mut out);
-            at = parents.get(&ancestor).copied();
+            want(ancestor, &DESCRIBING, None);
+            at = parents.get(ancestor);
+        }
+    }
+    restate(document, &wanted)
+}
+
+/// Each holder of the `wanted` elements written again without their keys, with what to say.
+fn restate(document: &Document, wanted: &[Restatement]) -> Vec<Restated> {
+    let mut holders: Vec<ObjectId> = wanted.iter().map(|item| item.place.holder).collect();
+    holders.sort_by_key(|id| (id.number, id.generation));
+    holders.dedup();
+    let mut out = Vec::new();
+    for holder in holders {
+        let Some(mut dict) = document.get(holder).as_dict().cloned() else {
+            continue;
+        };
+        let mut details = Vec::new();
+        let mut added = Vec::new();
+        for item in wanted.iter().filter(|item| item.place.holder == holder) {
+            added.extend(
+                item.copies
+                    .iter()
+                    .map(|copied| (item.place.path.clone(), *copied)),
+            );
+            if !item.copies.is_empty() {
+                details.push(format!(
+                    "{} given a reference to each of {} placement copies of a form that still \
+                     show part of its content",
+                    item.place.named(),
+                    item.copies.len()
+                ));
+            }
+            let dropped = at_path(&mut dict, &item.place.path, &mut |element| {
+                let (written, dropped) = without(element, &item.keys)?;
+                *element = written;
+                Some(dropped)
+            });
+            let Some(dropped) = dropped else {
+                continue;
+            };
+            let how = if item.whole {
+                "every content item it marks was removed"
+            } else {
+                "part of the content it covers was removed, and the description covers that part \
+                 too"
+            };
+            details.push(format!(
+                "{}'s {} not written; {how}",
+                item.place.named(),
+                dropped.join(" and ")
+            ));
+        }
+        if !details.is_empty() {
+            out.push(Restated {
+                id: holder,
+                dict,
+                detail: details.join("; "),
+                added,
+            });
         }
     }
     out
-}
-
-/// Adds element `id` written without `keys` to `out`, once.
-fn restate(
-    document: &Document,
-    id: ObjectId,
-    keys: &[&[u8]],
-    whole: bool,
-    done: &mut HashSet<ObjectId>,
-    out: &mut Vec<Restated>,
-) {
-    if !done.insert(id) {
-        return;
-    }
-    let Some(dict) = document.get(id).as_dict().cloned() else {
-        return;
-    };
-    let Some((dict, dropped)) = without(&dict, keys) else {
-        return;
-    };
-    let how = if whole {
-        "every content item it marks was removed"
-    } else {
-        "part of the content it covers was removed, and the description covers that part too"
-    };
-    out.push(Restated {
-        id,
-        dict,
-        detail: format!(
-            "structure element {}'s {} not written; {how}",
-            id.number,
-            dropped.join(" and ")
-        ),
-    });
 }
 
 /// The text the removal took: for each stretch of consecutive codes it removed, the readback
@@ -413,7 +649,10 @@ fn restate(
 ///
 /// The range rather than the codes' own spans joined, because a sequence with §14.9.4's
 /// `/ActualText` reads back its replacement once for all of its codes, and the separators the
-/// interpreter inferred between words belong to the run.
+/// interpreter inferred between words belong to the run. Under a replacement the run is the whole
+/// replacement even where the region took part of its codes: §14.9.4 makes the value a character
+/// substitution for the whole content the sequence encloses, and nothing maps a part of the value
+/// to a part of the codes (ADR 3810).
 pub(super) fn removed_runs(interpretation: &Interpretation, removed: &[usize]) -> Vec<String> {
     let mut indices: Vec<usize> = removed.to_vec();
     indices.sort_unstable();

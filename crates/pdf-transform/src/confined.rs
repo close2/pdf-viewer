@@ -156,6 +156,8 @@ mod ask {
     pub(super) const SINK_FLUSH: u8 = 0x24;
     /// An output closed; no answer.
     pub(super) const SINK_CLOSE: u8 = 0x25;
+    /// The pass answered, and its outputs are put in place (`Sinks::commit`).
+    pub(super) const SINKS_COMMIT: u8 = 0x26;
     /// The run is over, with its exit status; no answer.
     pub(super) const EXIT: u8 = 0x2F;
 }
@@ -678,6 +680,19 @@ impl Sinks for ForwardedSinks {
             _ => Err(unexpected()),
         }
     }
+
+    fn commit(&self) -> std::io::Result<()> {
+        // The broker's sinks hold the files; it puts them in place on this word and on no other,
+        // so a worker that fails or dies mid-pass leaves nothing under a name (ADR 3812).
+        let (answered, payload, descriptors) =
+            confined_transport::link::exchange_with_the_host(ask::SINKS_COMMIT, &[], self.most)?;
+        forget(descriptors);
+        match answered {
+            answer::OK => Ok(()),
+            answer::ERROR => Err(decode_error(&payload)),
+            _ => Err(unexpected()),
+        }
+    }
 }
 
 /// One output, written by the broker.
@@ -909,6 +924,16 @@ impl Broker<'_> {
             let (kind, payload) = self.host.receive()?;
             match kind {
                 ask::PASS_END => return Ok(()),
+                ask::SINKS_COMMIT => {
+                    // Every writer the worker opened is closed before it commits — its pass
+                    // dropped them when the verb returned — and a writer still open here is
+                    // closed first, as a `BufWriter` flushes on the way out.
+                    writers.clear();
+                    match sinks.commit() {
+                        Ok(()) => self.host.send(answer::OK, &[], None)?,
+                        Err(error) => self.host.send(answer::ERROR, &encode_error(&error), None)?,
+                    }
+                }
                 ask::SINK_OPEN => {
                     let answer = match Decoder(&payload).text() {
                         Some(name) if self.fences.admits(&name) => {

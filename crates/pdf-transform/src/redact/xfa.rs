@@ -101,6 +101,7 @@ pub(super) fn indirect_form(
         id,
         dict: without_xfa(&dict),
         detail,
+        added: Vec::new(),
     })
 }
 

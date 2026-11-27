@@ -589,15 +589,30 @@ fn stale_entries<'a>(
     let on_page = stated(page, &STALE_PAGE_ENTRIES);
     let page_phrase =
         (!on_page.is_empty()).then(|| format!("the page's {}", on_page.join(" and ")));
-    let form_phrases = forms.iter().filter_map(move |form| {
-        let object = document.get(form.id);
+    // One phrase per form, however many placement copies it was written as (ADR 1363): each
+    // copy carries the form's own dictionary, so what each left out is the same entries of the
+    // same object.
+    let mut ids: Vec<ObjectId> = Vec::new();
+    for form in forms {
+        if !ids.contains(&form.id) {
+            ids.push(form.id);
+        }
+    }
+    let form_phrases = ids.into_iter().filter_map(move |id| {
+        let object = document.get(id);
         let on_form = object
             .as_stream()
             .map_or_default(|stream| stated(&stream.dict, &STALE_FORM_ENTRIES));
+        let written = forms.iter().filter(|form| form.id == id).count();
+        let copies = if written > 1 {
+            format!(" (in each of the {written} streams it was written as, one per placement)")
+        } else {
+            String::new()
+        };
         (!on_form.is_empty()).then(|| {
             format!(
-                "form XObject {}'s {}",
-                form.id.number,
+                "form XObject {}'s {}{copies}",
+                id.number,
                 on_form.join(" and ")
             )
         })
@@ -3190,7 +3205,12 @@ fn write_document(
     .map_err(|error| Refusal::Assembly(error.to_string()))?;
     assembly.set_info(carried);
 
-    place_restated(&mut assembly, document, &restated_slots)?;
+    place_restated(
+        &mut assembly,
+        document,
+        &restated_slots,
+        (applied, &form_slots),
+    )?;
     xfa::place_packets(&mut assembly, document, &packet_slots)?;
 
     let placed_located = place_located(&mut assembly, document, applied, &private)?;
@@ -3289,15 +3309,37 @@ fn look_outside(
 
 /// Writes each field and structure element [`cut_traces`] reserved a slot for, its remaining
 /// entries carried into the output's numbering.
+///
+/// An element given a reference to a form's placement copy (ADR 3811) gains it here, where the
+/// copy's slot is known: `form_slots` holds each page's, in the order of its form edits.
 fn place_restated(
     assembly: &mut Assembly<'_>,
     document: &Document,
     slots: &[(ObjectId, traces::Restated)],
+    (applied, form_slots): (&[AppliedPage], &[Vec<ObjectId>]),
 ) -> Result<(), Refusal> {
     for (slot, item) in slots {
         let mut dict = Dictionary::new();
         for (key, value) in item.dict.iter() {
             dict.insert(key.clone(), carry(assembly, document, value, 0));
+        }
+        // Each copy named here was recorded by the walk of one of `applied`'s pages and given a
+        // slot by `reserve_slots` from the same list, and that page's slot is taken before this
+        // runs, so every lookup below answers; a miss would add no reference and leave the copy
+        // outside the tree, which the element's report already counts as part of its content.
+        for (path, copied) in &item.added {
+            let Some(at) = applied.iter().position(|page| page.page_id == copied.page) else {
+                continue;
+            };
+            let Some(stream) = form_slots.get(at).and_then(|forms| forms.get(copied.copy)) else {
+                continue;
+            };
+            let Object::Reference(page) =
+                carry(assembly, document, &Object::Reference(copied.page), 0)
+            else {
+                continue;
+            };
+            traces::add_references(&mut dict, path, &[(page, *stream, copied.mcid)]);
         }
         assembly
             .place(*slot, Object::Dictionary(dict))

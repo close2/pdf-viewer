@@ -5730,6 +5730,120 @@ fn a_form_drawn_twice_and_met_differently_is_cut_each_way() {
     held_outside_and_blank_inside(&bytes, &out, second, &[first]);
 }
 
+/// A form drawn twice that two regions meet differently is written as two streams, and each
+/// leaves out the form's §14.5 `/PieceInfo` and `/LastModified` (ADR 3717); the report names the
+/// form once, as the one object whose entries they are, not once per stream (ADR 1363).
+#[test]
+fn a_form_written_as_two_streams_is_reported_once() {
+    let annotation = "<< /Type /Annot /Subtype /Redact /Rect [30 10 170 150] \
+        /QuadPoints [30 70 50 70 30 10 50 10 110 150 170 150 110 130 170 130] >>";
+    let form = stream_object(
+        "/Type /XObject /Subtype /Form /BBox [0 0 40 40] /LastModified (D:20240101000000Z) \
+         /PieceInfo << /Example << /LastModified (D:20240101000000Z) /Private 1 >> >>",
+        b"0 0 1 rg 0 0 40 40 re f",
+    );
+    let bytes = page_with_annotation(
+        "<< /XObject << /Fm0 6 0 R >> >>",
+        "q 1 0 0 1 20 20 cm /Fm0 Do Q q 1 0 0 1 120 120 cm /Fm0 Do Q",
+        annotation,
+        &[form],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(contains(&out, b"/RedactForm1 Do"), "the form is split");
+    let named = report
+        .departures
+        .iter()
+        .map(|departure| departure.detail.matches("form XObject 6's").count())
+        .sum::<usize>();
+    assert_eq!(named, 1, "{:#?}", report.departures);
+    assert!(
+        !contains(&out, b"/PieceInfo"),
+        "neither stream carries the private data"
+    );
+}
+
+/// A tagged form drawn twice, one placement partly under the region: that placement is written
+/// as a copy of its own (ADR 1363), and the element marking the form's sequence, which names the
+/// form by `/Stm`, is given a second reference naming the copy by the copy's number — the copy's
+/// sequence still shows part of what it marks, and no other reference reaches it (§14.7.5.2, ADR
+/// 3811). The form's own stream is still drawn whole at the placement missed, so the element is
+/// not said to have lost all of its content.
+#[test]
+fn a_placement_copy_is_named_to_the_structure_tree_by_its_own_number() {
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 8 0 R /MarkInfo << /Marked true >> >>"
+            .to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Fm0 \
+          6 0 R >> >> /Contents 4 0 R /Annots [5 0 R] >>"
+            .to_vec(),
+        stream_object(
+            "",
+            b"q 1 0 0 1 20 20 cm /Fm0 Do Q q 1 0 0 1 20 120 cm /Fm0 Do Q",
+        ),
+        b"<< /Type /Annot /Subtype /Redact /Rect [15 125 60 150] >>".to_vec(),
+        stream_object(
+            "/Type /XObject /Subtype /Form /BBox [0 0 150 30] /Resources << /Font << /F1 7 0 R \
+             >> >>",
+            b"/Span <</MCID 0>> BDC BT /F1 12 Tf 0 10 Td (AAAA) Tj 60 0 Td (BBBB) Tj ET EMC",
+        ),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+        b"<< /Type /StructTreeRoot /K [9 0 R] >>".to_vec(),
+        b"<< /Type /StructElem /S /Span /P 8 0 R /Pg 3 0 R /K << /Type /MCR /Stm 6 0 R /MCID 0 \
+          >> /ActualText (AAAA BBBB) >>"
+            .to_vec(),
+    ];
+    let (report, out) = redact(&assemble_bytes(&objects));
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let document = Document::open_with_limits(out, Limits::DEFAULT).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    let root = document.get_key(&catalog, "StructTreeRoot");
+    let Object::Array(top) = document.get_key(root.as_dict().expect("a root"), "K") else {
+        panic!("the root's /K is an array");
+    };
+    let element = document.resolve(&top[0]);
+    let element = element.as_dict().expect("the element");
+    assert!(
+        element.get("ActualText").is_none(),
+        "the replacement is carried"
+    );
+    let Object::Array(items) = document.get_key(element, "K") else {
+        panic!("the element's /K is not a list of two references: {element:?}");
+    };
+    let shown: Vec<String> = items
+        .iter()
+        .map(|item| {
+            let item = document.resolve(item);
+            let stream = document.get_key(item.as_dict().expect("a reference"), "Stm");
+            let data = document
+                .decoded_stream_data(stream.as_stream().expect("a form"))
+                .expect("it decodes");
+            String::from_utf8_lossy(&data).into_owned()
+        })
+        .collect();
+    assert_eq!(shown.len(), 2, "{shown:#?}");
+    assert!(
+        shown[0].contains("AAAA") && shown[0].contains("BBBB"),
+        "the first names the producer's form, drawn where the region missed it: {shown:#?}"
+    );
+    assert!(
+        !shown[1].contains("AAAA") && shown[1].contains("BBBB"),
+        "the second names the copy, which keeps what the region left: {shown:#?}"
+    );
+    let details: Vec<&str> = report
+        .departures
+        .iter()
+        .map(|departure| departure.detail.as_str())
+        .collect();
+    assert!(
+        details
+            .iter()
+            .any(|detail| detail.contains("structure element 9") && detail.contains("part of")),
+        "{details:#?}"
+    );
+}
+
 /// A form drawn twice from inside another form is split in that form's own stream: the copy is
 /// named in the enclosing form's resources, which the enclosing form's edited stream states.
 #[test]

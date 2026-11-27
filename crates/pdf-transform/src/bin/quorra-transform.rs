@@ -110,6 +110,8 @@ macro_rules! errln {
 
 // Both by path, so that `quorra-transform-worker`, which takes this file by path too, finds them
 // where this binary does.
+#[path = "quorra-transform/files.rs"]
+mod files;
 #[path = "quorra-transform/here.rs"]
 mod here;
 #[path = "quorra-transform/route.rs"]
@@ -568,6 +570,13 @@ fn convert(io: &mut dyn World, attempt: &Attempt<'_>, plan: &mut Plan) -> Result
             attempt.budget,
             attempt.protect,
         )?;
+        // The pass answered, so its outputs are whole: put in place now, and not before — a
+        // verb that failed returned above, and its sinks, dropped there, keep nothing it wrote
+        // (ADR 3812).
+        sinks.commit().map_err(|error| Refusal::Sink {
+            name: String::from("the pass's outputs"),
+            error,
+        })?;
         // One pass's outputs, closed — every file — before anything below asks the world for
         // anything else.
         drop(sinks);
@@ -2502,21 +2511,6 @@ fn print_listing(io: &mut dyn World, report: &Report) {
                 file.media_type.as_deref().unwrap_or("-"),
             ),
         }
-    }
-}
-
-/// Sinks that open files at the names the plan expands.
-///
-/// The name is a path as given: relative to the working directory, its parent directory
-/// existing. Nothing is created but the file.
-#[derive(Debug)]
-struct FileSinks;
-
-impl Sinks for FileSinks {
-    fn open(&self, name: &str) -> std::io::Result<Box<dyn Write + Send + '_>> {
-        Ok(Box::new(std::io::BufWriter::new(std::fs::File::create(
-            name,
-        )?)))
     }
 }
 

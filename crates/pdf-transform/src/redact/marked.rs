@@ -52,6 +52,10 @@ pub(super) struct Reached {
     pub(super) mcid: i64,
     /// Whether every glyph it showed was removed, rather than part of what it showed.
     pub(super) whole: bool,
+    /// Where `stream` is a form drawn more than once and this placement was written as a copy of
+    /// its own (ADR 1363), the page's form edit that copy is: the sequence is in the copy's
+    /// stream, not the form's, and the structure tree reaches it by the copy's number (ADR 3811).
+    pub(super) copy: Option<usize>,
 }
 
 /// The top-level entries of the inline dictionary that starts at `start`: each key, its byte
@@ -171,6 +175,7 @@ impl Walk<'_> {
                 stream: self.forms_open.last().copied(),
                 mcid,
                 whole: codes > 0 && removed == codes,
+                copy: None,
             });
         }
         Ok(())

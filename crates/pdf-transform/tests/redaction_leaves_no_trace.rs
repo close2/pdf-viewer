@@ -89,6 +89,11 @@ fn fixture() -> Vec<u8> {
 /// [`fixture`], its XFA template's field named `template_field`: the PDF field is `name`, so any
 /// other name is a template that does not name the field, whose places cannot be found.
 fn fixture_with(template_field: &str) -> Vec<u8> {
+    assemble(&fixture_objects(template_field), "/Info 27 0 R")
+}
+
+/// The objects of [`fixture_with`], numbered from one.
+fn fixture_objects(template_field: &str) -> Vec<String> {
     let content = format!(
         "/P <</MCID 0>> BDC BT /F1 12 Tf 20 150 Td (KEEP) Tj ET EMC\n\
          /Span <</MCID 1 /ActualText (bdc-actual {SECRET})>> BDC \
@@ -197,7 +202,7 @@ fn fixture_with(template_field: &str) -> Vec<u8> {
         format!("<< /Subject (info {SECRET}) >>"),
     ];
     objects.extend(xfa_objects(template_field));
-    assemble(&objects, "/Info 27 0 R")
+    objects
 }
 
 /// Objects 28 to 32: §K.2's array form of the XFA resource, the field's value in three packets —
@@ -541,5 +546,99 @@ fn an_xfa_resource_whose_places_cannot_be_found_goes_whole() {
             .any(|departure| departure.detail.contains("/XFA not written")),
         "no departure names the /XFA: {:#?}",
         report.departures
+    );
+}
+
+/// §14.7.2 Table 355 lets a structure element's `/K` hold a kid written directly as a dictionary,
+/// which has no object of its own; the element marking the removed sequence is written that way
+/// inside the document element here, and is restated inside it.
+#[test]
+fn a_structure_element_written_directly_in_its_parent_is_restated_there() {
+    let mut objects = fixture_objects("name");
+    let span = objects[9].clone();
+    objects[23] = objects[23].replace("10 0 R", &span);
+    objects[9] = "null".to_owned();
+    objects[22] = "<< /Nums [0 [6 0 R null]] >>".to_owned();
+    let (report, out) = redact(assemble(&objects, "/Info 27 0 R"));
+    let found = hits(&out);
+    let bound: Vec<&String> = found.iter().filter(|hit| !elsewhere(hit)).collect();
+    assert!(bound.is_empty(), "the output still holds {bound:#?}");
+    assert!(
+        report.departures.iter().any(|departure| departure
+            .detail
+            .contains("structure element written directly in object 24")),
+        "no departure names the direct element: {:#?}",
+        report.departures
+    );
+    // The element itself stays, with what does not describe the removed content: its type.
+    let document = Document::open_with_limits(out, Limits::DEFAULT).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    let root = document.get_key(&catalog, "StructTreeRoot");
+    let top = document.get_key(root.as_dict().expect("a root"), "K");
+    let top = match top {
+        Object::Array(items) => document.resolve(&items[0]),
+        other => other,
+    };
+    let Object::Array(kids) = document.get_key(top.as_dict().expect("the document"), "K") else {
+        panic!("the document element's /K is an array");
+    };
+    let span = kids[1].as_dict().expect("the direct element is carried");
+    assert_eq!(
+        document
+            .get_key(span, "S")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"Span".to_vec())
+    );
+}
+
+/// §14.9.4 makes `/ActualText` a character substitution for the whole content its sequence
+/// encloses, and nothing maps a part of the value to a part of the content. So a region that
+/// takes part of such a sequence took part of what the whole value stands for (ADR 3810): the
+/// value is written nowhere on the page, the codes the region left read back as themselves, and
+/// the whole value is what is looked for elsewhere.
+#[test]
+fn a_replacement_part_of_whose_content_was_removed_is_written_nowhere() {
+    let content = "/Span <</ActualText (PHRASEX)>> BDC BT /F1 12 Tf 20 100 Td (AAAA) Tj 100 0 Td \
+                   (BBBB) Tj ET EMC";
+    let objects = vec![
+        "<< /Type /Catalog /Pages 2 0 R /Outlines 6 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 5 0 R \
+         >> >> /Contents 4 0 R /Annots [8 0 R] >>"
+            .to_owned(),
+        stream("", content),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+        "<< /Type /Outlines /First 7 0 R /Last 7 0 R /Count 1 >>".to_owned(),
+        "<< /Title (PHRASEX) /Parent 6 0 R /Dest [3 0 R /Fit] >>".to_owned(),
+        "<< /Type /Annot /Subtype /Redact /Rect [15 95 60 115] >>".to_owned(),
+    ];
+    let (report, out) = redact(assemble(&objects, ""));
+    let document = Document::open_with_limits(out, Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let text = pdf_model::interpret(&document, &page).text;
+    assert!(
+        text.contains("BBBB") && !text.contains("AAAA") && !text.contains("PHRASEX"),
+        "the kept codes read back as themselves alone: {text:?}"
+    );
+    let content = document
+        .decoded_stream_data(
+            document
+                .get_key(&page.dict, "Contents")
+                .as_stream()
+                .expect("a stream"),
+        )
+        .expect("it decodes");
+    assert!(
+        !String::from_utf8_lossy(&content).contains("PHRASEX"),
+        "the replacement is still in the page's content"
+    );
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.detail.contains("/Outlines")),
+        "the outline that repeats the whole replacement is not named: {:#?}",
+        report.warnings
     );
 }

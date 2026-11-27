@@ -120,7 +120,7 @@ impl Walk<'_> {
         &mut self,
         id: ObjectId,
         edit: Option<FormEdit>,
-        entered: Entered,
+        (entered, reached_from): (Entered, usize),
     ) -> Result<(), String> {
         let reached = self.placements.entry(id).or_insert(0);
         let at = *reached;
@@ -155,6 +155,12 @@ impl Walk<'_> {
                     index
                 };
                 self.name_copy(entered, index);
+                // The sequences this placement's walk reached are in the copy's stream.
+                for reached in self.reached.iter_mut().skip(reached_from) {
+                    if reached.stream == Some(id) && reached.copy.is_none() {
+                        reached.copy = Some(index);
+                    }
+                }
                 Ok(())
             }
             _ => Err(inconsistent()),

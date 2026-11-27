@@ -163,6 +163,7 @@ impl Walk<'_> {
             });
         let saved = self.enter_frame(resources, matrix.then(self.ctm), entered, group);
         let shared = !form_id.is_some_and(|id| self.owns(id));
+        let reached_from = self.reached.len();
         if let Some(id) = form_id {
             self.forms_open.push(id);
         }
@@ -188,7 +189,9 @@ impl Walk<'_> {
             // Nothing of this form falls under the region: its stream crosses the output byte
             // for byte, and so does the `Do` that draws it.
             return match form_id {
-                Some(id) if self.split.contains_key(&id) => self.place_split(id, None, entered),
+                Some(id) if self.split.contains_key(&id) => {
+                    self.place_split(id, None, (entered, reached_from))
+                }
                 _ => Ok(()),
             };
         };
@@ -215,7 +218,7 @@ impl Walk<'_> {
             placement_copy: false,
         };
         if self.split.contains_key(&id) {
-            return self.place_split(id, Some(edit), entered);
+            return self.place_split(id, Some(edit), (entered, reached_from));
         }
         self.record_form_edit(edit)
     }

@@ -11,7 +11,8 @@ use pdf_transform::Sinks;
 use pdf_transform::confined::{Reading, World};
 use pdf_transform::tool::{ToolRequest, ToolResult};
 
-use super::{FileSinks, StdoutSinks};
+use super::StdoutSinks;
+use super::files::FileSinks;
 
 /// This machine.
 #[derive(Debug, Default)]
@@ -65,7 +66,7 @@ impl World for Here {
         if to_stdout {
             Box::new(StdoutSinks::default())
         } else {
-            Box::new(FileSinks)
+            Box::new(FileSinks::default())
         }
     }
 

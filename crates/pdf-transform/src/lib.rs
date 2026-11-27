@@ -172,6 +172,21 @@ pub trait Sinks: Sync {
     /// Whatever opening it costs — a directory that does not exist, a second request for a sink
     /// that can only be opened once.
     fn open(&self, name: &str) -> std::io::Result<Box<dyn Write + Send + '_>>;
+
+    /// Puts every output this pass opened in place, called once the verb that wrote them has
+    /// answered without a refusal; sinks dropped without it are a pass that failed.
+    ///
+    /// Sinks that can stage an output — a file written beside its name and renamed onto it —
+    /// publish here and discard on drop, so that a verb failing after its first byte leaves no
+    /// part of a file under the name (ADR 3812). Sinks that cannot take a byte back (standard
+    /// output, memory a test reads) have nothing to do, which is the default.
+    ///
+    /// # Errors
+    ///
+    /// Whatever putting an output in place costs.
+    fn commit(&self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// One in-memory output's bytes, shared between the sink that hands it out and the writer.
