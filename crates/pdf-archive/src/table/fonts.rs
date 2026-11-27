@@ -285,8 +285,8 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
     },
     Requirement {
         id: "fonts/font-maps-read-as-written",
-        asks: "A font dictionary's ToUnicode entry shall be a CMap stream, its Encoding a name \
-               the base standard predefines or an encoding dictionary whose BaseEncoding is \
+        asks: "A font dictionary's ToUnicode entry shall be a CMap stream whose entries read \
+               as §9.10.3 states them, its Encoding a name the base standard predefines or an encoding dictionary whose BaseEncoding is \
                one, and its Differences an array of codes each followed by glyph names.",
         // Section 5.1 in both parts, through ISO 32000-2 §9.10.3 (Table 109 and Table 121 give
         // `/ToUnicode` as a stream), §9.6.5.1 (Table 112's `/BaseEncoding` and `/Differences`)
@@ -3964,12 +3964,14 @@ fn to_unicode_values_are_usable(exam: &Examination<'_>, findings: &mut Findings)
         let mut reported = [false; UNUSABLE_VALUES.len()];
         for mapping in map.mappings() {
             match mapping {
-                Mapping::Single { code, text } => {
+                Mapping::Single { code, text, .. } => {
                     for character in text.chars() {
                         report_unusable_value(site, code, character, &mut reported, findings);
                     }
                 }
-                Mapping::Span { low, high, first } => {
+                Mapping::Span {
+                    low, high, first, ..
+                } => {
                     // The span runs `first` upwards, one scalar per code, so a forbidden value
                     // is stated exactly when it lies within that many steps of the first.
                     let last = first.saturating_add(high.saturating_sub(low));
@@ -4051,12 +4053,14 @@ fn private_use_codes(map: &ToUnicode) -> Vec<(u32, u32)> {
             break;
         }
         match mapping {
-            Mapping::Single { code, text } => {
+            Mapping::Single { code, text, .. } => {
                 if let Some(character) = text.chars().find(|it| is_private_use(*it)) {
                     out.push((code, u32::from(character)));
                 }
             }
-            Mapping::Span { low, high, first } => {
+            Mapping::Span {
+                low, high, first, ..
+            } => {
                 let last = first.saturating_add(high.saturating_sub(low));
                 if let Some(value) = PRIVATE_USE_AREAS
                     .iter()

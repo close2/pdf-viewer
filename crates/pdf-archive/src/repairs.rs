@@ -282,10 +282,11 @@ pub static MAPPING: &[Mapped] = &[
     // The maps. Section 6.2.11.7.2's rows judge a `/ToUnicode` as read and exempt whole classes
     // of font from it, which a repair's place cannot tell, so a map this reader read past is
     // section 5.1's. Those the converter restates as read (ADR 3570) are also the row of section
-    // 5.1 that names them, `fonts/font-maps-read-as-written`; a damaged `/ToUnicode` or encoding
-    // `CMap` is section 5.1's alone until a route writes the mappings that read.
+    // 5.1 that names them, `fonts/font-maps-read-as-written`; a damaged `/ToUnicode` is among
+    // them, written again from the mappings that read (ADR 3781). A damaged encoding `CMap`
+    // selects glyphs, and is section 5.1's alone (ADR 3782).
     rows("font/to-unicode-not-a-stream", &[MAPS_READ]),
-    base("font/to-unicode-damaged"),
+    rows("font/to-unicode-damaged", &[MAPS_READ]),
     base("font/cmap-damaged"),
     rows("font/differences-malformed", &[MAPS_READ]),
     rows("font/encoding-name-unknown", &[MAPS_READ]),
@@ -313,9 +314,9 @@ pub static MAPPING: &[Mapped] = &[
 /// Section 6.2.11.4.1's row: every font a content stream renders embeds its program.
 pub(crate) const EMBEDDED: &str = "fonts/font-programs-embedded";
 
-/// Section 5.1's row for the font maps this reader read past: a `/ToUnicode` that is no stream,
-/// an `/Encoding` or `/BaseEncoding` name the base standard does not predefine, a malformed
-/// `/Differences` (ADR 3570).
+/// Section 5.1's row for the font maps this reader read past: a `/ToUnicode` that is no stream
+/// or holds entries that do not read, an `/Encoding` or `/BaseEncoding` name the base standard
+/// does not predefine, a malformed `/Differences` (ADR 3570, ADR 3781).
 pub(crate) const MAPS_READ: &str = "fonts/font-maps-read-as-written";
 
 /// Section 6.2.11.6's row: a nonsymbolic `TrueType` font names one of the two encodings ISO 19005

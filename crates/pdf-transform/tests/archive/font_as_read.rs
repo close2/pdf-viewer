@@ -202,6 +202,70 @@ fn a_type1_fonts_standard_encoding_is_a_map_read_past() {
     assert!(fails(&source, "fonts/font-maps-read-as-written"));
 }
 
+/// ISO 32000-2 §9.10.3 has a `/ToUnicode` map's destinations "expressed in UTF-16BE encoding",
+/// and `<D800>` is an unpaired surrogate, no UTF-16BE text: this reader reads that entry as no
+/// mapping and logs the map damaged. The map is written again from the mappings that read, at its
+/// own object (ADR 3781): `A` still reads as `A`, and code `B` reads as nothing, as it did.
+#[test]
+fn a_damaged_to_unicode_is_written_as_read() {
+    let map = b"1 begincodespacerange\n<00> <FF>\nendcodespacerange\n\
+        2 beginbfchar\n<41> <0041>\n<42> <D800>\nendbfchar\n";
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (A) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans /FirstChar 65 \
+             /LastChar 65 /Widths [667] /FontDescriptor 7 0 R /Encoding /WinAnsiEncoding \
+             /ToUnicode 9 0 R >>"
+                .to_owned(),
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
+             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 /FontFile2 8 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![
+            stream(
+                &format!(
+                    "/Length {} /Length1 {}",
+                    LIBERATION_SANS.len(),
+                    LIBERATION_SANS.len()
+                ),
+                LIBERATION_SANS,
+            ),
+            stream(&format!("/Length {}", map.len()), map),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    assert!(fails(&source, "fonts/font-maps-read-as-written"));
+    let (report, output) = convert(&source, TARGET, authorised_by("as-if-printed"));
+    assert_eq!(
+        decision(&report, "fonts/font-maps-read-as-written"),
+        Decision::Authorised {
+            losses: Losses::one(Loss::FontMapsAsRead),
+            rewrite: Rewrite::FontMapsAsRead,
+        }
+    );
+    let output = written(&report, output);
+    let held = holds(&output, TARGET);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let (font, _) = font_and_program(&output);
+    let reopened = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let read = pdf_font::to_unicode(&reopened, &font);
+    assert!(!read.damaged());
+    let answer = |code: u32| {
+        let mut out = String::new();
+        read.append(code, &mut out).then_some(out)
+    };
+    assert_eq!(answer(0x41).as_deref(), Some("A"));
+    assert_eq!(answer(0x42), None);
+}
+
 #[test]
 fn nothing_is_restated_without_the_loss() {
     let source = a_page_in(LIBERATION_SANS, "/ToUnicode /Identity-H");

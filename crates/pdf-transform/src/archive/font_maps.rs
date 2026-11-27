@@ -12,14 +12,20 @@
 //!   removed;
 //! - **a `/Differences` array with an element that is neither a code nor a glyph name in place**
 //!   — §9.6.5.1 states the array's grammar, and this reader skips such an element, so the array
-//!   is written again as the codes and names it assigned, in the order it assigned them.
+//!   is written again as the codes and names it assigned, in the order it assigned them;
+//! - **a `/ToUnicode` `CMap` with entries that do not read** — §9.10.3 states the map's grammar,
+//!   and this reader reads an entry outside it as no mapping, so the map is written again from the
+//!   mappings it read, at the producer's object, and proved to answer every code as it answered
+//!   ([`to_unicode`], ADR 3781).
 //!
 //! Each is checked before it is written: a simple font loaded from the dictionary as restated
 //! draws every single-byte code's outline at the advance it drew from the dictionary as written.
 //! What is lost is the producer's own words at those places, which no reader reads by ISO 32000-2
 //! and some reader may read by a convention of its own — `/ToUnicode /Identity-H` read as the
 //! identity map is the common one — so the restatement is the loss `font-maps-as-read`, and the
-//! report names every font and entry.
+//! report names every font and entry. A damaged map's dropped entries are that loss too: each
+//! is words of the producer's no reader reads by §9.10.3's UTF-16BE, and a reader with a
+//! convention of its own may read one (an unpaired surrogate as U+FFFD is the common one).
 //!
 //! Refused by name ([`NOT_RESTATED`]): a font the proof does not hold for — a nonsymbolic
 //! `TrueType` font's unknown `/Encoding` name is one, since this reader selects its glyphs by
@@ -39,13 +45,16 @@ use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
 use super::decision::Because;
 
+mod to_unicode;
+
 /// The requirement this module answers, by the identifier the validator reports it under.
 pub(super) const ROW: &str = "fonts/font-maps-read-as-written";
 
 /// Why a font's maps are not restated as read.
 pub(super) const NOT_RESTATED: &str = "a font dictionary states a ToUnicode that is not a \
      stream, an Encoding or BaseEncoding naming no encoding ISO 32000-2 predefines, or a \
-     Differences array with an element out of its grammar, and this reader read past it; this \
+     Differences array with an element out of its grammar, and this reader read past it (a \
+     ToUnicode CMap whose entries do not all read is answered on its own terms); this \
      conversion restates such a font as it was read only where the font is an object of its own, \
      an encoding dictionary it restates is read alike by every font naming it, and every code the \
      font shows draws the outline and the advance it drew; this font is not that";
@@ -55,6 +64,8 @@ pub(super) const NOT_RESTATED: &str = "a font dictionary states a ToUnicode that
 pub(super) struct Restated {
     /// Each dictionary written again, by its object: a font, or an encoding dictionary.
     pub(super) dictionaries: BTreeMap<ObjectId, Dictionary>,
+    /// Each damaged `/ToUnicode` stream written again as read, by its own object.
+    pub(super) streams: BTreeMap<ObjectId, Object>,
     /// For the report, one line per entry restated.
     pub(super) entries: Vec<String>,
 }
@@ -80,6 +91,7 @@ pub(super) fn restated(document: &Document) -> Result<Restated, Because> {
         {
             continue;
         }
+        restate_damaged_map(document, id, &font, &mut restated)?;
         let mut written = font.clone();
         let mut lines = Vec::new();
         if let Some(stated) = font.get("ToUnicode")
@@ -143,6 +155,48 @@ pub(super) fn restated(document: &Document) -> Result<Restated, Because> {
     // Every font naming a restated encoding dictionary is a font of this loop, so each was proved
     // drawing alike with it.
     Ok(restated)
+}
+
+/// A font's `/ToUnicode` stream this reader read past entries of, written again as read at its own
+/// object ([`to_unicode`]); a stream two fonts name is written once, its reading being the
+/// stream's own.
+///
+/// # Errors
+///
+/// [`to_unicode::NOT_WRITTEN`] where the map's data does not decode or the rewrite is not proved.
+fn restate_damaged_map(
+    document: &Document,
+    id: ObjectId,
+    font: &Dictionary,
+    restated: &mut Restated,
+) -> Result<(), Because> {
+    let refused = Because::NotBuiltYet(to_unicode::NOT_WRITTEN);
+    let Some(at) = font.get("ToUnicode").and_then(Object::as_reference) else {
+        return Ok(());
+    };
+    let Object::Stream(stream) = document.get(at) else {
+        return Ok(());
+    };
+    if restated.streams.contains_key(&at) {
+        return Ok(());
+    }
+    let read = pdf_font::to_unicode(document, font);
+    if !read.damaged() {
+        return Ok(());
+    }
+    let data = document.decoded_stream_data(&stream).ok_or(refused)?;
+    let written = to_unicode::written(&stream, &data, &read).map_err(Because::NotBuiltYet)?;
+    let mut line = format!(
+        "object {} {}: ToUnicode object {} {} written as read, {} entries read past dropped",
+        id.number, id.generation, at.number, at.generation, written.dropped_count
+    );
+    for dropped in &written.dropped {
+        line.push_str("; ");
+        line.push_str(dropped);
+    }
+    restated.entries.push(line);
+    restated.streams.insert(at, written.stream);
+    Ok(())
 }
 
 /// An encoding dictionary as this reader read it, and the line that says what changed; `None`

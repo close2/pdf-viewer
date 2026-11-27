@@ -435,7 +435,9 @@ fn prove(before: &[u8], after: &[u8]) -> Result<(), &'static str> {
     for mapping in new.mappings() {
         let states_one = match mapping {
             Mapping::Single { text, .. } => text.chars().any(|c| UNUSABLE.contains(&c)),
-            Mapping::Span { low, high, first } => UNUSABLE.iter().any(|c| {
+            Mapping::Span {
+                low, high, first, ..
+            } => UNUSABLE.iter().any(|c| {
                 let value = u32::from(*c);
                 value >= first && value <= first.saturating_add(high.saturating_sub(low))
             }),

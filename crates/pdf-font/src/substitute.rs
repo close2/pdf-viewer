@@ -398,7 +398,9 @@ impl Collection {
                             values.push(u32::from(only));
                         }
                     }
-                    crate::tounicode::Mapping::Span { low, high, first } => {
+                    crate::tounicode::Mapping::Span {
+                        low, high, first, ..
+                    } => {
                         let end = first.saturating_add(high.saturating_sub(low));
                         values
                             .extend((first..=end).filter(|value| char::from_u32(*value).is_some()));

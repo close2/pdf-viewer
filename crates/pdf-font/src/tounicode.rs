@@ -51,6 +51,8 @@ pub enum Mapping<'a> {
     Single {
         /// The character code.
         code: u32,
+        /// How many bytes the code was written in (§9.7.6.2: `<01>` and `<0001>` are two codes).
+        length: u8,
         /// The text the code stands for.
         text: &'a str,
     },
@@ -62,6 +64,8 @@ pub enum Mapping<'a> {
         high: u32,
         /// The scalar value `low` stands for; each later code stands for the next one.
         first: u32,
+        /// How many bytes the span's codes were written in.
+        length: u8,
     },
 }
 
@@ -84,6 +88,12 @@ const MAX_SINGLES: usize = 1 << 16;
 /// which is 81% of this bound. Nothing is cut today; what would happen if a later edition of
 /// those files crossed it is now said rather than silent (ADR 0971).
 const MAX_RANGES: usize = 1 << 14;
+
+/// Bounds the descriptions [`ToUnicode::unread`] keeps of the entries a map read past.
+///
+/// A report names the entries a restatement drops, and a map whose every entry is damaged would
+/// otherwise make the report as long as the map; the count past the bound is kept whole.
+pub const MAX_UNREAD_KEPT: usize = 64;
 
 /// What [`ToUnicode::truncated`] answers when `MAX_SINGLES` dropped a mapping.
 ///
@@ -171,6 +181,11 @@ pub struct ToUnicode {
     /// Whether the map departs from §9.10.3's grammar: a section left open at the end of the
     /// stream, or an entry whose operands do not read (ADR 3565).
     damaged: bool,
+    /// What [`Self::damaged`] read past, one description per entry, the first
+    /// [`MAX_UNREAD_KEPT`] of them; [`Self::unread_count`] counts them all.
+    unread: Vec<Box<str>>,
+    /// How many entries this map and its base read past.
+    unread_count: usize,
 }
 
 impl ToUnicode {
@@ -249,7 +264,9 @@ impl ToUnicode {
         }
         // A section the stream ends inside was never closed, which §9.10.3's `CMap` syntax
         // requires; the entries before the end are read all the same.
-        map.damaged |= section.is_some();
+        if section.is_some() {
+            map.read_past(|| "a section the stream ends inside".to_owned());
+        }
 
         // A `CMap` inherits what the one it builds on lost as well as what it holds: Table 118
         // makes the pair one statement in two files and [`Self::append`] reads it as one, so an
@@ -257,6 +274,12 @@ impl ToUnicode {
         // so that a file which cut on its own bound reports its own — [`Self::cut_by`] keeps the
         // first — which is the one a reader of *this* stream can act on.
         map.damaged |= map.base.as_ref().is_some_and(|base| base.damaged);
+        if let Some(base) = map.base.as_deref() {
+            let room = MAX_UNREAD_KEPT.saturating_sub(map.unread.len());
+            let inherited: Vec<Box<str>> = base.unread.iter().take(room).cloned().collect();
+            map.unread.extend(inherited);
+            map.unread_count = map.unread_count.saturating_add(base.unread_count);
+        }
         if let Some(bound) = map.base.as_ref().and_then(|base| base.truncated) {
             map.cut_by(bound);
         }
@@ -295,6 +318,30 @@ impl ToUnicode {
         self.damaged
     }
 
+    /// The entries [`Self::damaged`] read past, each as the file wrote it, the base's after this
+    /// map's own: the first [`MAX_UNREAD_KEPT`], for a report to name.
+    #[must_use]
+    pub fn unread(&self) -> &[Box<str>] {
+        &self.unread
+    }
+
+    /// How many entries this map and its base read past, the ones [`Self::unread`] names and
+    /// those past its bound.
+    #[must_use]
+    pub fn unread_count(&self) -> usize {
+        self.unread_count
+    }
+
+    /// Marks the map damaged by one entry it read past, keeping the entry's description while
+    /// there is room for it.
+    fn read_past(&mut self, entry: impl FnOnce() -> String) {
+        self.damaged = true;
+        self.unread_count = self.unread_count.saturating_add(1);
+        if self.unread.len() < MAX_UNREAD_KEPT {
+            self.unread.push(entry().into_boxed_str());
+        }
+    }
+
     /// Reads a `beginbfchar` section: pairs of source code and destination text.
     fn take_chars(&mut self, operands: &[Token<'_>]) {
         let mut index = 0usize;
@@ -302,14 +349,14 @@ impl ToUnicode {
             let (Some(Token::String(source)), Some(Token::String(target))) =
                 (operands.get(index), operands.get(index.saturating_add(1)))
             else {
-                self.damaged = true;
+                self.read_past(|| "a beginbfchar operand that is not a string".to_owned());
                 index = index.saturating_add(1);
                 continue;
             };
             if let (Some(code), Some(text)) = (code_of(source), text_of(target)) {
                 self.insert_single(code, text);
             } else {
-                self.damaged = true;
+                self.read_past(|| format!("beginbfchar {} {}", hex(source), hex(target)));
             }
             index = index.saturating_add(2);
         }
@@ -334,15 +381,17 @@ impl ToUnicode {
     fn take_ranges(&mut self, operands: &[Token<'_>]) {
         let mut index = 0usize;
         while index.saturating_add(2) < operands.len() {
-            let (Some(Token::String(low)), Some(Token::String(high))) =
+            let (Some(Token::String(low_bytes)), Some(Token::String(high_bytes))) =
                 (operands.get(index), operands.get(index.saturating_add(1)))
             else {
-                self.damaged = true;
+                self.read_past(|| "a beginbfrange operand that is not a string".to_owned());
                 index = index.saturating_add(1);
                 continue;
             };
-            let (Some((low, length)), Some((high, _))) = (code_of(low), code_of(high)) else {
-                self.damaged = true;
+            let source = || format!("beginbfrange {} {}", hex(low_bytes), hex(high_bytes));
+            let (Some((low, length)), Some((high, _))) = (code_of(low_bytes), code_of(high_bytes))
+            else {
+                self.read_past(|| format!("{}: a code not one to four bytes", source()));
                 index = index.saturating_add(2);
                 continue;
             };
@@ -354,22 +403,23 @@ impl ToUnicode {
                         // A `<hi>` below its `<lo>` states no span at all, which is the file
                         // being malformed rather than a bound of ours discarding anything —
                         // so it is dropped without a report, and only the bound reports.
-                        self.damaged |= low > high;
-                        if low <= high {
-                            if self.ranges.len() < MAX_RANGES {
-                                self.lengths |= 1 << length;
-                                self.ranges.push(Span {
-                                    low,
-                                    high,
-                                    first,
-                                    length,
-                                });
-                            } else {
-                                self.cut_by(CUT_BY_RANGES);
-                            }
+                        if low > high {
+                            self.read_past(|| {
+                                format!("{} {}: high below low", source(), hex(target))
+                            });
+                        } else if self.ranges.len() < MAX_RANGES {
+                            self.lengths |= 1 << length;
+                            self.ranges.push(Span {
+                                low,
+                                high,
+                                first,
+                                length,
+                            });
+                        } else {
+                            self.cut_by(CUT_BY_RANGES);
                         }
                     } else {
-                        self.take_sequence_range(low, high, length, target);
+                        self.take_sequence_range((low, high, length), &source(), target);
                     }
                     index = index.saturating_add(3);
                 }
@@ -389,7 +439,9 @@ impl ToUnicode {
                                 if let Some(text) = text_of(target) {
                                     self.insert_single((code, length), text);
                                 } else {
-                                    self.damaged = true;
+                                    self.read_past(|| {
+                                        format!("{} [{} at {code:X}]", source(), hex(target))
+                                    });
                                 }
                                 code = code.saturating_add(1);
                                 at = at.saturating_add(1);
@@ -404,7 +456,7 @@ impl ToUnicode {
                     index = at;
                 }
                 _ => {
-                    self.damaged = true;
+                    self.read_past(|| format!("{}: no destination", source()));
                     index = index.saturating_add(3);
                 }
             }
@@ -422,7 +474,9 @@ impl ToUnicode {
     /// clause bounds the last byte by "255 - ( srcCode2 - srcCode1 )" and calls a range past it
     /// undefined; the codes before the byte would pass 255 are mapped and the rest are not, so a
     /// range states at most 256 entries however wide its source codes are.
-    fn take_sequence_range(&mut self, low: u32, high: u32, length: u8, target: &[u8]) {
+    /// `source` is the entry's source codes as written, for [`Self::read_past`].
+    fn take_sequence_range(&mut self, codes: (u32, u32, u8), source: &str, target: &[u8]) {
+        let (low, high, length) = codes;
         let Some((&last, head)) = target.split_last() else {
             return;
         };
@@ -437,7 +491,13 @@ impl ToUnicode {
             if let Some(text) = text_of(&destination) {
                 self.insert_single((code, length), text);
             } else {
-                self.damaged = true;
+                self.read_past(|| {
+                    format!(
+                        "{source} {}: {} at {code:X}",
+                        hex(target),
+                        hex(&destination)
+                    )
+                });
             }
             if code >= high {
                 break;
@@ -568,11 +628,12 @@ impl ToUnicode {
         chain.into_iter().flat_map(|map| {
             map.singles
                 .iter()
-                .map(|(&(code, _), text)| Mapping::Single { code, text })
+                .map(|(&(code, length), text)| Mapping::Single { code, length, text })
                 .chain(map.ranges.iter().map(|span| Mapping::Span {
                     low: span.low,
                     high: span.high,
                     first: span.first,
+                    length: span.length,
                 }))
         })
     }
@@ -587,6 +648,21 @@ impl ToUnicode {
             && self.ranges.is_empty()
             && self.base.as_ref().is_none_or(|base| base.is_empty())
     }
+}
+
+/// A `CMap` string as the file's hexadecimal form, `<` and `>` included, for a report.
+fn hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len().saturating_mul(2).saturating_add(2));
+    out.push('<');
+    for byte in bytes {
+        for nibble in [byte >> 4, byte & 0x0F] {
+            out.push(
+                char::from_digit(u32::from(nibble), 16).map_or('?', |c| c.to_ascii_uppercase()),
+            );
+        }
+    }
+    out.push('>');
+    out
 }
 
 /// Reads a source code from a `CMap` hex string, which is one to four bytes big-endian: its
@@ -807,6 +883,34 @@ mod tests {
 
     /// A code may stand for several characters, which extraction must keep and
     /// substitution must decline.
+    /// The reader names each entry it read past as the file wrote it, so that a restatement of
+    /// the map can state what it drops; a base's entries come after the map's own.
+    #[test]
+    fn the_entries_read_past_are_named_as_written() {
+        let base = ToUnicode::parse(b"1 beginbfchar\n<09> <DC00>\nendbfchar\n");
+        let map = ToUnicode::parse_on(
+            b"2 beginbfchar\n<01> <0041>\n<02> <D800>\nendbfchar\n\
+              1 beginbfrange\n<05> <03> <0041>\nendbfrange\n",
+            Some(base),
+        );
+        assert_eq!(map.unread_count(), 3);
+        assert_eq!(
+            map.unread()
+                .iter()
+                .map(AsRef::as_ref)
+                .collect::<Vec<&str>>(),
+            [
+                "beginbfchar <02> <D800>",
+                "beginbfrange <05> <03> <0041>: high below low",
+                "beginbfchar <09> <DC00>",
+            ]
+        );
+        assert_eq!(
+            ToUnicode::parse(b"1 beginbfchar\n<01> <0041>\nendbfchar\n").unread_count(),
+            0
+        );
+    }
+
     #[test]
     fn multi_character_destinations_are_text_but_not_a_single_character() {
         let map = ToUnicode::parse(b"1 beginbfchar\n<0007> <00660066>\nendbfchar\n");
@@ -860,11 +964,16 @@ mod tests {
         assert_eq!(
             seen,
             vec![
-                Mapping::Single { code: 3, text: " " },
+                Mapping::Single {
+                    code: 3,
+                    length: 2,
+                    text: " "
+                },
                 Mapping::Span {
                     low: 0x10,
                     high: 0x12,
-                    first: 0x41
+                    first: 0x41,
+                    length: 2
                 },
             ]
         );
@@ -891,6 +1000,7 @@ mod tests {
             map.mappings().collect::<Vec<_>>(),
             vec![Mapping::Single {
                 code: 0x00A1_0001,
+                length: 4,
                 text: "A"
             }]
         );
@@ -905,8 +1015,16 @@ mod tests {
         assert_eq!(
             map.mappings().collect::<Vec<_>>(),
             vec![
-                Mapping::Single { code: 2, text: "Z" },
-                Mapping::Single { code: 9, text: "X" },
+                Mapping::Single {
+                    code: 2,
+                    length: 2,
+                    text: "Z"
+                },
+                Mapping::Single {
+                    code: 9,
+                    length: 2,
+                    text: "X"
+                },
             ]
         );
     }

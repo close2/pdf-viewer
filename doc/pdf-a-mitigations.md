@@ -330,8 +330,12 @@ of repairs · all six · **built in session 2217**, `discard` at `font-maps-as-r
   `/Differences` is written as the codes and names this reader assigned — each what the reader
   read, proved before writing by every single-byte code of a simple font drawing its outline at its
   advance as it drew. The producer's words at those places are the loss. A font the proof does not
-  hold for — a nonsymbolic TrueType font's unknown `/Encoding` name — keeps the refusal, by name; a
-  damaged `/ToUnicode` or encoding `CMap` is section 5.1's own and refused by the output's check.
+  hold for — a nonsymbolic TrueType font's unknown `/Encoding` name — keeps the refusal, by name.
+  A `/ToUnicode` `CMap` with entries that do not read is written again at its object from the
+  mappings this reader read, proved to answer every code alike at every width, its dropped entries
+  named in the report (ADR 3781); a map cut by one of this reader's bounds keeps the refusal. A
+  damaged encoding `CMap` selects glyphs, is section 5.1's own and refused by the output's check
+  (ADR 3782).
 - **By target** — none; both parts bind the base standard alike.
 - **From a configuration** — `[site."fonts/font-maps-read-as-written"]` with `remedy = "discard"`,
   which `as-shown` and `as-if-printed` carry; `state-every-loss` answers `try = ["append-statement",
