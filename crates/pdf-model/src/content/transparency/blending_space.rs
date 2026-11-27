@@ -14,10 +14,10 @@ use crate::page::Page;
 use crate::content::Interpreter;
 use crate::content::report::Unsupported;
 
-use super::TransparencyGroup;
 use super::commands::{any_command, command_composites};
 use super::into_parent::parent_channels;
 use super::press::{BeyondPress, stated_cmyk_group};
+use super::{TransparencyGroup, page_group_attributes};
 
 /// Names a colour space if compositing in it is not compositing on the device's components.
 ///
@@ -224,16 +224,9 @@ pub(in crate::content) fn page_own_space(
     presses: &Presses,
 ) -> Result<Option<Compositing>, NoPress> {
     let attributes = document.get_key(&page.dict, "Group");
-    let Some(attributes) = attributes.as_dict() else {
+    let Some(attributes) = page_group_attributes(document, &attributes, page) else {
         return Ok(None);
     };
-    if document
-        .get_key(attributes, "S")
-        .as_name()
-        .is_none_or(|name| name.as_bytes() != b"Transparency")
-    {
-        return Ok(None);
-    }
     let entry = document.get_key(attributes, "CS");
     own_space_compositing(document, &entry, &page.resources, presses)
 }
@@ -258,11 +251,7 @@ pub(in crate::content) fn page_blending_space(
     page: &Page,
 ) -> Option<Departure> {
     let attributes = document.get_key(&page.dict, "Group");
-    let attributes = attributes.as_dict()?;
-    // §8.10.3 Table 94's `/S`, the same required entry a form's group carries.
-    if document.get_key(attributes, "S").as_name()?.as_bytes() != b"Transparency" {
-        return None;
-    }
+    let attributes = page_group_attributes(document, &attributes, page)?;
     space_departure(document, &document.get_key(attributes, "CS"))
 }
 

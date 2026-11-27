@@ -340,6 +340,54 @@ fn a_form_with_resources_of_the_wrong_type_is_logged_at_the_content() {
     );
 }
 
+/// ISO 32000-2 §8.10.3: a form's `/Group` "shall be a subsidiary group attributes dictionary",
+/// whose `/S` Table 94 makes "(Required)". One that is no dictionary, or states no `/S`, is read
+/// as no group and logged at the content that invoked the form; one of another subtype is
+/// §11.6.6's ordinary form, and no repair.
+#[test]
+fn a_form_group_that_states_no_subtype_is_logged_at_the_content() {
+    let form = |group: &str| {
+        page_with_resources(
+            "/Fm0 Do",
+            "<< >>",
+            &format!("/BBox [0 0 1 1] /Group {group}"),
+        )
+    };
+    for unusable in ["7", "<< /I true >>", "<< /S 3 >>"] {
+        has(
+            &form(unusable),
+            &repair::GROUP_ATTRIBUTES_UNUSABLE,
+            Site::Content(Some(PAGE)),
+        );
+    }
+    assert_eq!(logged(&form("<< /S /Transparency /I true >>")), []);
+    assert_eq!(logged(&form("<< /S /Other >>")), []);
+    assert_eq!(logged(&form("null")), []);
+}
+
+/// Table 31's page `/Group` is the same group attributes dictionary (§8.10.3), so a page whose
+/// `/Group` states no subtype is read as stating no group, and logged at the page object.
+#[test]
+fn a_page_group_that_states_no_subtype_is_logged_at_the_page() {
+    has(
+        &page("0 0 m 1 1 l S", "/Group << /CS /DeviceRGB >>"),
+        &repair::GROUP_ATTRIBUTES_UNUSABLE,
+        Site::Object(PAGE),
+    );
+    has(
+        &page("0 0 m 1 1 l S", "/Group /Transparency"),
+        &repair::GROUP_ATTRIBUTES_UNUSABLE,
+        Site::Object(PAGE),
+    );
+    assert_eq!(
+        logged(&page(
+            "0 0 m 1 1 l S",
+            "/Group << /S /Transparency /CS /DeviceRGB >>"
+        )),
+        []
+    );
+}
+
 /// ISO 32000-2 §11.3.7.2: "All of the shape and opacity inputs shall have values in the range
 /// 0.0 to 1.0 (inclusive)". A `/CA` of 2 is read as 1, and logged.
 #[test]

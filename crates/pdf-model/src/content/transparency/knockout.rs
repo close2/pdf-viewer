@@ -9,7 +9,6 @@ use crate::page::Page;
 
 use crate::content::KnockoutKind;
 
-use super::TransparencyGroup;
 use super::commands::{any_command, command_blends, command_bounds, command_composites};
 use super::implicit_knockout::{
     OneColour, blend_at_the_do, is_a_non_isolated_group, transparent_knockout_elements,
@@ -18,6 +17,7 @@ use super::implicit_knockout::{
 use super::into_parent::blending_paired;
 use super::readings::AlphaSource;
 use super::shape::{element_shape_is_coverage, knockout_shape_is_coverage, stated_shape};
+use super::{TransparencyGroup, page_group_attributes};
 
 /// Whether the page group is a knockout group (ISO 32000-2 §11.4.7, Table 145's `/K`).
 ///
@@ -33,15 +33,9 @@ use super::shape::{element_shape_is_coverage, knockout_shape_is_coverage, stated
 /// overlaps an earlier one (ADR 3390).
 pub(in crate::content) fn page_knockout(document: &Document, page: &Page) -> bool {
     let attributes = document.get_key(&page.dict, "Group");
-    let Some(attributes) = attributes.as_dict() else {
-        return false;
-    };
-    // §8.10.3 Table 94's `/S`, as `page_blending_space` reads it.
-    document
-        .get_key(attributes, "S")
-        .as_name()
-        .is_some_and(|subtype| subtype.as_bytes() == b"Transparency")
-        && matches!(document.get_key(attributes, "K"), Object::Boolean(true))
+    page_group_attributes(document, &attributes, page).is_some_and(|attributes| {
+        matches!(document.get_key(attributes, "K"), Object::Boolean(true))
+    })
 }
 
 /// A knockout group's elements, each carrying the shape it knocks out with (§11.4.6).

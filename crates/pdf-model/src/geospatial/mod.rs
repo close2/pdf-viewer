@@ -21,15 +21,14 @@
 //! - [`Ellipsoid`] is Guidance Note 7-2 section 1.1's shared quantities, and section 4.1.1's
 //!   conversion to and from earth-centred coordinates.
 //!
-//! # The fork the census decided
+//! # The registry this tree does not carry
 //!
 //! Table 270 lets a file name its system by `/EPSG` or by `/WKT`, and the first needs the IOGP's
-//! registry carried into this tree while the second carries every parameter inline. The census
-//! over the crawl (`examples/geospatial_census.rs`, ADR 1586) found that every system dictionary
-//! stating `/EPSG` states `/WKT` beside it — not one document of the crawl or the corpora names a
-//! system by code alone — so **no registry is carried**: a dictionary that states only a code is
-//! refused by that code ([`Refusal::EpsgWithoutWkt`]), and one that states both is read from its
-//! WKT.
+//! registry carried into this tree while the second carries every parameter inline. **No registry
+//! is carried**: a dictionary that states only a code is refused by that code
+//! ([`Refusal::EpsgWithoutWkt`]), and one that states both is read from its WKT. That refusal is a
+//! gap §12.10.3 owes, not a reading of it; ADR 3798 prices the registry and `doc/questions/Q1095`
+//! asks the owner about its licence.
 //!
 //! # What is not done, and why it is the clause's line
 //!
@@ -211,6 +210,9 @@ pub enum Displayed {
         northing: f64,
         /// The unit both are counted in, as the system's string names it.
         unit: String,
+        /// Metres per that unit, which is what lets a host write the position in the linear
+        /// unit Table 269's `/PDU` prefers instead.
+        metres_per_unit: f64,
     },
 }
 
@@ -434,6 +436,7 @@ impl Geospatial {
                     easting,
                     northing,
                     unit: projected.linear_unit_name,
+                    metres_per_unit: projected.linear_unit,
                 }
             }
         })
@@ -814,12 +817,14 @@ mod tests {
             easting,
             northing,
             unit,
+            metres_per_unit,
         }) = geospatial.display(on_the_meridian)
         else {
             panic!("an easting and a northing");
         };
         assert!((easting - 500_000.0).abs() < 1e-6 && northing.abs() < 1e-6);
         assert_eq!(unit, "Meter");
+        assert!((metres_per_unit - 1.0).abs() < f64::EPSILON);
         // Off the meridian, the display system's own inverse returns the position given.
         let munich = GeographicPosition {
             latitude: 48.137,

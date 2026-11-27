@@ -642,6 +642,12 @@ const A_FORM_DICTIONARY: &str = "an entry of the form XObject a Do names (Table 
      the interpreter invokes it: its Matrix, BBox and Resources are facts about that object, which \
      no token states";
 
+/// Why the class of a group attributes dictionary is the interpreter's.
+const A_GROUP_ATTRIBUTES_DICTIONARY: &str = "the group attributes dictionary of the form XObject a \
+     Do names, of an annotation's appearance, or of the page (Table 94), read where the \
+     interpreter composites the group: whether it states one is a fact about that object, which no \
+     token states";
+
 /// Every class of repair `pdf_model`'s content reader and interpreter and `pdf_syntax`'s lexer log
 /// inside content, and who reads it (ADR 3630).
 ///
@@ -732,6 +738,10 @@ pub static COVERAGE: &[(&RepairClass, Reading)] = &[
     (
         &repair::FORM_RESOURCES_NOT_A_DICTIONARY,
         Reading::Interpreter(A_FORM_DICTIONARY),
+    ),
+    (
+        &repair::GROUP_ATTRIBUTES_UNUSABLE,
+        Reading::Interpreter(A_GROUP_ATTRIBUTES_DICTIONARY),
     ),
 ];
 

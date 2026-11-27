@@ -189,17 +189,131 @@ pub fn grid(easting: f64, northing: f64, unit: &str) -> String {
     format!("easting {easting:.2} {unit}, northing {northing:.2} {unit}")
 }
 
+/// Table 269's `/PDU` names for a linear display unit, each with its length in metres and the
+/// symbol this program writes after a value in it.
+///
+/// The lengths are the units' own definitions rather than conversions: the international foot is
+/// 0.3048 m exactly and the international mile 5280 of them, 1609.344 m (the international yard
+/// and pound agreement of 1959); the U.S. survey foot is 1200/3937 m (the Mendenhall order of
+/// 1893); the international nautical mile is 1852 m (International Hydrographic Conference, 1929).
+const LINEAR_UNITS: [(&str, f64, &str); 6] = [
+    ("M", 1.0, "m"),
+    ("KM", 1000.0, "km"),
+    ("FT", 0.3048, "ft"),
+    ("USFT", 1200.0 / 3937.0, "US survey ft"),
+    ("MI", 1609.344, "mi"),
+    ("NM", 1852.0, "nmi"),
+];
+
+/// Table 269's two angular display units: `DEG`, "a degree", and `GRD`, "a grad (1/400 of a
+/// circle, or 0.9 degrees)".
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Angular {
+    Degree,
+    Grad,
+}
+
+/// A latitude and a longitude in the angular unit `/PDU` names (Table 269), written as
+/// [`degrees`] writes them: to six places, the hemisphere's letter rather than a sign.
+///
+/// Six places of a grad are finer than six of a degree, so the reason [`degrees`] gives for six
+/// holds for both units the table lists.
+#[must_use]
+pub fn grads(latitude: f64, longitude: f64) -> String {
+    let north = if latitude < 0.0 { 'S' } else { 'N' };
+    let east = if longitude < 0.0 { 'W' } else { 'E' };
+    format!(
+        "{:.6} grad {north}, {:.6} grad {east}",
+        (latitude / 0.9).abs(),
+        (longitude / 0.9).abs()
+    )
+}
+
+/// An easting and a northing in the linear unit `/PDU` names (Table 269), converted from the
+/// display system's own through each unit's length in metres.
+///
+/// As many places as keep a centimetre on the ground, the resolution [`grid`] gives the system's
+/// own metre: two of a metre or a foot, five of a kilometre, six of a mile.
+fn grid_in(
+    easting: f64,
+    northing: f64,
+    metres_per_unit: f64,
+    (metres, symbol): (f64, &str),
+) -> String {
+    let scale = metres_per_unit / metres;
+    let places = centimetre_places(metres);
+    format!(
+        "easting {:.places$} {symbol}, northing {:.places$} {symbol}",
+        easting * scale,
+        northing * scale
+    )
+}
+
+/// The decimal places at which a value in a unit of `metres` resolves one centimetre.
+fn centimetre_places(metres: f64) -> usize {
+    let mut places: usize = 0;
+    let mut step = metres;
+    while step > 0.01 + f64::EPSILON && places < 9 {
+        step /= 10.0;
+        places = places.saturating_add(1);
+    }
+    places
+}
+
+/// What `/PDU` prefers, read against Table 269's lists: the linear and the angular unit where each
+/// is one the table lists, and the name of each the table does not list, which the sentence says.
+///
+/// The area unit is not read, because nothing this sentence writes is an area: the geospatial
+/// reading gives positions, and no area on the earth is computed from a traced path.
+struct Preferred<'a> {
+    linear: Option<(f64, &'static str)>,
+    angular: Angular,
+    unlisted: Vec<&'a str>,
+}
+
+impl<'a> Preferred<'a> {
+    fn of(units: Option<&'a [String; 3]>) -> Self {
+        let mut preferred = Preferred {
+            linear: None,
+            angular: Angular::Degree,
+            unlisted: Vec::new(),
+        };
+        let Some([linear, _, angular]) = units else {
+            return preferred;
+        };
+        match LINEAR_UNITS.iter().find(|(name, ..)| name == linear) {
+            Some(&(_, metres, symbol)) => preferred.linear = Some((metres, symbol)),
+            None => preferred.unlisted.push(linear),
+        }
+        match angular.as_str() {
+            "DEG" => {}
+            "GRD" => preferred.angular = Angular::Grad,
+            _ => preferred.unlisted.push(angular),
+        }
+        preferred
+    }
+
+    fn position(&self, latitude: f64, longitude: f64) -> String {
+        match self.angular {
+            Angular::Degree => degrees(latitude, longitude),
+            Angular::Grad => grads(latitude, longitude),
+        }
+    }
+}
+
 /// What a window says about a geospatial viewport: the system, the registration, the neatline,
 /// and where the last point is on the earth.
 ///
 /// The position is `viewer_core`'s reading (ADR 1593) and the wording is here: the file's own
 /// system first, `/DCS`'s beside it where the file names one — in degrees, or as an easting and a
-/// northing where it is projected (ADR 1678) — how far the registration departs
+/// northing where it is projected (ADR 1678), each in the unit `/PDU` prefers where it names one
+/// (ADR 3799) — how far the registration departs
 /// from the map the position was read through where it departs at all, and a refusal's sentence
 /// where no position is given.
 fn geospatial_sentence(geospatial: &Geographic, located: Option<&Located>) -> String {
     use std::fmt::Write as _;
 
+    let preferred = Preferred::of(geospatial.units.as_ref());
     let mut said = String::from("geospatial");
     if let Some(system) = &geospatial.system {
         if let Some(epsg) = system.epsg {
@@ -225,25 +339,26 @@ fn geospatial_sentence(geospatial: &Geographic, located: Option<&Located>) -> St
             display,
             departure,
         }) => {
-            let _ = write!(said, " — {}", degrees(*latitude, *longitude));
+            let _ = write!(said, " — {}", preferred.position(*latitude, *longitude));
             match display {
                 Some(Ok(Displayed::Geographic(shown))) => {
                     let _ = write!(
                         said,
                         ", displayed in /DCS as {}",
-                        degrees(shown.latitude, shown.longitude)
+                        preferred.position(shown.latitude, shown.longitude)
                     );
                 }
                 Some(Ok(Displayed::Projected {
                     easting,
                     northing,
                     unit,
+                    metres_per_unit,
                 })) => {
-                    let _ = write!(
-                        said,
-                        ", displayed in /DCS as {}",
-                        grid(*easting, *northing, unit)
-                    );
+                    let shown = match preferred.linear {
+                        Some(linear) => grid_in(*easting, *northing, *metres_per_unit, linear),
+                        None => grid(*easting, *northing, unit),
+                    };
+                    let _ = write!(said, ", displayed in /DCS as {shown}");
                 }
                 Some(Err(why)) => {
                     let _ = write!(said, "; not in /DCS: {why}");
@@ -262,6 +377,9 @@ fn geospatial_sentence(geospatial: &Geographic, located: Option<&Located>) -> St
             let _ = write!(said, " — no position: {why}");
         }
         None => {}
+    }
+    for name in &preferred.unlisted {
+        let _ = write!(said, " (/PDU names {name}, a unit Table 269 does not list)");
     }
     said
 }
@@ -427,11 +545,101 @@ mod tests {
             easting: 500_000.0,
             northing: 5_260_729.733,
             unit: "Meter".to_owned(),
+            metres_per_unit: 1.0,
         });
         assert_eq!(
             said(1, Some(&traced), Some(&projected)),
             "geospatial, 4 registration point(s) — 47.500000° N, 9.000000° E, displayed in /DCS \
              as easting 500000.00 Meter, northing 5260729.73 Meter"
+        );
+    }
+
+    /// A geospatial path whose `/PDU` is `units`, located at 47.5° N, 9° E and displayed as
+    /// `display`.
+    fn preferring(units: [&str; 3], display: Option<pdf_model::geospatial::Displayed>) -> String {
+        let traced = Traced {
+            geospatial: Some(Geographic {
+                registration: 4,
+                within_bounds: true,
+                units: Some(units.map(str::to_owned)),
+                ..Geographic::default()
+            }),
+            ..Traced::default()
+        };
+        let located = Located::At {
+            latitude: 47.5,
+            longitude: 9.0,
+            display: display.map(Ok),
+            departure: 0.0,
+        };
+        said(1, Some(&traced), Some(&located))
+    }
+
+    /// Table 269's linear display units applied to a projected `/DCS` position: 500 000 m is
+    /// 500 km, and 500 000 × 3937 / 1200 = 1 640 416.666… U.S. survey feet; and the other way,
+    /// 1 640 416.6667 U.S. survey feet of a system counted in them is 500 000.00 m.
+    #[test]
+    fn the_preferred_linear_unit_writes_a_grid_position() {
+        use pdf_model::geospatial::Displayed;
+        let metres = || {
+            Some(Displayed::Projected {
+                easting: 500_000.0,
+                northing: 0.0,
+                unit: "Meter".to_owned(),
+                metres_per_unit: 1.0,
+            })
+        };
+        assert!(
+            preferring(["KM", "SQKM", "DEG"], metres())
+                .ends_with("as easting 500.00000 km, northing 0.00000 km"),
+            "{}",
+            preferring(["KM", "SQKM", "DEG"], metres())
+        );
+        assert!(
+            preferring(["USFT", "SQFT", "DEG"], metres())
+                .ends_with("as easting 1640416.67 US survey ft, northing 0.00 US survey ft")
+        );
+        let feet = Some(Displayed::Projected {
+            easting: 1_640_416.666_7,
+            northing: 0.0,
+            unit: "US survey foot".to_owned(),
+            metres_per_unit: 1200.0 / 3937.0,
+        });
+        assert!(
+            preferring(["M", "SQM", "DEG"], feet)
+                .ends_with("as easting 500000.00 m, northing 0.00 m")
+        );
+    }
+
+    /// Table 269's angular display unit applied to every position the sentence writes: a grad is
+    /// 0.9°, so 47.5° is 52.777778 grad and 9° is 10 grad.
+    #[test]
+    fn the_preferred_angular_unit_writes_a_position() {
+        use pdf_model::geospatial::{Displayed, GeographicPosition};
+        let shown = Some(Displayed::Geographic(GeographicPosition {
+            latitude: -47.5,
+            longitude: 9.0,
+        }));
+        assert_eq!(
+            preferring(["M", "SQM", "GRD"], shown),
+            "geospatial, 4 registration point(s) — 52.777778 grad N, 10.000000 grad E, displayed \
+             in /DCS as 52.777778 grad S, 10.000000 grad E"
+        );
+        assert!(preferring(["M", "SQM", "DEG"], None).ends_with("47.500000° N, 9.000000° E"));
+    }
+
+    /// Nothing the geospatial sentence writes is an area, so `/PDU`'s area unit changes no word of
+    /// it; and a name none of Table 269's three lists holds is said rather than dropped.
+    #[test]
+    fn the_area_unit_has_nothing_to_apply_to_and_an_unlisted_unit_is_said() {
+        assert_eq!(
+            preferring(["M", "HA", "DEG"], None),
+            preferring(["M", "SQMI", "DEG"], None)
+        );
+        assert_eq!(
+            preferring(["YD", "SQM", "RAD"], None),
+            "geospatial, 4 registration point(s) — 47.500000° N, 9.000000° E (/PDU names YD, a \
+             unit Table 269 does not list) (/PDU names RAD, a unit Table 269 does not list)"
         );
     }
 

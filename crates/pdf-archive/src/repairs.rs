@@ -195,6 +195,7 @@ pub static MAPPING: &[Mapped] = &[
     base("model/form-matrix-malformed"),
     base("model/form-bbox-unusable"),
     base("model/form-resources-not-a-dictionary"),
+    base("model/group-attributes-unusable"),
     base("model/catalog-display-entry-unusable"),
     base("model/viewer-preference-unusable"),
     base("model/action-entry-unusable"),

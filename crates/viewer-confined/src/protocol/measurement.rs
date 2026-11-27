@@ -90,8 +90,14 @@ pub(super) fn encode_located(writer: &mut Writer, located: Option<&viewer_core::
                     easting,
                     northing,
                     unit,
+                    metres_per_unit,
                 })) => {
-                    writer.u8(3).f64(*easting).f64(*northing).str(unit);
+                    writer
+                        .u8(3)
+                        .f64(*easting)
+                        .f64(*northing)
+                        .str(unit)
+                        .f64(*metres_per_unit);
                 }
             }
             writer.f64(*departure);
@@ -123,6 +129,7 @@ pub(super) fn decode_located(
                     easting: reader.f64("a displayed easting")?,
                     northing: reader.f64("a displayed northing")?,
                     unit: reader.string("a display system's linear unit")?,
+                    metres_per_unit: reader.f64("metres per a display system's linear unit")?,
                 })),
                 other => {
                     return Err(ProtocolError::Unrecognised {

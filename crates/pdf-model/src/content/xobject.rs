@@ -257,6 +257,9 @@ impl Interpreter<'_> {
             .as_dict()
             .cloned()
             .unwrap_or_else(|| self.page_resources.as_ref().clone());
+        // Read before the stream below becomes the form's, so that a `/Group` stating no subtype
+        // is logged where `/Resources` is: at the content that invoked the form.
+        let group = self.transparency_group(&stream.dict);
 
         // §8.7.2: a pattern's matrix maps pattern space to "the default coordinate system of
         // the pattern's parent content stream", and the clause says what that means here:
@@ -290,7 +293,7 @@ impl Interpreter<'_> {
         // own.
         let outer_structure = self.enter_stream_structure(named, &stream.dict);
         self.enter_ledger_frame(super::ledger::Route::Form, named);
-        match self.transparency_group(&stream.dict) {
+        match group {
             None => self.run(&data, &form_resources, &inner),
             Some(group) => {
                 self.run_transparency_group(&group, &data, &form_resources, &inner, state);

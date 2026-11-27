@@ -359,6 +359,7 @@ fn a_projected_display_system_is_answered_as_its_easting_and_northing() {
                         easting,
                         northing,
                         unit,
+                        ..
                     })),
                 ..
             }),

@@ -398,6 +398,99 @@ fn a_highlighted_rectangle_is_measured_from_the_page_corner_and_crosses_as_a_qua
     }
 }
 
+/// One page, `/MediaBox [0 0 200 100]` turned by `/Rotate 90`, written with a cross-reference
+/// table whose offsets are counted here.
+fn rotated_page() -> Vec<u8> {
+    /// The four objects and the free entry 0 that heads every cross-reference table.
+    const SIZE: usize = 5;
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Rotate 90 /Resources << >> \
+         /Contents 4 0 R >>",
+        "<< /Length 0 >>\nstream\n\nendstream",
+    ];
+    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (number, object) in (1..).zip(objects) {
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(format!("{number} 0 obj\n{object}\nendobj\n").as_bytes());
+    }
+    let table = bytes.len();
+    bytes.extend_from_slice(format!("xref\n0 {SIZE}\n0000000000 65535 f \n").as_bytes());
+    for offset in offsets {
+        bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    bytes.extend_from_slice(
+        format!("trailer\n<< /Size {SIZE} /Root 1 0 R >>\nstartxref\n{table}\n%%EOF\n").as_bytes(),
+    );
+    bytes
+}
+
+/// On a page with `/Rotate`, Annex O's corner is default user space's, not the one the turned
+/// page shows at its top left (ADR 3800). §O.2.2 has "\[a]ll coordinate values ( left , right ,
+/// top , and bottom ) shall be expressed in the default user space coordinate system", and Table
+/// 31's `/Rotate` turns the page "when displayed or printed" without changing that system — so
+/// "the top left corner of the page" is the corner of least x and greatest y, (0, 100) here.
+///
+/// **The expected pixels are derived.** Turned 90° clockwise, a point (x, y) of this page shows
+/// at (y, x) points from the turned page's top-left corner, so `highlight=0,10,0,10` — x 0 to 10,
+/// y 90 to 100 — shows 90 to 100 points across and 0 to 10 down: the turned page's top *right*.
+/// Measured from the corner the turned page shows instead, it would be the top left.
+#[test]
+fn on_a_rotated_page_the_corner_is_default_user_spaces() {
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: rotated_page().into(),
+            password: None,
+            fragment: Some("highlight=0,10,0,10".to_owned()),
+        })
+        .collect();
+    settle(&mut viewer, &events);
+    let geometry = geometry(&viewer, 0);
+    assert!(
+        (geometry.page.width - 100.0).abs() < 0.01 && (geometry.page.height - 200.0).abs() < 0.01,
+        "the turned page is 100 wide and 200 tall: {:?}",
+        geometry.page
+    );
+    let Answer::Highlighted(quads) = viewer.query(Query::Highlight) else {
+        panic!("a fragment that named a rectangle has one to answer with");
+    };
+    let [quad] = quads.as_slice() else {
+        panic!("one rectangle was named: {quads:?}");
+    };
+    let scale = geometry.scale;
+    let xs = [quad[0], quad[2], quad[4], quad[6]];
+    let ys = [quad[1], quad[3], quad[5], quad[7]];
+    let span = |values: [f32; 4]| {
+        values
+            .iter()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(low, high), &value| {
+                (low.min(value), high.max(value))
+            })
+    };
+    let (left, right) = span(xs);
+    let (top, bottom) = span(ys);
+    let expected = (
+        geometry.origin.0 + 90.0 * scale,
+        geometry.origin.0 + 100.0 * scale,
+        geometry.origin.1,
+        geometry.origin.1 + 10.0 * scale,
+    );
+    for (got, want) in [left, right, top, bottom]
+        .into_iter()
+        .zip([expected.0, expected.1, expected.2, expected.3])
+    {
+        assert!(
+            (got - want).abs() < 0.5,
+            "{quad:?} spans {:?} against {expected:?} at scale {scale}",
+            (left, right, top, bottom)
+        );
+    }
+}
+
 /// The rectangle belongs to the page the fragment had selected when it named it.
 ///
 /// Every row of Table Annex O.4 measures "from the top left corner of the page", and §O.2 makes

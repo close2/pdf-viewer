@@ -69,7 +69,7 @@
   "code": "doc/conformance/ledger.toml rows 12.10.3 and 12.10.4; crates/pdf-model/src/geospatial/system.rs (the refusal); doc/adr/1586",
   "change": "Re-argue the status: either carry the EPSG parameters of the methods geospatial/projection.rs already evaluates (a question to the owner, a registry being data at startup), or record the refusal as a departure with its cost and set the row departed/partial.",
   "execution": "read only",
-  "status": "open"
+  "status": "fixed"
  },
  {
   "id": "2271-D02",
@@ -82,6 +82,6 @@
   "code": "crates/pdf-model/src/measurement.rs:634 and :1514; crates/viewer-confined/src/protocol/measurement.rs:26; crates/viewer-host/src/measuring.rs:200 (geospatial_sentence uses no units)",
   "change": "Say in the row that /PDU is read and carried and not applied, as a choice; or apply its angular unit to the degrees the sentence writes.",
   "execution": "read only",
-  "status": "open"
+  "status": "fixed"
  }
 ]

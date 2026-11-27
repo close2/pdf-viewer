@@ -12,7 +12,7 @@ use crate::page::Page;
 use crate::content::Interpreter;
 use crate::content::colour::output_intent_space;
 
-use super::TransparencyGroup;
+use super::{TransparencyGroup, page_group_attributes};
 
 /// What §11.4.7's page group asks a page to composite in.
 #[derive(Debug, Clone)]
@@ -77,17 +77,9 @@ pub(in crate::content) fn page_press(
     presses: &Presses,
 ) -> PagePress {
     let attributes = document.get_key(&page.dict, "Group");
-    let Some(attributes) = attributes.as_dict() else {
+    let Some(attributes) = page_group_attributes(document, &attributes, page) else {
         return PagePress::Device;
     };
-    // §8.10.3 Table 94's `/S`, as [`page_blending_space`] reads it.
-    if document
-        .get_key(attributes, "S")
-        .as_name()
-        .is_none_or(|name| name.as_bytes() != b"Transparency")
-    {
-        return PagePress::Device;
-    }
     let entry = document.get_key(attributes, "CS");
     // §14.11.5's array is resolved here, where the page is, rather than inside `named_press`:
     // the clause puts one in a page dictionary as well as in the catalog and makes the page's
@@ -203,15 +195,7 @@ fn may_state_four_components(document: &Document, entry: &Object) -> bool {
 /// state one.
 pub(in crate::content) fn page_cmyk_group(document: &Document, page: &Page) -> Option<ColourSpace> {
     let attributes = document.get_key(&page.dict, "Group");
-    let attributes = attributes.as_dict()?;
-    // §8.10.3 Table 94's `/S`, as [`page_blending_space`] reads it.
-    if document
-        .get_key(attributes, "S")
-        .as_name()
-        .is_none_or(|name| name.as_bytes() != b"Transparency")
-    {
-        return None;
-    }
+    let attributes = page_group_attributes(document, &attributes, page)?;
     let entry = document.get_key(attributes, "CS");
     stated_cmyk_group(document, &entry, &page.resources, |entry| {
         ColourSpace::parse(document, entry, &Dictionary::new())

@@ -48,6 +48,56 @@ pub(super) use readings::unseal_list;
 pub(super) use shape::group_alpha_is_shape;
 pub(super) use transfer::Painted;
 
+/// The transparency group attributes dictionary a `/Group` entry states (ISO 32000-2 §8.10.3,
+/// §11.6.6), or `None` where it states none.
+///
+/// `None` without a repair for an absent entry, which Table 93 and Table 31 make optional, and
+/// for a group of another subtype, which §11.6.6 makes the same case:
+///
+/// > An ordinary form XObject -one having no Group entry -or having a Group entry with a
+/// > subtype other than Transparency -shall not be subject to any grouping behaviour for
+/// > transparency purposes.
+///
+/// `None` with `model/group-attributes-unusable` logged `at` for an entry that is no dictionary
+/// — §8.10.3 has "\[t]he value of this entry shall be a subsidiary group attributes dictionary" —
+/// and for a dictionary whose `/S`, "(Required)" in Table 94, is absent or no name: either states
+/// no subtype, so no group is read from it.
+pub(in crate::content) fn transparency_attributes<'a>(
+    document: &pdf_syntax::Document,
+    group: &'a Object,
+    at: pdf_syntax::Site,
+) -> Option<&'a Dictionary> {
+    if matches!(group, Object::Null) {
+        return None;
+    }
+    let Some(attributes) = group.as_dict() else {
+        document.record_repair(&crate::repair::GROUP_ATTRIBUTES_UNUSABLE, at);
+        return None;
+    };
+    // `/Transparency` is the only subtype the specification defines.
+    match document.get_key(attributes, "S").as_name() {
+        Some(subtype) if subtype.as_bytes() == b"Transparency" => Some(attributes),
+        Some(_) => None,
+        None => {
+            document.record_repair(&crate::repair::GROUP_ATTRIBUTES_UNUSABLE, at);
+            None
+        }
+    }
+}
+
+/// [`transparency_attributes`] of a page's own `/Group` (Table 31), logged at the page object
+/// as the page tree's entries are.
+pub(in crate::content) fn page_group_attributes<'a>(
+    document: &pdf_syntax::Document,
+    group: &'a Object,
+    page: &crate::page::Page,
+) -> Option<&'a Dictionary> {
+    let at = page
+        .id
+        .map_or(pdf_syntax::Site::WholeFile, pdf_syntax::Site::Object);
+    transparency_attributes(document, group, at)
+}
+
 /// A group's run once its content has been read: what [`Interpreter::composite_group`] takes.
 pub(super) struct ClosedGroup<'d> {
     /// The group's elements.
@@ -461,15 +511,12 @@ impl<'a> Interpreter<'a> {
     /// > An ordinary form XObject -one having no Group entry -or having a Group entry with a
     /// > subtype other than Transparency -shall not be subject to any grouping behaviour for
     /// > transparency purposes.
+    ///
+    /// A `/Group` that states no subtype is read as no group too, and logged at the content
+    /// that invoked the form ([`transparency_attributes`]).
     pub(super) fn transparency_group(&mut self, dict: &Dictionary) -> Option<TransparencyGroup> {
         let group = self.document.get_key(dict, "Group");
-        let group = group.as_dict()?;
-        // §8.10.3 Table 94: `/S` is required and "identifies the type of group whose
-        // attributes this dictionary describes"; `/Transparency` is the only subtype the
-        // specification defines.
-        if self.document.get_key(group, "S").as_name()?.as_bytes() != b"Transparency" {
-            return None;
-        }
+        let group = transparency_attributes(self.document, &group, self.content_site())?;
         // Table 145's `/I` and `/K`, both booleans defaulting to false.
         Some(TransparencyGroup {
             isolated: matches!(self.document.get_key(group, "I"), Object::Boolean(true)),

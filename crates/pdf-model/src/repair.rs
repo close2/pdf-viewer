@@ -246,6 +246,11 @@ classes! {
         "ISO 32000-2 §8.10.2",
         "a form's /Resources that is not a dictionary was read as the dictionary of a stream, or \
          else as absent, the form's names then looked up in the page's resources";
+    /// A form's, an appearance's or a page's `/Group` that is no dictionary, or a group attributes
+    /// dictionary whose required `/S` is absent or no name.
+    GROUP_ATTRIBUTES_UNUSABLE = "model/group-attributes-unusable", "ISO 32000-2 §8.10.3",
+        "a /Group that is not a dictionary, or a group attributes dictionary whose required /S is \
+         absent or not a name, was read as stating no group";
     /// A tiling pattern's required `/BBox` or `/Resources` absent or of a shape Table 74 does not
     /// give it.
     TILING_PATTERN_ENTRY_UNUSABLE = "model/tiling-pattern-entry-unusable", "ISO 32000-2 §8.7.3.1",

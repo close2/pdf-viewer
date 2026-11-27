@@ -1521,7 +1521,8 @@ fn a_located_point_crosses_in_every_display_shape() {
         Some(at(Some(Ok(Displayed::Projected {
             easting: 500_000.0,
             northing: 5_260_729.733,
-            unit: "Meter".to_owned(),
+            unit: "US survey foot".to_owned(),
+            metres_per_unit: 1200.0 / 3937.0,
         })))),
         Some(at(Some(Err("the datums differ".to_owned())))),
         Some(viewer_core::Located::Refused(
