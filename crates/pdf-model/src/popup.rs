@@ -833,6 +833,14 @@ pub(crate) fn rich_text(document: &Document, dict: &Dictionary) -> Option<String
     // better than none of it. The alternative — refusing — would take a popup away over a
     // producer's stray ampersand.
     let read = rich_text_characters(&pdf_syntax::text_string(&bytes));
+    if !read.parsed_whole || read.kept_reference {
+        // The annotation is handed over as its dictionary and not its object, so the repair is
+        // placed at the file (ADR 3795).
+        document.record_repair(
+            &crate::repair::RICH_TEXT_MALFORMED,
+            pdf_syntax::Site::WholeFile,
+        );
+    }
     let trimmed = read.text.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
@@ -851,6 +859,9 @@ pub(crate) struct RichTextCharacters {
     pub(crate) parsed_whole: bool,
     /// How many elements the markup opened.
     pub(crate) elements: usize,
+    /// Whether a reference no entity defines was kept as the characters it is written in
+    /// (`crate::xmp::unescape_noting`).
+    pub(crate) kept_reference: bool,
 }
 
 /// Walks a rich text string's markup and takes its character data.
@@ -862,6 +873,7 @@ pub(crate) fn rich_text_characters(markup: &str) -> RichTextCharacters {
         text: String::with_capacity(markup.len()),
         parsed_whole: true,
         elements: 0,
+        kept_reference: false,
     };
     let mut breaks = 0_usize;
     for token in xmlparser::Tokenizer::from(markup) {
@@ -870,9 +882,11 @@ pub(crate) fn rich_text_characters(markup: &str) -> RichTextCharacters {
             break;
         };
         match token {
-            xmlparser::Token::Text { text } | xmlparser::Token::Cdata { text, .. } => {
-                crate::xmp::unescape(text.as_str(), &mut read.text);
+            xmlparser::Token::Text { text } => {
+                read.kept_reference |= crate::xmp::unescape_noting(text.as_str(), &mut read.text);
             }
+            // XML 1.0 section 2.7: inside a CDATA section only its end is markup.
+            xmlparser::Token::Cdata { text, .. } => read.text.push_str(text.as_str()),
             xmlparser::Token::ElementStart { .. } => {
                 read.elements = read.elements.saturating_add(1);
             }

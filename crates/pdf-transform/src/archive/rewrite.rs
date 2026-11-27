@@ -2771,8 +2771,7 @@ fn annotation_objects(
     let mut holders = BTreeSet::new();
     for page in tree.every().into_iter().flatten() {
         let held = page.dict.get("Annots").and_then(Object::as_reference);
-        let Some(annotations) = document
-            .get_key(&page.dict, "Annots")
+        let Some(annotations) = pdf_model::page_annots(document, &page.dict)
             .as_array()
             .map(<[Object]>::to_vec)
         else {
@@ -3122,8 +3121,7 @@ fn names_no_resource(document: &Document, id: ObjectId) -> bool {
 /// A003's four dictionaries — and nothing in a page's own `/Resources` reaches it.
 pub(super) fn appearance_streams(document: &Document, page: &Dictionary) -> Vec<Object> {
     let mut out = Vec::new();
-    let Some(annotations) = document
-        .get_key(page, "Annots")
+    let Some(annotations) = pdf_model::page_annots(document, page)
         .as_array()
         .map(<[Object]>::to_vec)
     else {

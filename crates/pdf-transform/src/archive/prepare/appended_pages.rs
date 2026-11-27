@@ -1558,8 +1558,7 @@ fn remaining_unhidden_rects(
     page: &pdf_model::Page,
     removed: &BTreeSet<ObjectId>,
 ) -> Vec<[f32; 4]> {
-    let Some(annots) = document
-        .get_key(&page.dict, "Annots")
+    let Some(annots) = pdf_model::page_annots(document, &page.dict)
         .as_array()
         .map(<[Object]>::to_vec)
     else {

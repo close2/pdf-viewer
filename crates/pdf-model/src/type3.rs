@@ -796,19 +796,22 @@ fn entry_site(dict: &Dictionary, key: &str) -> pdf_syntax::Site {
         .map_or(pdf_syntax::Site::WholeFile, pdf_syntax::Site::Object)
 }
 
-/// The table a named encoding stands for, where Table 109's list holds the name; the standard
-/// encoding's name is noted as the one Table D.1 says no processor has (ADR 3753).
+/// The table a named encoding stands for, where Table 109's list holds the name. A name outside
+/// it names no table and is noted as every simple font's is (`pdf_font`'s `base_encoding`): the
+/// standard encoding's as the one Table D.1 says no processor has (ADR 3753), any other as a
+/// name §9.6.5.1 does not predefine.
 fn predefined(
     document: &Document,
     dict: &Dictionary,
     name: &Name,
 ) -> Option<pdf_font::encoding::BaseEncoding> {
-    if name.as_bytes() == b"StandardEncoding" {
-        noted(
-            document,
-            &pdf_font::repair::ENCODING_NAME_STANDARD,
-            entry_site(dict, "Encoding"),
-        );
+    if !pdf_font::PERMITTED_ENCODING_NAMES.contains(&name.as_bytes()) {
+        let class = if name.as_bytes() == b"StandardEncoding" {
+            &pdf_font::repair::ENCODING_NAME_STANDARD
+        } else {
+            &pdf_font::repair::ENCODING_NAME_UNKNOWN
+        };
+        noted(document, class, entry_site(dict, "Encoding"));
         return None;
     }
     pdf_font::encoding::BaseEncoding::by_name(name.as_bytes())

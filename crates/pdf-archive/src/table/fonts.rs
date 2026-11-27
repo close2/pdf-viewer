@@ -546,17 +546,23 @@ fn rendered_font_objects(
 /// reader's log ([`crate::repairs`], ADR 3565): `pdf_font` records a repair when it loads the font
 /// that needs it, and a row that never loaded a font would leave the log without it.
 ///
-/// A `CIDFont` is loaded through the Type 0 font above it, which is how a reader reaches one, and
-/// a Type 3 font has no program to read. A program the loader refuses is read again as the viewer
-/// reads it, through the substitute, because that substitution is itself a repair.
+/// A `CIDFont` is loaded through the Type 0 font above it, which is how a reader reaches one. A
+/// Type 3 font has no program, and is read as the page interpreter reads it
+/// (`pdf_model::type3`), whose `/Encoding` and `/Widths` readings log what they read past (ADR
+/// 3793). A program the loader refuses is read again as the viewer reads it, through the
+/// substitute, because that substitution is itself a repair.
 pub(crate) fn load_every_font(exam: &Examination<'_>) {
     let document = exam.document;
     for_each_font(exam, |_, dict| {
-        if matches!(
-            subtype(document, dict).as_deref(),
-            Some("CIDFontType0" | "CIDFontType2" | "Type3")
-        ) {
-            return;
+        match subtype(document, dict).as_deref() {
+            Some("CIDFontType0" | "CIDFontType2") => return,
+            Some("Type3") => {
+                // A font that does not read logs what it read before refusing; the refusal is the
+                // interpreter's to report where a page shows it.
+                let _ = pdf_model::type3::Type3Font::read(document, dict, "");
+                return;
+            }
+            _ => {}
         }
         if let Err(refusal) = LoadedFont::load(document, dict, "") {
             let _ = LoadedFont::substitute_for_unreadable(document, dict, "", &refusal);

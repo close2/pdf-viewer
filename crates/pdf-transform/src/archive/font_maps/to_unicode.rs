@@ -73,11 +73,7 @@ pub(super) fn written(
     data: &[u8],
     read: &ToUnicode,
 ) -> Result<Written, &'static str> {
-    if read.truncated().is_some() {
-        return Err(NOT_WRITTEN);
-    }
-    let program = program(&codespace(data, read), read).ok_or(NOT_WRITTEN)?;
-    prove(read, &program)?;
+    let program = program_as_read(data, read)?;
     let mut dict = stream.dict.clone();
     // The entries that describe the old bytes' encoding, and the base the new map now holds.
     for entry in ["Filter", "DecodeParms", "Length", "DL", "UseCMap"] {
@@ -88,6 +84,21 @@ pub(super) fn written(
         dropped: read.unread().to_vec(),
         dropped_count: read.unread_count(),
     })
+}
+
+/// The `CMap` program [`written`] puts in its stream, before compression: `data` read as `read`,
+/// written again and proved.
+///
+/// # Errors
+///
+/// [`NOT_WRITTEN`] where a bound cut the reading, or the rewrite is not proved.
+pub(super) fn program_as_read(data: &[u8], read: &ToUnicode) -> Result<Vec<u8>, &'static str> {
+    if read.truncated().is_some() {
+        return Err(NOT_WRITTEN);
+    }
+    let program = program(&codespace(data, read), read).ok_or(NOT_WRITTEN)?;
+    prove(read, &program)?;
+    Ok(program)
 }
 
 /// The codespace ranges to write: the producer's that read, or each width the map uses whole.

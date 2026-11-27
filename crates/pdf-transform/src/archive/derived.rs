@@ -465,7 +465,7 @@ impl Importer<'_> {
         let mut xobjects = Dictionary::new();
         xobjects.insert(Name::new(DERIVED_PAGE), Object::Reference(content));
         let mut operators = String::from("/DerivedPage Do\n");
-        let annotations = self.derived.get_key(&page.dict, "Annots");
+        let annotations = pdf_model::page_annots(self.derived, &page.dict);
         for (index, annotation) in annotations.as_array().into_iter().flatten().enumerate() {
             let annotation = self.derived.resolve(annotation);
             let Some(annotation) = annotation.as_dict() else {

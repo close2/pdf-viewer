@@ -141,8 +141,9 @@ pub(crate) fn parse(
 }
 
 /// [`parse`], and the repairs the reading made (ADR 3621): `model/rich-text-malformed` where the
-/// markup is not well-formed XML, and `model/rich-text-attribute-unusable` for each attribute read
-/// as absent.
+/// markup is not well-formed XML — a tokenizer's refusal, or a reference no entity defines kept as
+/// written (`crate::xmp::unescape_noting`, ADR 3795) — and `model/rich-text-attribute-unusable`
+/// for each attribute read as absent.
 ///
 /// Returned rather than recorded because this reads a string and holds no document; the caller
 /// that took the string from a dictionary records them. Only one whose entry *is* a rich text
@@ -173,6 +174,7 @@ pub(crate) fn parse_noting(
     // The wrapper is an element the string did not open, so it does not count as one.
     let mut elements = 0_usize;
     let mut wrapper_seen = false;
+    let mut kept = false;
     for token in xmlparser::Tokenizer::from(wrapped.as_str()) {
         let Ok(token) = token else {
             return (None, vec![&RICH_TEXT_MALFORMED]);
@@ -202,7 +204,7 @@ pub(crate) fn parse_noting(
                     open.attributes.push((
                         prefix.as_str().to_owned(),
                         local.as_str().to_ascii_lowercase(),
-                        unescaped(value.as_str()),
+                        unescaped(value.as_str(), &mut kept),
                     ));
                 }
             }
@@ -219,9 +221,12 @@ pub(crate) fn parse_noting(
                 }
                 xmlparser::ElementEnd::Close(..) => walk.close(),
             },
-            xmlparser::Token::Text { text } | xmlparser::Token::Cdata { text, .. } => {
-                walk.text(&unescaped(text.as_str()));
+            xmlparser::Token::Text { text } => {
+                walk.text(&unescaped(text.as_str(), &mut kept));
             }
+            // XML 1.0 section 2.7: inside a CDATA section only its end is markup, so a reference
+            // there is the characters it is written as.
+            xmlparser::Token::Cdata { text, .. } => walk.text(text.as_str()),
             _ => {}
         }
     }
@@ -230,7 +235,11 @@ pub(crate) fn parse_noting(
         //   is (ADR 1197).
         return (None, walk.repairs);
     }
-    walk.finish()
+    let (rich, mut repairs) = walk.finish();
+    if kept {
+        repairs.push(&RICH_TEXT_MALFORMED);
+    }
+    (rich, repairs)
 }
 
 /// The text of a node or an attribute with XML's references resolved.
@@ -239,9 +248,10 @@ pub(crate) fn parse_noting(
 /// identical grammar; and XHTML's `&nbsp;`, the one entity of XHTML's own that chapter 27's
 /// examples lean on — its *Retaining Consecutive Spaces* is about exactly that character — and
 /// which an XML reader without XHTML's document type would otherwise leave as six characters.
-fn unescaped(text: &str) -> String {
+/// Any other reference no entity defines is kept as written and sets `kept`.
+fn unescaped(text: &str, kept: &mut bool) -> String {
     let mut out = String::with_capacity(text.len());
-    crate::xmp::unescape(&text.replace("&nbsp;", "\u{a0}"), &mut out);
+    *kept |= crate::xmp::unescape_noting(&text.replace("&nbsp;", "\u{a0}"), &mut out);
     out
 }
 
@@ -1593,6 +1603,31 @@ mod tests {
     fn what_does_not_parse_or_opens_nothing_is_not_rich_text() {
         assert!(parse("a < b", None, Character::root()).is_none());
         assert!(parse("plain characters", None, Character::root()).is_none());
+    }
+
+    /// A reference no entity defines is kept as written and noted, as the XMP reader notes one
+    /// (ADR 3795): XML 1.0's Entity Declared constraint refuses it, and XHTML's `&nbsp;` is the
+    /// one entity this reader adds. Inside a CDATA section (XML 1.0 section 2.7) a reference is
+    /// characters, and nothing is noted.
+    #[test]
+    fn a_reference_no_entity_defines_is_kept_and_noted() {
+        use crate::repair::RICH_TEXT_MALFORMED;
+        let noted = |markup: &str| super::parse_noting(markup, None, Character::root());
+        let (rich, repairs) = noted("<p>a &copy; b</p>");
+        assert_eq!(
+            rich.expect("well formed but for the reference").text(),
+            "a &copy; b"
+        );
+        let names: Vec<&str> = repairs.iter().map(|class| class.name).collect();
+        assert_eq!(names, [RICH_TEXT_MALFORMED.name]);
+
+        let (rich, repairs) = noted("<p>a&nbsp;&amp;&#66;</p>");
+        assert_eq!(rich.expect("well formed").text(), "a\u{a0}&B");
+        assert!(repairs.is_empty());
+
+        let (rich, repairs) = noted("<p><![CDATA[a &amp; b]]></p>");
+        assert_eq!(rich.expect("well formed").text(), "a &amp; b");
+        assert!(repairs.is_empty());
     }
 
     /// What the walk reads past is returned for the caller holding the document: markup that is

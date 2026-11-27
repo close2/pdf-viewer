@@ -990,32 +990,48 @@ impl Rewriter<'_> {
     /// A font or encoding dictionary whose maps this reader read past, written as it read them
     /// (`super::super::font_maps`, ADR 3570): the entries it removes go, and a restated
     /// `/Differences` or `/Encoding` replaces the producer's; every other entry `out` holds by
-    /// now is kept.
+    /// now is kept. A font written directly inside `out` is restated there (ADR 3794), save one the
+    /// substitution writes out as an object of its own, found again by its value.
     pub(super) fn restate_font_maps(
         &self,
         id: ObjectId,
         out: &mut Dictionary,
         applied: &mut BTreeMap<Rewrite, usize>,
     ) -> bool {
-        let Some(read) = self
+        let Some(restated) = self
             .font_maps
             .filter(|_| self.wants(Rewrite::FontMapsAsRead))
-            .and_then(|restated| restated.dictionaries.get(&id))
         else {
             return false;
         };
-        for key in ["ToUnicode", "Encoding", "BaseEncoding", "Differences"] {
-            match read.get(key) {
-                Some(value) => {
-                    out.insert(Name::new(key.as_bytes()), value.clone());
+        let mut changed = false;
+        if restated.holders.contains(&id) {
+            let written_out = self
+                .substitutes
+                .filter(|_| self.wants(Rewrite::SubstituteFontProgram))
+                .map_or(&[][..], |substitutes| substitutes.direct.as_slice());
+            let document = self.document;
+            let edit = |font: &Dictionary| {
+                super::super::font_maps::direct_as_read(document, font).map(|read| {
+                    let mut font = font.clone();
+                    maps_written(&mut font, &read);
+                    font
+                })
+            };
+            if let Some((edited, fonts)) = sites::fonts_inside_edited(out, &edit, written_out) {
+                *out = edited;
+                for _ in 0..fonts {
+                    count(applied, Rewrite::FontMapsAsRead);
                 }
-                None => {
-                    out.remove(key);
-                }
+                changed = true;
             }
         }
-        count(applied, Rewrite::FontMapsAsRead);
-        true
+        if let Some(read) = restated.dictionaries.get(&id) {
+            maps_written(out, read);
+            count(applied, Rewrite::FontMapsAsRead);
+            changed = true;
+        }
+        changed
     }
 
     /// §9.6.2.1's Table 109 `/Subtype`, written as the kind `font_subtypes::stated` read from the
@@ -1199,6 +1215,21 @@ fn referenced_in(value: &mut Object, direct: &[(Dictionary, ObjectId)], depth: u
             .map(|item| referenced_in(item, direct, depth.saturating_add(1)))
             .fold(0, usize::saturating_add),
         _ => 0,
+    }
+}
+
+/// The four map entries of `read` written into `out`: each `read` states replaces `out`'s, and
+/// each it does not is removed (`super::super::font_maps`).
+fn maps_written(out: &mut Dictionary, read: &Dictionary) {
+    for key in ["ToUnicode", "Encoding", "BaseEncoding", "Differences"] {
+        match read.get(key) {
+            Some(value) => {
+                out.insert(Name::new(key.as_bytes()), value.clone());
+            }
+            None => {
+                out.remove(key);
+            }
+        }
     }
 }
 

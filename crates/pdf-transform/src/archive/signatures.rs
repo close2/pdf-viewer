@@ -317,9 +317,7 @@ impl Walk<'_> {
     fn annotations(&mut self, found: &mut Signatures) {
         let tree = Pages::new(self.document);
         for page in tree.every().into_iter().flatten() {
-            let Some(annotations) = self
-                .document
-                .get_key(&page.dict, "Annots")
+            let Some(annotations) = pdf_model::page_annots(self.document, &page.dict)
                 .as_array()
                 .map(<[Object]>::to_vec)
             else {
@@ -787,8 +785,7 @@ fn find_without_verifying(document: &Document) -> Vec<String> {
     }
     let tree = Pages::new(document);
     for page in tree.every().into_iter().flatten() {
-        let Some(annotations) = document
-            .get_key(&page.dict, "Annots")
+        let Some(annotations) = pdf_model::page_annots(document, &page.dict)
             .as_array()
             .map(<[Object]>::to_vec)
         else {

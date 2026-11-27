@@ -242,6 +242,37 @@ impl LoadedFont {
         Ok(Some(Arc::new(path)))
     }
 
+    /// Starts the interpreter of a hint-reliant program while the document is in hand, and logs
+    /// one whose instructions do not start as `font/truetype-instructions-unstarted` at `site`
+    /// (ADR 3796).
+    ///
+    /// The outline path holds no document, so a failure first met there could only be drawn
+    /// unhinted in silence; asked here, at load, the same cell [`Self::hinting`] reads is filled
+    /// once, and the drawing that follows is unchanged. For every font outside the family this
+    /// costs the `sfnt` header, the outline tables' headers and the name records
+    /// `require_interpreter` reads — work the font's first outline does anyway — and nothing is
+    /// cached for it, so [`Self::hinting`] still answers `None` there on first use.
+    pub(super) fn start_interpreter(
+        &self,
+        document: &pdf_syntax::Document,
+        site: impl FnOnce() -> pdf_syntax::Site,
+    ) {
+        if self.substituted || self.program != Program::Sfnt {
+            return;
+        }
+        let Ok(font) = FontRef::new(&self.data) else {
+            return;
+        };
+        let glyphs = font.outline_glyphs();
+        if glyphs.require_interpreter() && self.hinting(&glyphs).is_none() {
+            crate::repair::noted(
+                document,
+                &crate::repair::TRUETYPE_INSTRUCTIONS_UNSTARTED,
+                site(),
+            );
+        }
+    }
+
     /// The interpreter instance for a hint-reliant font program, built on first use.
     ///
     /// `None` for every font the library does not place in that family, and for a family
@@ -272,8 +303,8 @@ impl LoadedFont {
                         target: Target::Mono,
                     },
                 )
-                // not a repair: a decline; a program whose instructions do not start is drawn from
-                // its outlines unhinted, and nothing is read in place of a value it states.
+                // A program whose instructions do not start is drawn from its outlines unhinted,
+                // logged by `start_interpreter` at load (TRUETYPE_INSTRUCTIONS_UNSTARTED).
                 .ok()
             })
             .as_ref()

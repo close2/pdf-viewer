@@ -757,6 +757,21 @@ fn a_type3_base_encoding_naming_the_standard_encoding_is_logged() {
     );
 }
 
+/// ISO 32000-2 §9.6.5.1 and Table 112: a `/BaseEncoding` "shall be the name of one of the
+/// predefined encodings", and a Type 3 font's naming another names no table, logged under the
+/// class every simple font's is; its `/Differences` still name its glyphs.
+#[test]
+fn a_type3_base_encoding_naming_no_predefined_encoding_is_logged() {
+    has(
+        &type3_page(
+            "/FirstChar 97 /LastChar 98 /Widths [500 500]",
+            "[97 /a /b] /BaseEncoding /SymbolEncoding",
+        ),
+        &pdf_font::repair::ENCODING_NAME_UNKNOWN,
+        Site::WholeFile,
+    );
+}
+
 /// Table 151 makes an outline item's `/F` an integer and its `/C` three numbers from 0.0 to 1.0:
 /// an `/F` of another type is read as its default 0, a component past the range as the nearer
 /// end, each logged at the item.

@@ -86,6 +86,12 @@ const MAX_ANNOTATION_DEPTH: usize = 16;
 /// An ink annotation's gestures are the largest honest count, one per stroke.
 const MAX_ANNOTATION_ELEMENTS: usize = 1 << 18;
 
+/// What [`read`] owes where a reference names no entity: XML 1.0's Entity Declared constraint
+/// refuses one in a document with no type declaration, and this reader keeps it as the characters
+/// it is written in rather than refuse the import or delete what the file wrote (ADR 3795).
+const KEPT_REFERENCE: &str =
+    "an entity reference XML does not define is kept as the characters it is written in";
+
 /// The namespace ISO 19444-1:2019 section 5.5.2 requires of an XFDF document.
 pub const NAMESPACE: &str = "http://ns.adobe.com/xfdf/";
 
@@ -267,8 +273,10 @@ impl Reader {
             // captured. CDATA carries no entity references by definition, which is why only the
             // first is unescaped.
             xmlparser::Token::Text { text } => {
-                if let Some(into) = self.characters() {
-                    crate::xmp::unescape(text.as_str(), into);
+                if let Some(into) = self.characters()
+                    && crate::xmp::unescape_noting(text.as_str(), into)
+                {
+                    self.owe(KEPT_REFERENCE);
                 }
             }
             xmlparser::Token::Cdata { text, .. } => {
@@ -358,11 +366,17 @@ impl Reader {
 
     /// One attribute of the element that is being opened.
     fn attribute(&mut self, local: &str, value: &str) {
+        if self.open.is_empty() {
+            return;
+        }
+        let mut text = String::with_capacity(value.len());
+        let kept = crate::xmp::unescape_noting(value, &mut text);
+        if kept {
+            self.owe(KEPT_REFERENCE);
+        }
         let Some(frame) = self.open.last_mut() else {
             return;
         };
-        let mut text = String::with_capacity(value.len());
-        crate::xmp::unescape(value, &mut text);
         if frame.element == Element::Captured {
             if let Some(node) = self.capture.last_mut() {
                 node.attributes.push((local.to_owned(), text));
@@ -678,6 +692,24 @@ mod tests {
         assert_eq!(identifier[0][0], 0x0f);
         assert_eq!(identifier[0].len(), 16);
         assert_eq!(identifier[1].len(), 16);
+    }
+
+    /// A reference no entity defines, in a value and in an attribute, is kept as written and
+    /// owed once (ADR 3795); the five XML defines and a numeric one are read.
+    #[test]
+    fn a_reference_no_entity_defines_is_kept_and_owed() {
+        let file = FLAT_FORM
+            .replace("Ada Lovelace", "Ada &bogus; &amp; &#76;ovelace")
+            .replace("name=\"Street\"", "name=\"St&reet;\"");
+        let data = read(file.as_bytes()).expect("well formed but for the references");
+        assert_eq!(
+            value(&data, "Name").as_deref(),
+            Some("Ada &bogus; & Lovelace")
+        );
+        assert!(data.fields.iter().any(|field| field.name == "St&reet;"));
+        assert_eq!(data.owed, [KEPT_REFERENCE]);
+        let plain = read(FLAT_FORM.as_bytes()).expect("the form");
+        assert!(plain.owed.is_empty(), "{:?}", plain.owed);
     }
 
     /// ISO 19444-1:2019 section 5.6.3, which represents a hierarchical field name — conventionally

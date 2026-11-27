@@ -307,7 +307,7 @@ fn appearances_of(document: &Document, page: ObjectId) -> BTreeSet<ObjectId> {
     let Object::Dictionary(page) = document.get(page) else {
         return named;
     };
-    let Object::Array(annotations) = document.resolve(&document.get_key(&page, "Annots")) else {
+    let Object::Array(annotations) = pdf_model::page_annots(document, &page) else {
         return named;
     };
     for annotation in &annotations {

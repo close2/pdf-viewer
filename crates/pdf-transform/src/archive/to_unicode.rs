@@ -109,6 +109,7 @@ pub(super) fn derive(
     document: &Document,
     fonts: &[ObjectId],
     target: Target,
+    as_read: bool,
     spare: &mut Spare,
 ) -> Result<DerivedMaps, &'static str> {
     if fonts.is_empty() {
@@ -146,7 +147,9 @@ pub(super) fn derive(
             .map(|mapping| cmap_stream(&mapping));
         let stream = match derived {
             Ok(stream) => stream,
-            Err(why) => restated(document, *id, used, selected.contains(id), target).ok_or(why)?,
+            Err(why) => {
+                restated(document, *id, used, selected.contains(id), target, as_read).ok_or(why)?
+            }
         };
         let at = spare.take(document).ok_or(NO_SPARE_OBJECT)?;
         maps.written.insert(at, stream);
@@ -164,18 +167,31 @@ pub(super) fn derive(
 /// it unmaps was shown — read off the font's whole set of shown strings, decoded by the font
 /// itself. `None` keeps the reason the derivation gave, which is the one the refusal names.
 /// `selected` is whether any content stream selected the font, read whole or not.
+///
+/// **A map this reader read past entries of is restated from what it read** (ADR 3794): the
+/// placeholders are taken out of the program `super::font_maps` writes as read, so the map the
+/// font names afterwards is both whole and free of placeholders, and each removal is proved
+/// against the reading before it. `as_read` is whether the conversion writes maps as read
+/// (`Rewrite::FontMapsAsRead`); where it does not, a damaged map is not restated here, since the
+/// map written would still hold what this reader read past.
 fn restated(
     document: &Document,
     id: ObjectId,
     used: Option<&pdf_archive::survey::SelectedFont>,
     selected: bool,
     target: Target,
+    as_read: bool,
 ) -> Option<Object> {
     let Object::Stream(stream) = document.get_key_of(id, "ToUnicode")? else {
         return None;
     };
+    let font = document.get(id);
+    let read = pdf_font::to_unicode(document, super::sites::dictionary_of(&font)?);
+    if read.damaged() && !as_read {
+        return None;
+    }
     let data = document.decoded_stream_data(&stream)?;
-    let restated = placeholders::restate(&data).ok()?;
+    let restated = without_placeholders_as_read(&data, &read).ok()?;
     if target.part() == Part::Two {
         // An unshown font references no glyph, and a font shown in part leaves the question open.
         if let Some(used) = used {
@@ -199,7 +215,20 @@ fn restated(
     for entry in ["Filter", "DecodeParms", "Length", "DL"] {
         dict.remove(entry);
     }
+    if read.damaged() {
+        // The map written as read holds its base's mappings itself.
+        dict.remove("UseCMap");
+    }
     Some(stream_object_with(dict, restated.data))
+}
+
+/// `data`, a `/ToUnicode` program read as `read`, written as read where it is damaged
+/// (`super::font_maps::map_as_read`) and then without its placeholders.
+fn without_placeholders_as_read(
+    data: &[u8],
+    read: &ToUnicode,
+) -> Result<placeholders::Restated, &'static str> {
+    placeholders::restate(&super::font_maps::map_as_read(data, read)?)
 }
 
 /// One font's code-to-text table, or the reason it has none.
@@ -493,3 +522,35 @@ const NAME_NOT_LISTED: &str = "one of this font's referenced codes selects a gly
 /// Why a document with no free object number gets no `CMap`.
 const NO_SPARE_OBJECT: &str = "this document uses every object number a conversion could give to \
      a ToUnicode CMap stream";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ADR 3794: a map with an entry this reader reads past (`<D800>`, an unpaired surrogate,
+    /// no UTF-16BE text by §9.10.3) and a placeholder (`<0000>`, which ISO 19005-2 section
+    /// 6.2.11.7.2 asks no map to state) takes one route: written as read, then without the
+    /// placeholder. Taken out of the producer's bytes alone, the placeholder goes and the damage
+    /// stays, which the output's own section 5.1 check would refuse.
+    #[test]
+    fn a_damaged_map_with_a_placeholder_is_written_as_read_and_then_without_it() {
+        let source = b"1 begincodespacerange\n<00> <FF>\nendcodespacerange\n\
+            3 beginbfchar\n<41> <0041>\n<42> <D800>\n<43> <0000>\nendbfchar\n";
+        let read = ToUnicode::parse(source);
+        assert!(read.damaged());
+        let alone = placeholders::restate(source).expect("the placeholder is taken out");
+        assert!(ToUnicode::parse(&alone.data).damaged());
+
+        let restated = without_placeholders_as_read(source, &read).expect("the one route holds");
+        let after = ToUnicode::parse(&restated.data);
+        assert!(!after.damaged());
+        assert_eq!(restated.unmapped, BTreeSet::from([0x43]));
+        let answer = |code: u32| {
+            let mut out = String::new();
+            after.append(code, &mut out).then_some(out)
+        };
+        assert_eq!(answer(0x41).as_deref(), Some("A"));
+        assert_eq!(answer(0x42), None);
+        assert_eq!(answer(0x43), None);
+    }
+}

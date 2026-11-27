@@ -260,7 +260,7 @@ fn greatest_stated_key(document: &Document) -> Result<Option<i64>, Because> {
         };
         note(&page.dict)?;
         named_xobjects(&page.resources, &mut streams);
-        let annotations = document.get_key(&page.dict, "Annots");
+        let annotations = pdf_model::page_annots(document, &page.dict);
         for annotation in annotations.as_array().into_iter().flatten() {
             if let Some(id) = annotation.as_reference()
                 && !seen.insert(id)

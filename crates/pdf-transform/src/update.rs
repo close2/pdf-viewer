@@ -903,9 +903,10 @@ const NOT_CARRIED: [(&str, &str); 5] = [
 /// rather than a page inserted, so the operation is declined by name — `pages --insert` declines
 /// the same construct for the same clause.
 fn refuse_widget(document: &Document, at: usize, page: usize, id: ObjectId) -> Result<(), Refusal> {
-    let annots = document
-        .get_key_of(id, "Annots")
-        .map(|annots| document.resolve(&annots));
+    let dict = document.get(id);
+    let annots = dict
+        .as_dict()
+        .map(|dict| pdf_model::page_annots(document, dict));
     let Some(array) = annots.as_ref().and_then(Object::as_array) else {
         return Ok(());
     };

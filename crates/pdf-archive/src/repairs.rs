@@ -234,6 +234,9 @@ pub static MAPPING: &[Mapped] = &[
     // schemas it rewrites, so a reference elsewhere crosses as written and the output's own check
     // refuses by the class's name (ADR 3752).
     base("model/xmp-reference-undefined"),
+    // An XFA packet's undefined reference: the packet crosses as written, as an XMP packet's
+    // does, and the output's own check refuses by the class's name (ADR 3795).
+    base("model/xfa-reference-undefined"),
     base("model/measurement-entry-unusable"),
     // A localeSet's unnamed locale, a collection's split or folder entry, a structure element's
     // span or writing mode, a page's `/BoxColorInfo`: each outside content, so the whole-file
@@ -280,6 +283,10 @@ pub static MAPPING: &[Mapped] = &[
     // its `cmap`: the program crosses as the file embeds it, and the converter has no charset to
     // restate, so the log adds only section 5.1 (ADR 3777).
     base("font/opentype-cff-unreadable"),
+    // A hint-reliant TrueType program whose instructions do not run, drawn from its outlines: the
+    // program crosses as the file embeds it, and no restatement of it is proved to draw what this
+    // reader drew, so the log adds only section 5.1 (ADR 3796).
+    base("font/truetype-instructions-unstarted"),
     // The maps. Section 6.2.11.7.2's rows judge a `/ToUnicode` as read and exempt whole classes
     // of font from it, which a repair's place cannot tell, so a map this reader read past is
     // section 5.1's. Those the converter restates as read (ADR 3570) are also the row of section

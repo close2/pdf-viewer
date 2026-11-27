@@ -63,6 +63,10 @@ classes! {
         "an embedded TrueType or OpenType program whose table directory names a table past the \
          program's last byte was read as far as its bytes go, each glyph past the cut drawn as \
          nothing";
+    /// A hint-reliant TrueType program whose `fpgm` or `prep` instructions do not run.
+    TRUETYPE_INSTRUCTIONS_UNSTARTED = "font/truetype-instructions-unstarted", "ISO 32000-2 §9.9",
+        "an embedded TrueType program of the family whose glyphs its instructions construct, whose \
+         font or control value program does not run, was drawn from its outlines unhinted";
     /// A `/FontFile2` or `/FontFile3` holding a TrueType collection rather than one font.
     COLLECTION_CUT_TO_ONE_FACE = "font/collection-cut-to-one-face", "ISO 32000-2 §9.9",
         "an embedded program that is a TrueType collection was read as the one face its \

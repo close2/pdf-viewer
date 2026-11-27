@@ -1869,7 +1869,15 @@ impl Prepared {
         // fonts that need a CMap is the set it named, every one of them.
         let to_unicode = asked(wanted(Rewrite::ToUnicode), || {
             unicode_fonts(input)
-                .and_then(|fonts| to_unicode::derive(document, &fonts, plan.target, &mut spare))
+                .and_then(|fonts| {
+                    to_unicode::derive(
+                        document,
+                        &fonts,
+                        plan.target,
+                        wanted(Rewrite::FontMapsAsRead),
+                        &mut spare,
+                    )
+                })
                 .map_err(Because::NotBuiltYet)
         });
         // **Prepared after the removal and from it**, for the reason the composed pages are:

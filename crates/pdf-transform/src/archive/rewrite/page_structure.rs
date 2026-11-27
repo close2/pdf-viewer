@@ -194,9 +194,7 @@ impl Rewriter<'_> {
         at: &BTreeSet<ObjectId>,
         rewrite: Rewrite,
     ) -> bool {
-        let Some(listed) = self
-            .document
-            .get_key(out, "Annots")
+        let Some(listed) = pdf_model::page_annots(self.document, out)
             .as_array()
             .map(<[Object]>::to_vec)
         else {

@@ -1,6 +1,6 @@
-//! A font this reader read past, written as it read it (ADRs 3569 and 3570): a program whose table
-//! directory names a table past its end, and a `/ToUnicode` and an `/Encoding` that name nothing
-//! ISO 32000-2 defines.
+//! A font this reader read past, written as it read it (ADRs 3569, 3570, 3793 and 3794): a program
+//! whose table directory names a table past its end, a `/ToUnicode` and an `/Encoding` that name
+//! nothing ISO 32000-2 defines, a Type 3 font's encoding, and a font written inside another object.
 
 use super::*;
 use pdf_syntax::Dictionary;
@@ -305,4 +305,151 @@ fn a_program_whose_hmtx_omits_its_bearings_is_restated_with_the_glyphs_boxes() {
     });
     let held = holds(&output, TARGET);
     assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+}
+
+/// Page one's `/F1`, resolved, from the output document; and the document to resolve it in.
+fn page_font(bytes: &[u8]) -> (Document, Dictionary) {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("a page");
+    let resources = document.get_key(&page.dict, "Resources");
+    let fonts = document.get_key(resources.as_dict().expect("resources"), "Font");
+    let font = document.get_key(fonts.as_dict().expect("fonts"), "F1");
+    let font = font.as_dict().cloned().expect("/F1");
+    (document, font)
+}
+
+/// One page whose content `shows` in a Type 3 font whose `/CharProcs` describes `/square` alone,
+/// its `/Encoding` the value `encoding`.
+fn a_type3_page(encoding: &str, shows: &str) -> Vec<u8> {
+    let glyph = b"600 0 d0 0 0 500 500 re f";
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            format!("/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td {shows} ET").into_bytes(),
+        )),
+        objects: vec![
+            format!(
+                "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] \
+                 /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs 7 0 R /Encoding {encoding} \
+                 /FirstChar 97 /LastChar 98 /Widths [600 700] /Resources << >> >>"
+            ),
+            "<< /square 8 0 R >>".to_owned(),
+        ],
+        binary_objects: vec![stream(&format!("/Length {}", glyph.len()), glyph)],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// `source` converted under `as-if-printed`, the font-maps row answered by its rewrite, and the
+/// output passing that row.
+fn restated_as_read(source: &[u8]) -> Vec<u8> {
+    assert!(fails(source, "fonts/font-maps-read-as-written"));
+    let (report, output) = convert(source, TARGET, authorised_by("as-if-printed"));
+    assert_eq!(
+        decision(&report, "fonts/font-maps-read-as-written"),
+        Decision::Authorised {
+            losses: Losses::one(Loss::FontMapsAsRead),
+            rewrite: Rewrite::FontMapsAsRead,
+        }
+    );
+    let output = written(&report, output);
+    assert!(!fails(&output, "fonts/font-maps-read-as-written"));
+    output
+}
+
+/// ISO 32000-2 Table D.1 has no processor hold an encoding named `StandardEncoding`, so a Type 3
+/// font's `/BaseEncoding` naming it names no table, and a `/Differences` code past one byte names
+/// no glyph (§9.6.4 selects a Type 3 glyph by a single-byte code). The encoding is written as read
+/// (ADR 3793): the base and the code past a byte go, and every code names the glyph it named, so
+/// the output conforms.
+#[test]
+fn a_type3_encoding_is_written_as_read() {
+    let source = a_type3_page(
+        "<< /Type /Encoding /BaseEncoding /StandardEncoding \
+         /Differences [97 /square /square 300 /square] >>",
+        "(ab) Tj",
+    );
+    let output = restated_as_read(&source);
+    let held = holds(&output, TARGET);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let (document, font) = page_font(&output);
+    let encoding = document.get_key(&font, "Encoding");
+    let encoding = encoding.as_dict().expect("an encoding dictionary");
+    assert!(encoding.get("BaseEncoding").is_none());
+    let differences = document.get_key(encoding, "Differences");
+    let names: Vec<String> = differences
+        .as_array()
+        .expect("the codes and names read")
+        .iter()
+        .map(|item| format!("{item:?}"))
+        .collect();
+    assert_eq!(names.len(), 3, "{names:?}");
+    let read = pdf_model::type3::Type3Font::read(&document, &font, "F1").expect("it reads");
+    assert_eq!(
+        read.glyph_name(97).map(pdf_syntax::Name::as_bytes),
+        Some(&b"square"[..])
+    );
+    assert_eq!(
+        read.glyph_name(98).map(pdf_syntax::Name::as_bytes),
+        Some(&b"square"[..])
+    );
+}
+
+/// Table 110 requires a Type 3 font's `/Encoding` and makes it a dictionary. Named
+/// `StandardEncoding`, it names no table here, so no code names a glyph; it is written as the
+/// encoding dictionary that assigns no code (ADR 3793), which is what was read. The page shows no
+/// code in it: a shown code would name no glyph, which is another row's to answer.
+#[test]
+fn a_type3_encoding_naming_no_table_is_written_as_the_dictionary_assigning_none() {
+    let output = restated_as_read(&a_type3_page("/StandardEncoding", ""));
+    let held = holds(&output, TARGET);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let (document, font) = page_font(&output);
+    let encoding = document.get_key(&font, "Encoding");
+    let encoding = encoding.as_dict().expect("an encoding dictionary");
+    let differences = document.get_key(encoding, "Differences");
+    assert_eq!(differences.as_array().map(<[_]>::len), Some(0));
+}
+
+/// A font written directly inside the page's resources is restated where it is written (ADR
+/// 3794): its `/ToUnicode` naming no stream is removed in place, and the output conforms.
+#[test]
+fn a_font_written_inside_another_object_is_restated_in_place() {
+    let source = Conforming {
+        resources: "/Font << /F1 << /Type /Font /Subtype /TrueType /BaseFont /LiberationSans \
+                    /FirstChar 65 /LastChar 65 /Widths [667] /FontDescriptor 6 0 R \
+                    /Encoding /WinAnsiEncoding /ToUnicode /Identity-H >> >> /ColorSpace << \
+                    /CS0 [/CalGray << /WhitePoint [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (A) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
+             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 /FontFile2 7 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![stream(
+            &format!(
+                "/Length {} /Length1 {}",
+                LIBERATION_SANS.len(),
+                LIBERATION_SANS.len()
+            ),
+            LIBERATION_SANS,
+        )],
+        ..Conforming::part_two()
+    }
+    .build();
+    let output = restated_as_read(&source);
+    let held = holds(&output, TARGET);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let (_, font) = page_font(&output);
+    assert!(font.get("ToUnicode").is_none());
+    assert!(font.get("Encoding").is_some());
 }

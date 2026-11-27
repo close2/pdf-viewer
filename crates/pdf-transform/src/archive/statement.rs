@@ -943,7 +943,7 @@ fn pages_naming_within(
         for (_, value) in page.resources.iter() {
             references_in(value, &mut pending, &mut visits, 0)?;
         }
-        if let Object::Array(annotations) = document.get_key(&page.dict, "Annots") {
+        if let Object::Array(annotations) = pdf_model::page_annots(document, &page.dict) {
             for annotation in &annotations {
                 let annotation = match annotation {
                     Object::Reference(id) => document.get(*id),

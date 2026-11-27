@@ -364,7 +364,7 @@ impl Xmp {
         Self::parse_noting(bytes).map(|(xmp, _)| xmp)
     }
 
-    /// [`Xmp::parse`], answering as well whether a reference was kept as written ([`unescape`]).
+    /// [`Xmp::parse`], answering as well whether a reference was kept as written ([`unescape_noting`]).
     fn parse_noting(bytes: &[u8]) -> Result<(Self, bool), XmpError> {
         let text = text_of(bytes)?;
         let read = Reader::new(false).run(&text)?;
@@ -1669,7 +1669,10 @@ impl TypeSites {
                 } => attributes.push((prefix.to_string(), local.to_string(), value.to_string())),
                 xmlparser::Token::Text { text } => {
                     if let Some(open) = stack.last_mut() {
-                        unescape(text.as_str(), &mut open.text);
+                        // not a repair here: a reference kept as written is logged where the
+                        // packet itself is read (`Xmp::parse_noting`), and these sites are that
+                        // packet's.
+                        let _kept = unescape_noting(text.as_str(), &mut open.text);
                     }
                 }
                 xmlparser::Token::ElementEnd { end, span } => match end {
@@ -1747,7 +1750,8 @@ impl TypeSites {
                 continue;
             }
             let mut read = String::new();
-            unescape(value, &mut read);
+            // not a repair here: logged where the packet itself is read (`Xmp::parse_noting`).
+            let _kept = unescape_noting(value, &mut read);
             match local.as_str() {
                 "type" => read.trim().clone_into(&mut frame.site.name),
                 "namespaceURI" => read.trim().clone_into(&mut frame.site.namespace),
@@ -3394,12 +3398,6 @@ fn is_xml_white_space(character: char) -> bool {
 /// cannot be expressed either way, which is a property of the format rather than a choice here.
 fn trimmed(text: &str) -> String {
     text.trim().to_owned()
-}
-
-/// [`unescape_noting`] for a reader of another XML grammar — rich text, XFDF, XFA — which does
-/// not yet log what it reads past.
-pub(crate) fn unescape(text: &str, out: &mut String) {
-    let _kept = unescape_noting(text, out);
 }
 
 /// Expands the entity references XML defines, appending to `out`, and answers whether one was

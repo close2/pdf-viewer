@@ -384,6 +384,15 @@ fn resource_text(document: &Document) -> Option<Result<(String, xml::Tree), Reso
     }
     Some(
         xml::parse(&whole)
+            .inspect(|tree| {
+                // The packets are read as one text, so a reference is placed at no one of them.
+                if tree.kept_reference {
+                    document.record_repair(
+                        &crate::repair::XFA_REFERENCE_UNDEFINED,
+                        pdf_syntax::Site::WholeFile,
+                    );
+                }
+            })
             .map(|tree| (String::from_utf8_lossy(&whole).into_owned(), tree))
             .map_err(|error| ResourceError::Xml {
                 packet: "XDP",
@@ -436,6 +445,12 @@ fn packet(
         packet: name,
         error,
     })?;
+    if tree.kept_reference {
+        document.record_repair(
+            &crate::repair::XFA_REFERENCE_UNDEFINED,
+            pdf_syntax::Site::Object(id),
+        );
+    }
     // `parse` has already refused bytes that are not UTF-8.
     let text = String::from_utf8_lossy(&bytes).into_owned();
     Ok((text, tree))

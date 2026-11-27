@@ -106,6 +106,9 @@ impl Element {
 pub(crate) struct Tree {
     /// Every element; an element's index is its position in document order.
     pub(crate) elements: Vec<Element>,
+    /// Whether a reference no entity defines was kept as the characters it is written in
+    /// (`crate::xmp::unescape_noting`), for the reader holding the document to log (ADR 3795).
+    pub(crate) kept_reference: bool,
 }
 
 impl Tree {
@@ -186,6 +189,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Tree, XmlError> {
     // Where the content of each open element starts, beside `open`.
     let mut content_from: Vec<usize> = Vec::new();
     let unbalanced = || XmlError::Malformed("an element is closed without being opened".to_owned());
+    let mut kept_reference = false;
     for token in xmlparser::Tokenizer::from(text) {
         let token = token.map_err(|error| XmlError::Malformed(error.to_string()))?;
         match token {
@@ -215,7 +219,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Tree, XmlError> {
                     .and_then(|&index| elements.get_mut(index))
                     .ok_or_else(unbalanced)?;
                 let mut expanded = String::with_capacity(value.len());
-                crate::xmp::unescape(value.as_str(), &mut expanded);
+                kept_reference |= crate::xmp::unescape_noting(value.as_str(), &mut expanded);
                 if let Some(declared) = declared(prefix.as_str(), local.as_str()) {
                     element.declarations.push((declared, expanded.clone()));
                 }
@@ -263,10 +267,12 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Tree, XmlError> {
                     element.end = span.end();
                 }
             },
-            other => content(
-                open.last().and_then(|&index| elements.get_mut(index)),
-                &other,
-            ),
+            other => {
+                kept_reference |= content(
+                    open.last().and_then(|&index| elements.get_mut(index)),
+                    &other,
+                );
+            }
         }
     }
     // `xmlparser` hands back the tokens of a truncated packet without complaint (the same
@@ -274,7 +280,10 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Tree, XmlError> {
     if !open.is_empty() {
         return Err(XmlError::Malformed("an element is left open".to_owned()));
     }
-    Ok(Tree { elements })
+    Ok(Tree {
+        elements,
+        kept_reference,
+    })
 }
 
 /// The prefix an attribute declares a namespace for — empty for `xmlns` itself, the default — or
@@ -291,13 +300,16 @@ fn declared(prefix: &str, local: &str) -> Option<String> {
 
 /// Adds what a token of content holds to the open `element`: character data, references
 /// expanded and CDATA taken as written, and a processing instruction, up to
-/// [`MAX_INSTRUCTIONS`]. Any other token adds nothing.
-fn content(element: Option<&mut Element>, token: &xmlparser::Token<'_>) {
+/// [`MAX_INSTRUCTIONS`]. Any other token adds nothing. Answers whether a reference no entity
+/// defines was kept as written.
+fn content(element: Option<&mut Element>, token: &xmlparser::Token<'_>) -> bool {
     let Some(element) = element else {
-        return;
+        return false;
     };
     match token {
-        xmlparser::Token::Text { text } => crate::xmp::unescape(text.as_str(), &mut element.text),
+        xmlparser::Token::Text { text } => {
+            return crate::xmp::unescape_noting(text.as_str(), &mut element.text);
+        }
         xmlparser::Token::Cdata { text, .. } => element.text.push_str(text.as_str()),
         xmlparser::Token::ProcessingInstruction {
             target, content, ..
@@ -307,6 +319,7 @@ fn content(element: Option<&mut Element>, token: &xmlparser::Token<'_>) {
         )),
         _ => {}
     }
+    false
 }
 
 /// `text` as XML character data: the three characters markup reserves, and the carriage return,
@@ -363,6 +376,22 @@ mod tests {
     }
 
     /// A mismatched end tag and a truncated packet are refused rather than read as a shorter one.
+    /// A reference no entity defines, in content or in an attribute, is kept as written and
+    /// answered for (ADR 3795); one inside CDATA is characters, and the five XML defines read.
+    #[test]
+    fn a_reference_no_entity_defines_is_kept_and_answered_for() {
+        let tree = parse(b"<a x=\"&y;\"><b>&z; &amp;</b></a>").expect("well formed");
+        assert!(tree.kept_reference);
+        let b = tree.child(0, "b").and_then(|index| tree.get(index));
+        assert_eq!(b.map(|element| element.text.as_str()), Some("&z; &"));
+        assert_eq!(
+            tree.get(0).and_then(|element| element.attribute("x")),
+            Some("&y;")
+        );
+        let tree = parse(b"<a><![CDATA[&z;]]>&lt;</a>").expect("well formed");
+        assert!(!tree.kept_reference);
+    }
+
     #[test]
     fn unbalanced_packets_are_refused() {
         assert!(matches!(

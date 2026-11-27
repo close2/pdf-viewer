@@ -1327,6 +1327,17 @@ pub(super) fn mapped_cid_fonts(
     direct_fonts_edited(dict, &mapped, &[], 0)
 }
 
+/// `dict` with `edit` applied to every font written directly inside it, found where
+/// [`typed_fonts`] finds one, and how many fonts `edit` changed; `None` where it changed none. A
+/// font equal to one of `written_out`'s source dictionaries is counted and left as it stands.
+pub(super) fn fonts_inside_edited(
+    dict: &Dictionary,
+    edit: &dyn Fn(&Dictionary) -> Option<Dictionary>,
+    written_out: &[(Dictionary, ObjectId)],
+) -> Option<(Dictionary, usize)> {
+    direct_fonts_edited(dict, edit, written_out, 0)
+}
+
 /// `dict` with `edit` applied to every font dictionary written directly inside it, and how many
 /// fonts `edit` changed; `None` where it changed none.
 ///

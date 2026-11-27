@@ -279,7 +279,9 @@ classes! {
     /// A field's `/RV` or an annotation's `/RC` that is not well-formed XML.
     RICH_TEXT_MALFORMED = "model/rich-text-malformed", "ISO 32000-2 §12.7.4.3",
         "a rich text string (/RV or /RC) that is not well-formed XML was not read as rich text, \
-         and the field's or the annotation's plain text was drawn in its place";
+         and the field's or the annotation's plain text was drawn in its place, or its characters \
+         were shown as far as they read; an entity reference in it that XML 1.0 does not define \
+         was kept as the text it is written as";
     /// An attribute of a rich text string's markup that does not read as its grammar's value.
     RICH_TEXT_ATTRIBUTE_UNUSABLE = "model/rich-text-attribute-unusable", "ISO 32000-2 §12.7.4.3",
         "an ol start, an li value or a body's xfa:spec in a rich text string that does not read \
@@ -298,6 +300,10 @@ classes! {
     XFA_LOCALE_NAME_ABSENT = "model/xfa-locale-name-absent", "ISO 32000-2 §12.7.3",
         "a locale of an XFA localeSet packet with no name, which XFA 3.3 says must be supplied, was \
          not kept, so no picture clause reads its symbols or patterns";
+    /// An XFA packet's entity or character reference that XML does not define.
+    XFA_REFERENCE_UNDEFINED = "model/xfa-reference-undefined", "ISO 32000-2 §12.7.3",
+        "an entity reference in an XFA packet that XML 1.0 does not define, or a character \
+         reference naming no character, was kept as the text it is written as";
 
     // ---- portable collections, §12.3.5 ----------------------------------------------------------
 

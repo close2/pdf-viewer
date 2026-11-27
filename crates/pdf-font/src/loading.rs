@@ -1118,11 +1118,13 @@ impl LoadedFont {
 
         // A Type0 font delegates almost everything to a descendant; the outer dictionary
         // carries only the encoding.
-        if subtype == b"Type0" {
+        let font = if subtype == b"Type0" {
             Self::load_composite(document, dict, name)
         } else {
             Self::load_simple(document, dict, name)
-        }
+        }?;
+        font.start_interpreter(document, || program_site(document, dict));
+        Ok(font)
     }
 
     /// A font whose program was refused, carrying the metrics the **document** states.
@@ -2391,9 +2393,17 @@ mod simple_font_subtype_tests {
     /// `HintingInstance::new` runs the font's `fpgm`; a program that pops an empty stack
     /// cannot. The fallback is the picture every glyph of the family drew before ADR 0727,
     /// rather than no glyph: a refusal here would take the whole page's text with it for a
-    /// defect in one table.
+    /// defect in one table. It is logged at load, where the document is in hand (ADR 3796), and
+    /// a family font whose program runs logs nothing.
     #[test]
     fn a_family_font_with_a_broken_program_falls_back_to_the_stated_outline() {
+        let logged = |document: &pdf_syntax::Document| -> Vec<&str> {
+            document
+                .repairs()
+                .into_iter()
+                .map(|repair| repair.class.name)
+                .collect()
+        };
         let (document, dict) = crate::fixture::symbolic_font_with_binary_program(
             "TrueType",
             &instructed_sfnt("DFKai-SB", &[0x38]), // SHPIX with nothing on the stack
@@ -2403,6 +2413,17 @@ mod simple_font_subtype_tests {
             (top - 0.4).abs() < 1e-3,
             "the skeleton is drawn when the program cannot run: {top}"
         );
+        assert_eq!(
+            logged(&document),
+            [crate::repair::TRUETYPE_INSTRUCTIONS_UNSTARTED.name]
+        );
+
+        let (document, dict) = crate::fixture::symbolic_font_with_binary_program(
+            "TrueType",
+            &instructed_sfnt("DFKai-SB", &[]),
+        );
+        let _ = top_of_a(&document, &dict);
+        assert!(logged(&document).is_empty(), "{:?}", logged(&document));
     }
 
     /// The program's own advance is a second number, and with no `/Widths` it is the one laid out.

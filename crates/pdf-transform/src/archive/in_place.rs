@@ -277,7 +277,7 @@ pub(super) fn validate_flag_types(document: &Document) -> Result<(), Because> {
     );
     for page in pdf_model::Pages::new(document).every() {
         let page = page.ok_or(refused)?;
-        let annotations = document.get_key(&page.dict, "Annots");
+        let annotations = pdf_model::page_annots(document, &page.dict);
         let Some(annotations) = annotations.as_array() else {
             continue;
         };

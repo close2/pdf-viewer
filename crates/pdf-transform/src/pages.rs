@@ -480,9 +480,10 @@ fn has_widget(document: &Document, pages: &Pages<'_>, index: usize) -> bool {
     let Some(id) = pages.get(index).and_then(|page| page.id) else {
         return false;
     };
-    let Some(Object::Array(items)) = document
-        .get_key_of(id, "Annots")
-        .map(|value| document.resolve(&value))
+    let page = document.get(id);
+    let Some(Object::Array(items)) = page
+        .as_dict()
+        .map(|page| pdf_model::page_annots(document, page))
     else {
         return false;
     };

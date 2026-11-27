@@ -335,7 +335,11 @@ of repairs · all six · **built in session 2217**, `discard` at `font-maps-as-r
   mappings this reader read, proved to answer every code alike at every width, its dropped entries
   named in the report (ADR 3781); a map cut by one of this reader's bounds keeps the refusal. A
   damaged encoding `CMap` selects glyphs, is section 5.1's own and refused by the output's check
-  (ADR 3782).
+  (ADR 3782). A Type 3 font's maps are restated alike, its encoding name read as no table written
+  as the encoding dictionary assigning no code (Table 110 requires one), proved by every code
+  naming the glyph it named (ADR 3793); a font written directly inside another object is restated
+  in its holder; and a damaged map that also states placeholders has them taken out of the map as
+  read, so the font names one map, whole and free of them (ADR 3794).
 - **By target** — none; both parts bind the base standard alike.
 - **From a configuration** — `[site."fonts/font-maps-read-as-written"]` with `remedy = "discard"`,
   which `as-shown` and `as-if-printed` carry; `state-every-loss` answers `try = ["append-statement",
