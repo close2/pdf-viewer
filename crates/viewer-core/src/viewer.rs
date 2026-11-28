@@ -722,6 +722,25 @@ impl Viewer {
                 // Table 29's `/OpenAction` was performed at the open, before the first page's
                 // `/O` (ADR 2964); its scripts are the open sequence's.
                 open_sequence(open);
+                // The presented pages' rich media `PO` and `PV`, which the open's page moments
+                // left until now so that page one pays nothing for them (ADR 3854).
+                if first {
+                    let pages = pdf_model::Pages::new(&open.document);
+                    let current = geometry::annotations_on(open, &pages, open.page_index);
+                    let visible: Vec<pdf_syntax::ObjectId> = open
+                        .visible
+                        .iter()
+                        .flat_map(|page| geometry::annotations_on(open, &pages, *page))
+                        .collect();
+                    drop(pages);
+                    let outcome = interact::rich_media_presented(open, &current, &visible);
+                    if let Some(id) = self.focused {
+                        self.apply(id, outcome, events);
+                    }
+                }
+                let Some(open) = self.focused_mut() else {
+                    return;
+                };
                 // §12.8.3.4.5: "when the user opens a signed document or requests verification of
                 // these signatures present in the PDF, a PDF processor, as the verifier, shall
                 // perform the following steps". The open's verification is the document's

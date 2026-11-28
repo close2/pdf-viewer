@@ -139,6 +139,14 @@ impl Pictures {
         self.player.as_ref().is_some_and(VideoPlayer::in_hand)
     }
 
+    /// Whether a synchronous movie holds the reader ([`VideoPlayer::holds_the_reader`]).
+    #[must_use]
+    pub fn holds_the_reader(&self) -> bool {
+        self.player
+            .as_ref()
+            .is_some_and(VideoPlayer::holds_the_reader)
+    }
+
     /// Takes the newest picture whose time has come and converts it, and what the player said.
     /// Never waits.
     pub fn look(&mut self, now: Instant) -> Looked {

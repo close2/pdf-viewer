@@ -84,6 +84,16 @@ const WAITING_LOOK: Duration = Duration::from_millis(5);
 /// at most this late (ADR 3562).
 pub const DECODING_LOOK: Duration = Duration::from_millis(4);
 
+/// What a window says of a key or a click refused while a synchronous movie holds the reader
+/// ([`VideoPlayer::holds_the_reader`]).
+pub const HELD: &str = "a movie is playing synchronously (ISO 32000-2 §13.4, Table 307's \
+                        /Synchronous), so nothing but Escape, which dismisses it, is taken until \
+                        it is completed";
+
+/// What the title says while a synchronous movie holds the reader.
+pub const HOLDING: &str = "showing a movie synchronously, nothing but Escape is taken until it is \
+                           completed, and Escape dismisses it";
+
 impl InHand {
     /// How the pass in hand is decoded backward: every pass where Table 307's `/Rate` is negative,
     /// and under its `/Mode` `Palindrome` every second pass turned against the first (ADR 3842).
@@ -186,6 +196,9 @@ pub struct Shown {
     /// Table 307's `/Mode` `Palindrome`: each pass after the first in the direction opposite to
     /// the one before it, the first in [`Self::backward`]'s (ADR 3842).
     pub palindrome: bool,
+    /// Table 307's `/Synchronous` true: "the movie player shall retain control until the movie is
+    /// completed or dismissed by the user" ([`VideoPlayer::holds_the_reader`], ADR 3853).
+    pub synchronous: bool,
 }
 
 impl Shown {
@@ -219,6 +232,7 @@ impl Shown {
             quarter_turns: playing.quarter_turns,
             backward: playing.backward,
             palindrome: playing.palindrome,
+            synchronous: playing.synchronous,
         })
     }
 }
@@ -746,6 +760,7 @@ impl VideoPlayer {
         }
         let label = shown.label.clone();
         let auto_play = shown.auto_play;
+        let synchronous = shown.synchronous;
         let file = Arc::clone(&shown.file);
         let timeline = timeline::Timeline::new(&pdf_model::media::Playing {
             duration: shown.duration,
@@ -786,8 +801,14 @@ impl VideoPlayer {
         } else {
             ""
         };
+        let holding = if synchronous {
+            "; it plays synchronously (Table 307's /Synchronous), so until it is completed this \
+             window takes no key or click but Escape, which dismisses it"
+        } else {
+            ""
+        };
         self.seen.push(if auto_play {
-            Seen::Showing(format!("{label}: showing its pictures{caveat}"))
+            Seen::Showing(format!("{label}: showing its pictures{caveat}{holding}"))
         } else {
             Seen::Paused(format!(
                 "{label}: held at its start (Table 291's /A false){caveat}"
@@ -1051,6 +1072,19 @@ impl VideoPlayer {
     #[must_use]
     pub fn in_hand(&self) -> bool {
         self.in_hand.is_some()
+    }
+
+    /// Whether a synchronous movie holds the reader: Table 307's `/Synchronous` true, "the movie
+    /// player shall retain control until the movie is completed or dismissed by the user"
+    /// (ISO 32000-2 §13.4). It holds while its clock runs — a clip held at its start or paused
+    /// holds nothing, as a paused synchronous sound does not (ADR 3343) — and lets go when its
+    /// last pass ends, or when Escape, the dismissal, stops it. While it holds, the window takes
+    /// Escape and refuses every other key and click with [`HELD`] (ADR 3853).
+    #[must_use]
+    pub fn holds_the_reader(&self) -> bool {
+        self.in_hand
+            .as_ref()
+            .is_some_and(|hand| hand.shown.synchronous && hand.running)
     }
 
     /// [`Self::next_due`] for a window the decoding thread cannot wake — Qt's, whose loop a wake

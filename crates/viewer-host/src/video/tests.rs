@@ -33,6 +33,7 @@ fn shown(repeat: f64) -> Shown {
         quarter_turns: 0,
         backward: false,
         palindrome: false,
+        synchronous: false,
     }
 }
 
@@ -529,4 +530,56 @@ fn a_clip_that_asks_for_the_bar_answers_it_and_a_press_pauses_it() {
     );
     let (plain, _, _) = holding(shown(1.0));
     assert!(plain.controller(began).is_none());
+}
+
+/// **Table 307's `/Synchronous` true** — "the movie player shall retain control until the movie
+/// is completed or dismissed by the user" (ISO 32000-2 §13.4, ADR 3853): the clip holds the
+/// reader while it shows, and lets go at its end. The wrong answers excluded: a hold that outlives
+/// the movie, and one an asynchronous clip takes.
+#[test]
+fn a_synchronous_movie_holds_the_reader_until_it_is_completed() {
+    let (mut player, outbox, began) = holding(Shown {
+        synchronous: true,
+        ..shown(1.0)
+    });
+    assert!(player.holds_the_reader());
+    send(&outbox, 1, 0);
+    send(&outbox, 1, 40);
+    assert!(player.due(began).is_some());
+    assert!(player.holds_the_reader(), "a movie still showing holds");
+    outbox
+        .send(Decoded::Over {
+            generation: 1,
+            result: Ok((Duration::from_millis(40), None)),
+        })
+        .expect("queued");
+    let _ = player.due(began + Duration::from_millis(50));
+    assert!(player.holds_the_reader(), "its last picture is still up");
+    let _ = player.due(began + Duration::from_millis(90));
+    assert!(!player.in_hand());
+    assert!(
+        !player.holds_the_reader(),
+        "a completed movie holds nothing"
+    );
+    let (asynchronous, _outbox, _) = holding(shown(1.0));
+    assert!(!asynchronous.holds_the_reader());
+}
+
+/// The same movie dismissed: Escape, which the window answers with [`VideoPlayer::stop`], lets
+/// the reader go; and one paused by a rendition action holds nothing while it stands, as a paused
+/// synchronous sound does not (ADR 3343), and holds again once it runs.
+#[test]
+fn a_synchronous_movie_dismissed_or_paused_lets_the_reader_go() {
+    let (mut player, _outbox, _) = holding(Shown {
+        synchronous: true,
+        ..shown(0.0)
+    });
+    let document = DocumentId(1);
+    assert!(player.operate(document, ObjectId::new(9, 0), MediaOperation::Pause));
+    assert!(!player.holds_the_reader(), "a paused movie holds nothing");
+    assert!(player.resume());
+    assert!(player.holds_the_reader(), "running again, it holds again");
+    player.stop();
+    assert!(!player.holds_the_reader(), "dismissed, it lets go");
+    assert!(matches!(player.seen().last(), Some(Seen::Stopped(_))));
 }

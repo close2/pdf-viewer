@@ -69,6 +69,7 @@ fn shown(file: Arc<[u8]>) -> Shown {
         quarter_turns: 0,
         backward: false,
         palindrome: false,
+        synchronous: false,
     }
 }
 

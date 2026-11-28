@@ -640,13 +640,18 @@ pub(super) fn is_widget(document: &pdf_syntax::Document, annotation: ObjectId) -
 /// click has already found its page. ADR 0295.
 ///
 /// **A rich media annotation's assets come out the same way** (§13.7.2.3.2, ADR 2399): the owner's
-/// A631 makes them files a person saves, never a player's, so a click hands each over as an
-/// embedded file under the reader's level for those, with any departure of its name said.
+/// A631 makes them files a person saves, so a click hands each over as an embedded file under the
+/// reader's level for those, with any departure of its name said — except where the press plays
+/// the annotation's `Sound` or `Video` configuration, which is §13.7.2.1's activation (ADR 3855).
 fn exhibit(id: DocumentId, open: &mut Open, annotation: ObjectId, events: &mut Vec<Event>) -> bool {
     let toggled = open.toggle_popup(annotation);
+    // A configuration the players take is played by the press instead (ADR 3855); its assets
+    // stay listed among the document's attachments, to be saved from there.
     let assets = match open.document.get(annotation).as_dict() {
-        Some(dict) => pdf_model::attachment::rich_media::assets(&open.document, dict),
-        None => pdf_model::attachment::rich_media::Assets::default(),
+        Some(dict) if !interact::rich_media_plays(open, dict) => {
+            pdf_model::attachment::rich_media::assets(&open.document, dict)
+        }
+        _ => pdf_model::attachment::rich_media::Assets::default(),
     };
     if !assets.departures.is_empty() {
         events.push(Event::Reported {

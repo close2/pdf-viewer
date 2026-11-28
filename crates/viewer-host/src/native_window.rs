@@ -421,7 +421,26 @@ impl WindowState {
             notes.push_str(" — ");
             notes.push_str(sounds);
         }
+        if self.pictures.holds_the_reader() {
+            notes.push_str(" — ");
+            notes.push_str(crate::video::HOLDING);
+        }
         notes
+    }
+
+    /// What the window says of a key or a click it refuses because a player holds the reader, or
+    /// `None` where none does: a synchronous movie (Table 307's `/Synchronous`, ADR 3853) or a
+    /// synchronous sound (Table 212's, ADR 3343). Escape, which dismisses either, is taken before
+    /// this is asked.
+    #[must_use]
+    pub fn held(&self) -> Option<&'static str> {
+        if self.pictures.holds_the_reader() {
+            Some(crate::video::HELD)
+        } else if self.sounds.holds_the_reader() {
+            Some(crate::sound::HELD)
+        } else {
+            None
+        }
     }
 
     /// Saves the active document's current state before its `Showing` is parked or replaced.

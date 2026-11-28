@@ -48,10 +48,10 @@ impl Host {
                 return;
             }
         }
-        // **A synchronous sound holds the reader** until it ends: every other key is refused and
-        // said (ISO 32000-2 §12.6.4.9's Table 212 `/Synchronous`, ADR 3343).
-        if self.state.sounds.holds_the_reader() {
-            self.say(viewer_host::sound::HELD);
+        // **A synchronous sound or movie holds the reader** until it ends: every other key is
+        // refused and said (Table 212's `/Synchronous`, ADR 3343; Table 307's, ADR 3853).
+        if let Some(held) = self.state.held() {
+            self.say(held);
             return;
         }
         let mode = viewer_host::Mode::of(&self.state.presenting);
@@ -203,8 +203,9 @@ impl Host {
     /// `viewer_host::WheelTravel::distance` gives both windows (ADR 2291). Device pixels out, because that is what `Command::Scroll` speaks, and
     /// turned towards the person, which is the boundary's positive.
     pub(crate) fn scrolled(&mut self, dx: f32, dy: f32, pixels: bool) {
-        // A synchronous sound holds the reader; the title already says so (ADR 3343).
-        if self.state.sounds.holds_the_reader() {
+        // A synchronous sound or movie holds the reader; the title already says so (ADRs 3343,
+        // 3853).
+        if self.state.held().is_some() {
             return;
         }
         let travel = if pixels {
@@ -246,7 +247,7 @@ impl Host {
     /// y)` is the pointer in device pixels of the viewport, the point `quorra` and `quorra-gtk`
     /// keep still too.
     pub(crate) fn wheel_zoom(&mut self, amount: f32, pixels: bool, x: f32, y: f32) {
-        if self.state.sounds.holds_the_reader() {
+        if self.state.held().is_some() {
             return;
         }
         let travel = if pixels {
@@ -310,11 +311,11 @@ impl Host {
                 return;
             }
         };
-        // A synchronous sound holds the reader: a press is refused and said, and the rest of a
-        // gesture it began goes nowhere (ADR 3343).
-        if self.state.sounds.holds_the_reader() {
+        // A synchronous sound or movie holds the reader: a press is refused and said, and the rest
+        // of a gesture it began goes nowhere (ADRs 3343, 3853).
+        if let Some(held) = self.state.held() {
             if matches!(action, PointerAction::Pressed) {
-                self.say(viewer_host::sound::HELD);
+                self.say(held);
             }
             return;
         }

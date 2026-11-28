@@ -20,14 +20,15 @@ use pdf_syntax::{Dictionary, Document, ObjectId};
 use super::Outcome;
 use crate::open::Open;
 
-/// What activating a movie or a sound annotation hands over, what activating a 3D or a rich media
+/// What activating a movie, a sound or a rich media annotation hands over, what activating a 3D
 /// annotation says, and `None` for every other subtype.
 ///
 /// §12.5.6.17: "When the annotation is activated, the movie shall be played." And §12.5.6.16, of a
 /// sound annotation: "When the annotation is activated, the sound shall be played." A 3D or rich
 /// media annotation is activated by default by "an explicit user action" (Table 310's `/A` `XA`,
-/// Table 335's `/Condition`), and activation shows artwork this program does not render: the
-/// press is answered by [`artwork_not_rendered`] (trap 5, ADR 3819).
+/// Table 335's `/Condition`). A 3D annotation's artwork is not rendered, and the press is
+/// answered by [`artwork_not_rendered`] (trap 5, ADR 3819); a rich media annotation's `Sound` or
+/// `Video` configuration is played, and any other said ([`super::rich_media::pressed`], ADR 3855).
 pub(crate) fn exhibited(open: &Open, annotation: ObjectId) -> Option<Outcome> {
     let object = open.document.get(annotation);
     let dict = object.as_dict()?;
@@ -51,33 +52,23 @@ pub(crate) fn exhibited(open: &Open, annotation: ObjectId) -> Option<Outcome> {
             &mut outcome,
             None,
         ),
-        kind @ (b"3D" | b"RichMedia") => outcome.notes.push(artwork_not_rendered(kind == b"3D")),
+        b"3D" => outcome.notes.push(artwork_not_rendered()),
+        b"RichMedia" => super::rich_media::pressed(open, annotation, dict, &mut outcome),
         _ => return None,
     }
     Some(outcome)
 }
 
-/// The sentence a press on a 3D annotation (`three_d`) or on a rich media annotation is answered
-/// with: the artwork activation would show is not rendered, and the annotation stays in §13.6.2's
-/// first state — "Inactive (the default initial state): the annotation displays the annotation's
-/// normal appearance", which §13.7.2.1 gives a rich media annotation too.
-///
-/// Rendering U3D and PRC artwork is excluded (`CLAUDE.md`'s clause 13 entry,
-/// `doc/scope-ratifications.md`); a rich media annotation's `Sound` and `Video` configurations
-/// follow the audio and video players and are not built yet (`doc/todo/80`, ADR 3820).
-fn artwork_not_rendered(three_d: bool) -> String {
-    if three_d {
-        "this 3D annotation's artwork is not shown — rendering U3D and PRC artwork is excluded \
-         from this program (ISO 32000-2 clause 13), so the annotation keeps its normal appearance, \
-         §13.6.2's inactive state"
-            .to_owned()
-    } else {
-        "this rich media annotation's content is not shown — its 3D artwork is excluded from this \
-         program and its Sound and Video configurations are not built yet (ISO 32000-2 §13.7), so \
-         the annotation keeps its normal appearance, §13.7.2.1's inactive state; the press hands its \
-         assets over as files to save (ADR 2399)"
-            .to_owned()
-    }
+/// The sentence a press on a 3D annotation is answered with: the artwork activation would show is
+/// not rendered, and the annotation stays in §13.6.2's first state — "Inactive (the default
+/// initial state): the annotation displays the annotation's normal appearance". Rendering U3D and
+/// PRC artwork is excluded (`CLAUDE.md`'s clause 13 entry, `doc/scope-ratifications.md`). A rich
+/// media annotation's press is [`super::rich_media::pressed`]'s (ADR 3855).
+fn artwork_not_rendered() -> String {
+    "this 3D annotation's artwork is not shown — rendering U3D and PRC artwork is excluded from \
+     this program (ISO 32000-2 clause 13), so the annotation keeps its normal appearance, \
+     §13.6.2's inactive state"
+        .to_owned()
 }
 
 /// §13.4's Table 306 `/Poster` `true` of each movie annotation among `annotations`, on pages that
@@ -246,7 +237,7 @@ pub(super) fn movie_requested(
 
 /// What this processor tells `pdf_model::media` about itself, as a rendition action's judgement is
 /// told.
-fn processor(open: &Open) -> pdf_model::media::Processor<'_> {
+pub(super) fn processor(open: &Open) -> pdf_model::media::Processor<'_> {
     pdf_model::media::Processor {
         language: open.view.audience().language.as_deref(),
         players: open.view.players(),

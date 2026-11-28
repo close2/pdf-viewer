@@ -1422,6 +1422,15 @@ impl App {
             }
             None => {}
         }
+        // A synchronous movie holding the reader, with the key that dismisses it (ADR 3853).
+        if self
+            .video
+            .as_ref()
+            .is_some_and(viewer_host::video::VideoPlayer::holds_the_reader)
+        {
+            drawing.push_str(" — ");
+            drawing.push_str(viewer_host::video::HOLDING);
+        }
         if self.measured.is_empty() {
             drawing
         } else {

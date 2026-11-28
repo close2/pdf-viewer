@@ -133,7 +133,9 @@ pub struct Playing {
     pub auto_play: bool,
     /// Table 212's `/Synchronous`: "If this flag is true , the interactive PDF processor retains
     /// control, allowing no further user interaction other than cancelling the sound, until the
-    /// sound has been completely played."
+    /// sound has been completely played." For a movie, Table 307's `/Synchronous`: "the movie
+    /// player shall retain control until the movie is completed or dismissed by the user" (ADR
+    /// 3853).
     pub synchronous: bool,
     /// Table 212's `/Mix`: "A flag specifying whether to mix this sound with any other sound
     /// already playing."

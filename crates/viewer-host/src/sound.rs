@@ -1009,8 +1009,9 @@ impl Thread {
         match self.start_pass() {
             Ok(()) => self.tell(if playing.synchronous {
                 Heard::Holding(format!(
-                    "{said}; it plays synchronously (Table 212's /Synchronous), so until it ends \
-                     this window takes no key or click but Escape, which cancels it"
+                    "{said}; it plays synchronously (Table 212's /Synchronous for a sound, Table \
+                     307's for a movie), so until it ends this window takes no key or click but \
+                     Escape, which cancels it"
                 ))
             } else {
                 Heard::Playing(said)

@@ -636,10 +636,10 @@ impl App {
                 return;
             }
         }
-        // **A synchronous sound holds the reader** until it ends: every other key is refused and
-        // said (ISO 32000-2 §12.6.4.9's Table 212 `/Synchronous`, ADR 3343).
-        if self.held_by_a_sound() {
-            println!("note: {}", viewer_host::sound::HELD);
+        // **A synchronous sound or movie holds the reader** until it ends: every other key is
+        // refused and said (Table 212's `/Synchronous`, ADR 3343; Table 307's, ADR 3853).
+        if let Some(held) = self.held() {
+            println!("note: {held}");
             return;
         }
         // **And the up and down arrows, which move its selection** (ADR 1786): the keys a native

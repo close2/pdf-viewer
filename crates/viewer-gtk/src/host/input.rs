@@ -60,10 +60,10 @@ impl Host {
                 return true;
             }
         }
-        // **A synchronous sound holds the reader** until it ends: every other key is refused and
-        // said (ISO 32000-2 §12.6.4.9's Table 212 `/Synchronous`, ADR 3343).
-        if self.state.sounds.holds_the_reader() {
-            self.say(viewer_host::sound::HELD);
+        // **A synchronous sound or movie holds the reader** until it ends: every other key is
+        // refused and said (Table 212's `/Synchronous`, ADR 3343; Table 307's, ADR 3853).
+        if let Some(held) = self.state.held() {
+            self.say(held);
             return true;
         }
         // A push-button §12.5.1's focus is on takes Space and Enter before the page does, since no
@@ -361,8 +361,9 @@ impl Host {
     /// the `DISCRETE` controller counted moves `viewer_host::SCROLL_NOTCH`, and a finger's pixel a
     /// pixel (ADRs 2274, 2291). Device pixels out, because that is what `Command::Scroll` speaks.
     fn scrolled(&mut self, travel: viewer_host::WheelTravel) {
-        // A synchronous sound holds the reader; the title already says so (ADR 3343).
-        if self.state.sounds.holds_the_reader() {
+        // A synchronous sound or movie holds the reader; the title already says so (ADRs 3343,
+        // 3853).
+        if self.state.held().is_some() {
             return;
         }
         let (dx, dy) = travel.distance();
@@ -386,7 +387,7 @@ impl Host {
     /// of the page area, which is the one rule `quorra` keeps; before the pointer has entered there
     /// is no such point and the core holds the centre.
     fn wheel_zoom(&mut self, travel: viewer_host::WheelTravel) {
-        if self.state.sounds.holds_the_reader() {
+        if self.state.held().is_some() {
             return;
         }
         let zoom = viewer_host::ZoomTravel::of(travel);
@@ -427,11 +428,11 @@ impl Host {
     /// The pointer, in logical pixels of the overlay.
     fn pointer(&mut self, x: f64, y: f64, action: PointerAction) {
         self.pointer_at = Some((x, y));
-        // A synchronous sound holds the reader: a press is refused and said, and the rest of a
-        // gesture it began goes nowhere (ADR 3343).
-        if self.state.sounds.holds_the_reader() {
+        // A synchronous sound or movie holds the reader: a press is refused and said, and the rest
+        // of a gesture it began goes nowhere (ADRs 3343, 3853).
+        if let Some(held) = self.state.held() {
             if matches!(action, PointerAction::Pressed) {
-                self.say(viewer_host::sound::HELD);
+                self.say(held);
             }
             return;
         }

@@ -398,6 +398,13 @@ impl Window {
                 return (ActKind::Nothing, 0.0);
             }
         }
+        // A synchronous sound or movie holds the reader until it ends: every other key is refused
+        // and said, as the three toolkit windows refuse it (ADRs 3343, 3853).
+        if let Some(held) = self.state.held() {
+            self.say(held);
+            self.settle();
+            return (ActKind::Nothing, 0.0);
+        }
         let mode = if self.state.presenting.full_screen() {
             viewer_host::Mode::Presenting
         } else {
@@ -429,6 +436,10 @@ impl Window {
 
     /// The wheel or a scroll bar moved the view, in device pixels.
     pub fn scroll(&mut self, dx: f32, dy: f32) {
+        // A synchronous sound or movie holds the reader (ADRs 3343, 3853).
+        if self.state.held().is_some() {
+            return;
+        }
         self.dispatch(Command::Scroll { dx, dy });
         self.settle();
     }
@@ -441,6 +452,9 @@ impl Window {
     /// spends it and carries the fraction a high-resolution wheel leaves, so a gesture is counted
     /// as `viewer-gtk` and `viewer-qt` count it (ADRs 1118, 2152).
     pub fn wheel_zoom(&mut self, travel: f32, unit: WheelKind, at: (f32, f32)) -> i32 {
+        if self.state.held().is_some() {
+            return 0;
+        }
         let steps = unit.steps(&mut self.zoom_wheel, travel);
         let zoom = if steps > 0 {
             viewer_core::Zoom::In
@@ -460,6 +474,14 @@ impl Window {
     /// §12.9's measuring takes a press before the text selection does, which is the one gesture it
     /// takes away (ADR 1191).
     pub fn pointer(&mut self, at: (f32, f32), action: viewer_core::PointerAction) -> bool {
+        // A synchronous sound or movie holds the reader: a press is refused and said, and the rest
+        // of a gesture it began goes nowhere (ADRs 3343, 3853).
+        if let Some(held) = self.state.held() {
+            if matches!(action, viewer_core::PointerAction::Pressed) {
+                self.say(held);
+            }
+            return false;
+        }
         // A press on a clip's controller bar is the bar's (ADR 3610): the page never sees it.
         if matches!(action, viewer_core::PointerAction::Pressed) && self.press_the_bar(at) {
             return false;

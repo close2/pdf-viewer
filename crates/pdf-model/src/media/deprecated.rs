@@ -246,8 +246,8 @@ struct Told {
 ///   speed: the pictures follow the sound's device clock (ADR 3555), which runs at the recording's
 ///   rate.
 /// - `/Synchronous` true — "the movie player shall retain control until the movie is completed or
-///   dismissed by the user" — is said: the window stays the reader's while the movie plays, and
-///   Escape dismisses it.
+///   dismissed by the user" — is [`Playing::synchronous`]: the window's players hold the reader
+///   while the movie plays, taking no key or click but Escape, which dismisses it (ADR 3853).
 /// - `/FWScale` "implies that the movie shall be played in a floating window" of `(numerator ÷
 ///   denominator) × Aspect` pixels, placed by `/FWPosition` on the screen.
 fn told(
@@ -322,12 +322,12 @@ fn told(
             ));
         }
     }
-    if matches!(stated("Synchronous"), Object::Boolean(true)) {
-        told.set_aside.push(
-            "Table 307's /Synchronous true, because the window stays the reader's while the \
-             movie plays (Escape dismisses it)"
-                .to_owned(),
-        );
+    match stated("Synchronous") {
+        Object::Boolean(flag) => told.playing.synchronous = flag,
+        Object::Null => {}
+        _ => told
+            .set_aside
+            .push("Table 307's /Synchronous, because its value is not a boolean".to_owned()),
     }
     match floating(document, movie, stated, processor) {
         Ok((window, nearest)) => {
@@ -659,7 +659,7 @@ pub fn sound(
 ///
 /// Both forms, unlike §13.2.4.2's `/D`: Table 306 and Table 5 each say "file specification", and the
 /// sentence that excludes "the use of simple file specifications" is §13.2.4.2's own.
-fn file(document: &Document, specification: &Object, fallback: &str) -> Option<Data> {
+pub(super) fn file(document: &Document, specification: &Object, fallback: &str) -> Option<Data> {
     let resolved = document.resolve(specification);
     let parsed = FileSpec::parse(document, &resolved)?;
     // not a repair: the caller's own name for a file specification that names none, shown to a
@@ -677,7 +677,7 @@ fn file(document: &Document, specification: &Object, fallback: &str) -> Option<D
 }
 
 /// Table 44's `/Subtype` of an embedded file, the one content type a self-describing file states.
-fn content_type(data: &Data) -> Option<String> {
+pub(super) fn content_type(data: &Data) -> Option<String> {
     match data {
         Data::Embedded(file) => file.media_type.clone(),
         Data::Url(_) | Data::File(_) | Data::Form | Data::Samples(_) => None,
@@ -851,6 +851,49 @@ mod tests {
         )
         .expect("handed on");
         assert!(!handed.played_here);
+    }
+
+    /// Table 307's `/Synchronous` true, "the movie player shall retain control until the movie is
+    /// completed or dismissed by the user", reaches the player as [`Playing::synchronous`] and is
+    /// no longer said as unhonoured (ADR 3853); the action's `false` overrides the activation's
+    /// `true` (§12.6.4.10), and a value that is no boolean is said and plays asynchronously.
+    #[test]
+    fn a_synchronous_movie_tells_the_player_to_hold() {
+        let doc = document(&[
+            "<< /Type /Catalog >>",
+            "<< /Type /Annot /Subtype /Movie /Rect [0 0 10 10] /Movie << /F 3 0 R >> \
+             /A << /Synchronous true >> >>",
+            "<< /Type /Filespec /F (clip.mp4) /EF << /F 4 0 R >> >>",
+            "<< /Type /EmbeddedFile /Subtype /video#2Fmp4 /Length 4 >>\nstream\nmoov\nendstream",
+            "<< /S /Movie /Synchronous false >>",
+            "<< /S /Movie /Synchronous /Yes >>",
+        ]);
+        let held = movie(&doc, &dict(&doc, 2), None, shows_video(false)).expect("shown");
+        assert!(held.playing.synchronous);
+        assert!(held.unhonoured.is_empty(), "{:?}", held.unhonoured);
+        let released = movie(
+            &doc,
+            &dict(&doc, 2),
+            Some(&dict(&doc, 5)),
+            shows_video(false),
+        )
+        .expect("shown");
+        assert!(
+            !released.playing.synchronous,
+            "the action's false overrides"
+        );
+        let odd = movie(
+            &doc,
+            &dict(&doc, 2),
+            Some(&dict(&doc, 6)),
+            shows_video(false),
+        )
+        .expect("shown");
+        assert!(!odd.playing.synchronous);
+        assert_eq!(
+            odd.unhonoured,
+            ["Table 307's /Synchronous, because its value is not a boolean"]
+        );
     }
 
     /// Table 306's `/Poster` `true`, "the poster image shall be retrieved from the movie file",

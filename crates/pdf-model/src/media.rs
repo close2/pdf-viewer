@@ -50,6 +50,7 @@ use crate::file_spec::FileSpec;
 pub mod container;
 mod deprecated;
 mod playing;
+pub mod rich_media;
 mod screen;
 mod wave;
 

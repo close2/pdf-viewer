@@ -24,8 +24,10 @@ use crate::command::Purpose;
 use crate::open::Open;
 
 mod deprecated_media;
+mod rich_media;
 
 pub(crate) use deprecated_media::{exhibited, posters};
+pub(crate) use rich_media::{plays as rich_media_plays, presented as rich_media_presented};
 
 /// One media request a chain of actions made, in the chain's order.
 #[derive(Debug)]
@@ -484,19 +486,23 @@ pub(crate) fn trigger(
         composed
     });
     let dict = composed.as_ref().unwrap_or(dict);
+    // Table 335's and Table 336's page conditions of a rich media annotation, beside whatever
+    // its own Table 197 entries perform (ADR 3854).
+    let mut conditioned = Outcome::default();
+    rich_media::raised(open, annotation, dict, event, &mut conditioned);
     let actions = handed_over(
         pdf_model::action::for_annotation(&open.document, dict, event),
         scripted,
         open.view.runs_scripts(),
     );
     if actions.is_empty() {
-        return Outcome::default();
+        return conditioned;
     }
     // Table 240 bit 5 wants "the coordinates of the mouse click that caused the submit-form
     // action", and a submit button is a widget rather than a link — so this is the path a
     // submission's coordinates actually arrive by. `None` for the events a pointer did not
     // raise: Table 198's page open and close, and a focus change.
-    perform(
+    let mut outcome = perform(
         open,
         &actions,
         None,
@@ -506,7 +512,10 @@ pub(crate) fn trigger(
             widget: Some(annotation),
         }),
         "this annotation",
-    )
+    );
+    outcome.notes.append(&mut conditioned.notes);
+    outcome.media.append(&mut conditioned.media);
+    outcome
 }
 
 /// §12.4.4.2: performs the action sequence a navigation node names.

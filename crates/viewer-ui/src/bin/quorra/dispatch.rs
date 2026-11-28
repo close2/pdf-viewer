@@ -1399,21 +1399,34 @@ impl App {
         false
     }
 
-    /// Whether a synchronous sound holds the reader — ISO 32000-2 §12.6.4.9's Table 212
-    /// `/Synchronous`, "allowing no further user interaction other than cancelling the sound" —
-    /// so that every key but Escape and every click is refused (ADR 3343).
-    pub(crate) fn held_by_a_sound(&self) -> bool {
-        matches!(self.sounding, Some(viewer_host::sound::Heard::Holding(_)))
+    /// What the terminal says of a key or a click refused because a player holds the reader, or
+    /// `None` where none does: a synchronous movie — Table 307's `/Synchronous`, "the movie player
+    /// shall retain control until the movie is completed or dismissed by the user" (ADR 3853) — or
+    /// a synchronous sound — ISO 32000-2 §12.6.4.9's Table 212 `/Synchronous`, "allowing no
+    /// further user interaction other than cancelling the sound" (ADR 3343). While either holds,
+    /// every key but Escape and every click is refused.
+    pub(crate) fn held(&self) -> Option<&'static str> {
+        if self
+            .video
+            .as_ref()
+            .is_some_and(viewer_host::video::VideoPlayer::holds_the_reader)
+        {
+            Some(viewer_host::video::HELD)
+        } else if matches!(self.sounding, Some(viewer_host::sound::Heard::Holding(_))) {
+            Some(viewer_host::sound::HELD)
+        } else {
+            None
+        }
     }
 
-    /// [`Self::held_by_a_sound`], saying so on the terminal where `said` — a press, not the rest
-    /// of the gesture it began.
+    /// Whether [`Self::held`] holds, saying so on the terminal where `said` — a press, not the
+    /// rest of the gesture it began.
     pub(crate) fn refused_while_held(&self, said: bool) -> bool {
-        let held = self.held_by_a_sound();
-        if held && said {
-            println!("note: {}", viewer_host::sound::HELD);
+        let held = self.held();
+        if let (Some(sentence), true) = (held, said) {
+            println!("note: {sentence}");
         }
-        held
+        held.is_some()
     }
 
     /// A media clip under the level this window holds, which the restrictions menu changes
