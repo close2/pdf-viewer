@@ -583,3 +583,48 @@ fn a_synchronous_movie_dismissed_or_paused_lets_the_reader_go() {
     assert!(!player.holds_the_reader(), "dismissed, it lets go");
     assert!(matches!(player.seen().last(), Some(Seen::Stopped(_))));
 }
+
+/// The core is told when the clip associated with an annotation is taken and when it leaves the
+/// player's hands — at its end, and at Escape's stop — and nothing while it stays in hand, or for a
+/// clip no rendition associates (ISO 32000-2 §13.7.2.3.5's snapshot, ADR 3889).
+#[test]
+fn the_core_is_told_when_an_associated_clip_is_taken_and_when_it_leaves() {
+    let told = |player: &mut VideoPlayer| -> Vec<(u32, bool)> {
+        player
+            .told()
+            .into_iter()
+            .filter_map(|command| match command {
+                viewer_core::Command::InHand {
+                    annotation,
+                    in_hand,
+                    ..
+                } => Some((annotation.number, in_hand)),
+                _ => None,
+            })
+            .collect()
+    };
+    // The end of the pass.
+    let (mut player, outbox, began) = holding(shown(1.0));
+    assert_eq!(told(&mut player), [(9, true)]);
+    assert!(told(&mut player).is_empty(), "held still");
+    outbox
+        .send(Decoded::Over {
+            generation: 1,
+            result: Ok((Duration::ZERO, None)),
+        })
+        .expect("queued");
+    assert!(player.due(began + Duration::from_millis(500)).is_none());
+    assert!(matches!(player.seen().last(), Some(Seen::Ended(_))));
+    assert_eq!(told(&mut player), [(9, false)]);
+    // Escape's stop.
+    let (mut player, _outbox, _) = holding(shown(1.0));
+    assert_eq!(told(&mut player), [(9, true)]);
+    player.stop();
+    assert_eq!(told(&mut player), [(9, false)]);
+    // A clip no rendition action associates with an annotation.
+    let (mut player, _outbox, _) = holding(Shown {
+        associated: None,
+        ..shown(1.0)
+    });
+    assert!(told(&mut player).is_empty(), "no annotation to tell of");
+}

@@ -100,6 +100,12 @@ impl App {
         for seen in &said {
             println!("note: {}", seen.sentence());
         }
+        // Table 344's snapshot is drawn while a clip associated with its annotation is in hand
+        // (ADR 3889).
+        let told = self.video.as_mut().map_or_else(Vec::new, VideoPlayer::told);
+        for command in told {
+            self.dispatch(command);
+        }
         if changed && windowed {
             self.present_the_media_window();
         } else if changed {

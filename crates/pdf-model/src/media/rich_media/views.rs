@@ -12,10 +12,10 @@
 //!   no scene for them to set, and rendering the `3D` configuration's is excluded (`CLAUDE.md`'s
 //!   clause 13 entry), so they are said as applying to nothing this program presents.
 //! - **Table 344's `/Snapshot`** — "If the Snapshot entry exists, the image it describes shall be
-//!   displayed in place of the current artwork" — is read and checked to be an image `XObject`,
-//!   and said as not displayed: the page this program draws would show it from activation to
-//!   deactivation, and Table 336's default deactivation is the reader's stop of a player, which no
-//!   host tells the page of yet (ADR 3881).
+//!   displayed in place of the current artwork" — is read and checked to be an image `XObject`.
+//!   The page displays it from activation to deactivation, while a clip associated with the
+//!   annotation is in the players' hands: `crate::view::ViewState::show_snapshot` holds that, and
+//!   `crate::annotation::decide` sets the stored appearance aside for the image (ADR 3889).
 //! - **Table 344's `/Params`** — "state data that shall be passed to the instance when the view is
 //!   triggered" — is §13.7.2.3.6.3's loading, which "the run time shall" perform by a protocol the
 //!   standard gives only for 3D content, an ECMAScript `StateEvent`, and that run time is ISO
@@ -259,7 +259,7 @@ fn sets_a_scene(key: &[u8]) -> bool {
 }
 
 /// Table 344's `/Snapshot` of `view`, where it is an image `XObject`, with what it is otherwise
-/// said in `notes`, and the snapshot that is read said as not displayed (ADR 3881).
+/// said in `notes` (ADRs 3881, 3889).
 fn snapshot(document: &Document, view: &Dictionary, notes: &mut Vec<String>) -> Option<ObjectId> {
     let stated = view.get("Snapshot")?;
     let reference = stated.as_reference();
@@ -278,13 +278,6 @@ fn snapshot(document: &Document, view: &Dictionary, notes: &mut Vec<String>) -> 
         );
         return None;
     }
-    notes.push(
-        "Table 344's /Snapshot, which \"shall be displayed in place of the current artwork\", is \
-         not displayed: the page would show it until the annotation is deactivated, and the \
-         reader's deactivation — Table 336's XD — is a stop of the player that no window tells \
-         the page of yet (ADR 3881)"
-            .to_owned(),
-    );
     reference
 }
 
@@ -369,7 +362,7 @@ mod tests {
     }
 
     /// Table 335's `/View` names the view, else Table 341's first; a snapshot that is an image
-    /// `XObject` is read and said as not displayed, one that is not is said and not read; the
+    /// `XObject` is read and nothing said of it, one that is not is said and not read; the
     /// view's Table 315 components are said for a clip and not for the `3D` kind; Table 344's
     /// `/Params` are read past by name (ADR 3881).
     #[test]
@@ -397,12 +390,7 @@ mod tests {
                 .iter()
                 .any(|note| note.contains("Table 315 entries"))
         );
-        assert!(
-            named
-                .notes
-                .iter()
-                .any(|note| note.contains("is not displayed"))
-        );
+        assert!(!named.notes.iter().any(|note| note.contains("Snapshot")));
         assert!(
             named
                 .notes

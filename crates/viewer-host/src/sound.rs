@@ -279,6 +279,8 @@ pub struct Player {
     tickets: u64,
     /// The screen annotation a sound plays in, followed from what the player says (ADR 3407).
     painting: painting::Painting,
+    /// The annotation whose clip the player holds, followed from what it says (ADR 3889).
+    holding: crate::in_hand::Holding,
 }
 
 /// What the player's thread tells the window: a sentence, or the screen annotation whose rectangle
@@ -287,6 +289,8 @@ pub struct Player {
 enum Said {
     Heard(Heard),
     Painted(Option<(DocumentId, Screen)>),
+    /// The annotation the sound in hand is associated with, or `None` once none is (ADR 3889).
+    Held(Option<(DocumentId, ObjectId)>),
 }
 
 /// The player's thread, and the two directions of talk with it.
@@ -320,6 +324,7 @@ impl Player {
             listened: Arc::new(Mutex::new(Listened::default())),
             tickets: 0,
             painting: painting::Painting::default(),
+            holding: crate::in_hand::Holding::default(),
         }
     }
 
@@ -424,6 +429,7 @@ impl Player {
                 match said {
                     Said::Heard(said) => heard.push(said),
                     Said::Painted(now) => self.painting.paint(now),
+                    Said::Held(now) => self.holding.hold(now),
                 }
             }
         }
@@ -435,8 +441,16 @@ impl Player {
     /// starts, and one with no screen when it ends, is stopped or another takes its place — taken
     /// in by [`Self::heard`], so a window asks after it (ISO 32000-2 Table 294's `/W` 3, ADR 3407).
     /// A pause leaves the rectangle painted: the rendition is still associated with it.
+    ///
+    /// And about the annotation a sound in hand is associated with: a
+    /// [`viewer_core::Command::InHand`] when the player takes a sound whose
+    /// [`viewer_core::SoundData::rendition`] names one, and another when the sound leaves its hands
+    /// — its end, its stop, its refusal or another in its place — for Table 344's snapshot, drawn
+    /// while it is held (ISO 32000-2 §13.7.2.3.5, ADR 3889).
     pub fn repainted(&mut self) -> Vec<viewer_core::Command> {
-        self.painting.owed()
+        let mut owed = self.painting.owed();
+        owed.extend(self.holding.owed());
+        owed
     }
 
     fn send(&mut self, order: Order) {
@@ -997,6 +1011,12 @@ impl Thread {
             synchronous: playing.synchronous,
         });
         self.paint(played.sound.screen.map(|screen| (played.document, screen)));
+        self.hold(
+            played
+                .sound
+                .rendition
+                .map(|associated| (played.document, associated.annotation)),
+        );
         let mut said = std::mem::take(&mut feed.said);
         if !playing.auto_play {
             said.push_str(
@@ -1124,6 +1144,7 @@ impl Thread {
                 if let Some(sounding) = self.sounding.take() {
                     self.clock_over();
                     self.paint(None);
+                    self.hold(None);
                     self.tell(Heard::Ended(format!(
                         "{} came to its end (ISO 32000-2 §13.3, §13.2.5)",
                         sounding.label
@@ -1164,6 +1185,7 @@ impl Thread {
         if let Some(sounding) = self.sounding.take() {
             self.clock_over();
             self.paint(None);
+            self.hold(None);
             self.tell(Heard::Refused(format!(
                 "{} was not played: the audio device: {why}",
                 sounding.label
@@ -1184,6 +1206,7 @@ impl Thread {
         if let Some(sounding) = self.sounding.take() {
             self.clock_over();
             self.paint(None);
+            self.hold(None);
             self.tell(Heard::Stopped(format!(
                 "{} was stopped{why}",
                 sounding.label
@@ -1325,6 +1348,13 @@ impl Thread {
 
     fn paint(&self, now: Option<(DocumentId, Screen)>) {
         if self.say.send(Said::Painted(now)).is_ok() {
+            (self.wake)();
+        }
+    }
+
+    /// Says which annotation the sound in hand is associated with, for its snapshot (ADR 3889).
+    fn hold(&self, now: Option<(DocumentId, ObjectId)>) {
+        if self.say.send(Said::Held(now)).is_ok() {
             (self.wake)();
         }
     }

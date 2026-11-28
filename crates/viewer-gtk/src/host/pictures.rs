@@ -117,9 +117,14 @@ impl Host {
     /// sentence the player said said, and the next look armed.
     pub(super) fn show_the_pictures(&mut self) {
         let now = Instant::now();
-        let looked = self.state.pictures.look(now);
+        let mut looked = self.state.pictures.look(now);
         for said in &looked.said {
             self.say(said.sentence());
+        }
+        // Table 344's snapshot is drawn while a clip associated with its annotation is in hand
+        // (ADR 3889).
+        for command in std::mem::take(&mut looked.told) {
+            self.dispatch(command);
         }
         self.keep_the_media_window();
         // A sentence is a change of state — paused, showing again — which the controller bar's

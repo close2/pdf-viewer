@@ -25,6 +25,9 @@ pub struct Looked {
     /// Whether the picture held up changed — a new one, or none where there was one — so that the
     /// window redraws it.
     pub changed: bool,
+    /// What the core is owed about the annotation the clip in hand is associated with
+    /// ([`VideoPlayer::told`], ADR 3889), for the window to dispatch.
+    pub told: Vec<viewer_core::Command>,
 }
 
 /// A window's clip pictures: none, and no thread or worker, until the first (`CLAUDE.md`'s
@@ -153,6 +156,9 @@ impl Pictures {
         let posted = self.posters.look();
         let mut looked = self.look_at_the_player(now);
         looked.said.extend(self.posters.seen());
+        if let Some(player) = self.player.as_mut() {
+            looked.told = player.told();
+        }
         looked.changed |= posted;
         looked
     }
@@ -181,6 +187,7 @@ impl Pictures {
                     return Looked {
                         said,
                         changed: true,
+                        told: Vec::new(),
                     };
                 }
             }
@@ -191,6 +198,7 @@ impl Pictures {
         Looked {
             said: player.seen(),
             changed,
+            told: Vec::new(),
         }
     }
 

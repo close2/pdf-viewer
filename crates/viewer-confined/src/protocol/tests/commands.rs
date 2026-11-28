@@ -487,6 +487,17 @@ fn every_carried_command_round_trips() {
             document: DocumentId(4),
             screen: None,
         },
+        // A clip associated with an annotation taken and left (ADR 3889).
+        Command::InHand {
+            document: DocumentId(4),
+            annotation: ObjectId::new(13, 2),
+            in_hand: true,
+        },
+        Command::InHand {
+            document: DocumentId(4),
+            annotation: ObjectId::new(13, 2),
+            in_hand: false,
+        },
         Command::Beside(None),
         Command::Beside(Some(DocumentId(9))),
         // §8.11.4.4's answers about the reader, in both the shapes that differ on the wire:

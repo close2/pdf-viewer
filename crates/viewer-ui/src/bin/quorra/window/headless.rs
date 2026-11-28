@@ -714,3 +714,46 @@ fn a_movie_s_poster_stands_until_it_plays_and_its_bar_takes_a_press() {
     assert!(app.poster_list(800, 1000).is_some(), "the poster again");
     let _ = std::fs::remove_file(&document);
 }
+
+/// Whether the page the core last interpreted reports Table 344's snapshot drawn in place of the
+/// rich media annotation's appearance.
+fn snapshot_drawn(app: &App) -> bool {
+    let Answer::Reports(reports) = app.viewer.query(Query::Reports) else {
+        return false;
+    };
+    reports
+        .iter()
+        .flat_map(|page| page.notes.iter())
+        .any(|note| note.contains(showing::SNAPSHOT_SHOWN))
+}
+
+/// ISO 32000-2 §13.7.2.3.5's snapshot in this window (ADR 3889): a rich media annotation's `Video`
+/// configuration activated plays in its rectangle, the window tells the core its player holds the
+/// clip, and the page is drawn with Table 344's image in place of the appearance until the clip
+/// has ended, when the window tells the core the clip has left its player; and the same for a clip
+/// Escape stops before its end.
+#[test]
+fn a_rich_media_snapshot_stands_while_the_clip_plays() {
+    let (sets, units, _) = pcm_stream::stream(12, 16, 16, pcm_stream::Coding::Progressive);
+    let clip = pcm_stream::mp4(&sets, &units, 16, 16);
+    let document = temporary("snapshot.pdf");
+    std::fs::write(&document, showing::a_rich_media_document(&clip)).expect("write the document");
+    let mut app = window_on(&document, viewer_host::ReaderWords::default());
+    app.restrictions = app.restrictions.with(viewer_host::ActLevel::MediaFiles(
+        viewer_host::MediaFiles::Open,
+    ));
+    assert!(!snapshot_drawn(&app), "the appearance before");
+
+    app.dispatch(Command::Activate(showing::RICH_MEDIA));
+    show_until(&mut app, "drawn the snapshot", snapshot_drawn);
+    show_until(&mut app, "ended the clip", |app| {
+        app.video.as_ref().is_some_and(|video| !video.in_hand())
+    });
+    assert!(!snapshot_drawn(&app), "the appearance after the clip's end");
+
+    app.dispatch(Command::Activate(showing::RICH_MEDIA));
+    show_until(&mut app, "drawn the snapshot again", snapshot_drawn);
+    assert!(app.stop_the_pictures(), "Escape stops the clip in hand");
+    assert!(!snapshot_drawn(&app), "the appearance after Escape's stop");
+    let _ = std::fs::remove_file(&document);
+}

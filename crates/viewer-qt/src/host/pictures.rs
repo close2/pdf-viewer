@@ -42,6 +42,11 @@ impl Host {
         for said in &looked.said {
             self.say(said.sentence());
         }
+        // Table 344's snapshot is drawn while a clip associated with its annotation is in hand
+        // (ADR 3889).
+        for command in looked.told {
+            self.dispatch(command);
+        }
         if looked.changed {
             self.update.frame = true;
         }

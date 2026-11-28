@@ -696,6 +696,8 @@ pub struct VideoPlayer {
     in_hand: Option<InHand>,
     generation: u64,
     seen: Vec<Seen>,
+    /// The annotation whose clip was in hand when the core was last told (ADR 3889).
+    holding: crate::in_hand::Holding,
 }
 
 impl std::fmt::Debug for VideoPlayer {
@@ -723,6 +725,7 @@ impl VideoPlayer {
             in_hand: None,
             generation: 0,
             seen: Vec::new(),
+            holding: crate::in_hand::Holding::default(),
         }
     }
 
@@ -1361,6 +1364,23 @@ impl VideoPlayer {
     /// What the player has said since the last call.
     pub fn seen(&mut self) -> Vec<Seen> {
         std::mem::take(&mut self.seen)
+    }
+
+    /// What the core is owed about the annotation the clip in hand is associated with, since the
+    /// last call: a [`viewer_core::Command::InHand`] when a clip whose [`Shown::associated`] names
+    /// one is taken, and another when it leaves the player's hands — its end, its stop (Escape,
+    /// the controller bar, Table 218's `/OP` 1, the stop a rich media deactivation condition asks
+    /// for), a refusal, or another clip in its place — for Table 344's snapshot, drawn while it is
+    /// held (ISO 32000-2 §13.7.2.3.5, ADR 3889). Read from what is in hand now, so a window asks
+    /// after it at each look.
+    pub fn told(&mut self) -> Vec<viewer_core::Command> {
+        let now = self.in_hand.as_ref().and_then(|hand| {
+            hand.shown
+                .associated
+                .map(|annotation| (hand.shown.document, annotation))
+        });
+        self.holding.hold(now);
+        self.holding.owed()
     }
 }
 

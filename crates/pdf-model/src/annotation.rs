@@ -1407,12 +1407,13 @@ fn joined<const N: usize>(reports: [Option<String>; N]) -> Option<String> {
 /// The decision for an annotation whose stored stream no longer describes it, or `None` for one
 /// whose stream stands.
 ///
-/// Two cases, one reason: the stored stream is the producer's picture of something this view state
-/// has since changed, so the appearance is constructed anew on [`construct`]'s path. A §12.5.6.6
-/// free text a person retyped is the first, for the reason [`decided`] states at length. A widget
-/// whose script set a property its appearance draws is the second: Table 191's `/MK` is what
-/// "shall be used in constructing a dynamic appearance stream", and the script has changed it (ADR
-/// 1617).
+/// Three cases, one reason: the stored stream is the producer's picture of something this view
+/// state has since changed, so the appearance is constructed anew on [`construct`]'s path. A
+/// §12.5.6.6 free text a person retyped is the first, for the reason [`decided`] states at length.
+/// A widget whose script set a property its appearance draws is the second: Table 191's `/MK` is
+/// what "shall be used in constructing a dynamic appearance stream", and the script has changed it
+/// (ADR 1617). A rich media annotation whose activation stands with a view naming Table 344's
+/// `/Snapshot` is the third: the image is displayed "in place of the current artwork" (ADR 3889).
 fn stored_set_aside(
     document: &Document,
     annotation: &Dictionary,
@@ -1426,7 +1427,16 @@ fn stored_set_aside(
     let scripted = !view.scripted.is_empty()
         && subtype == b"Widget"
         && crate::appearance::constructs_for_script(document, annotation, view.scripted);
-    if !retyped && !scripted {
+    // §13.7.2.3.5: while the activation that invoked a rich media view stands, "the image it
+    // describes shall be displayed in place of the current artwork" — the stored normal
+    // appearance, which Table 333 has "for the initial display of the annotation". Set aside only
+    // where the view names an image, so that a state saying so of a view without one leaves the
+    // file's appearance standing (ADR 3889).
+    let snapshot = view.snapshot
+        && subtype == b"RichMedia"
+        && crate::media::rich_media::invoked_view(document, annotation)
+            .is_some_and(|view| view.snapshot.is_some());
+    if !retyped && !scripted && !snapshot {
         return None;
     }
     Some(match stated_rect {

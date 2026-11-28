@@ -16,6 +16,16 @@
 //! `/OP` 1, a stop of whatever plays associated with the annotation, which is "no effect" where
 //! nothing does.
 //!
+//! **The snapshot.** Table 344's `/Snapshot` of the view an activation invokes "shall be displayed
+//! in place of the current artwork" (§13.7.2.3.5), so it stands from activation to deactivation.
+//! The core learns of every deactivation through the players: a press, a `PO` or a `PV` hands the
+//! clip over, and the reader's stop, the clip's end and the stop a `PC` or `PI` asks for each take
+//! it out of their hands, which the window says with [`crate::Command::InHand`]. [`in_hand`]
+//! displays the image while a player holds such a clip and takes it away once none does, and
+//! `pdf_model::annotation::decide` sets the stored appearance aside for it (ADR 3889). A window
+//! that hands every clip to this machine's player takes no rich media clip at all, so the
+//! annotation stays inactive there and no view is invoked.
+//!
 //! **What is not played** — the `3D` configuration, whose rendering is excluded, and a
 //! configuration the players do not take — keeps ADR 3819's answer on a press: said by name, the
 //! annotation in §13.7.2.1's inactive state, and the assets handed over as files to save (ADR
@@ -58,8 +68,9 @@ pub(super) fn pressed(open: &Open, annotation: ObjectId, dict: &Dictionary, outc
         super::deprecated_media::processor(open),
     ) {
         Ok(activated) => played(
+            open,
             activated,
-            annotation,
+            (annotation, dict),
             &format!("{subject} is activated"),
             outcome,
         ),
@@ -75,6 +86,13 @@ pub(super) fn pressed(open: &Open, annotation: ObjectId, dict: &Dictionary, outc
                 outcome
                     .notes
                     .extend(view.notes.iter().map(|note| format!("{subject} — {note}")));
+                if view.snapshot.is_some() {
+                    outcome.notes.push(format!(
+                        "{subject} — the snapshot of the view it would invoke (Table 344's \
+                         /Snapshot) is not displayed, since no view is invoked while the \
+                         annotation stays inactive (ISO 32000-2 §13.7.2.3.5)"
+                    ));
+                }
             }
         }
     }
@@ -136,8 +154,9 @@ pub(super) fn raised(
             "its page became visible (Table 335's /Condition PV)"
         };
         played(
+            open,
             activated,
-            annotation,
+            (annotation, dict),
             &format!("this rich media annotation is activated because {condition}"),
             outcome,
         );
@@ -170,12 +189,14 @@ pub(crate) fn presented(open: &Open, current: &[ObjectId], visible: &[ObjectId])
 /// `/OP` 4 associates one, presented as Table 338 states, with what it reads differently and what
 /// it sets aside said (ADRs 3855, 3865).
 fn played(
+    open: &Open,
     activated: rich_media::Activated,
-    annotation: ObjectId,
+    (annotation, dict): (ObjectId, &Dictionary),
     subject: &str,
     outcome: &mut Outcome,
 ) {
     let rich_media::Activated { clip, notes } = activated;
+    let snapshot = rich_media::invoked_view(&open.document, dict).and_then(|view| view.snapshot);
     let presented = if clip.window.is_some() {
         "in a floating window of its own (Table 338's Windowed)"
     } else if clip.background.is_some() {
@@ -190,6 +211,16 @@ fn played(
     outcome
         .notes
         .extend(notes.iter().map(|note| format!("{subject} — {note}")));
+    // §13.7.2.3.5's image, displayed while the window's players hold the clip; the players take
+    // every clip `activated` answers, and only they tell the page when it leaves their hands
+    // (ADR 3889).
+    if snapshot.is_some() {
+        outcome.notes.push(format!(
+            "{subject} — the snapshot of the view it invokes (Table 344's /Snapshot) is displayed \
+             in place of its appearance while this window's player holds the clip, fitted in \
+             /Rect at a placement this program chose (ISO 32000-2 §13.7.2.3.5)"
+        ));
+    }
     outcome.notes.extend(
         clip.unhonoured
             .iter()
@@ -202,4 +233,33 @@ fn played(
             or_resume: true,
         }),
     ));
+}
+
+/// [`crate::Command::InHand`]: one of the window's players has taken a clip associated with
+/// `annotation`, or the clip has left its hands. Answers whether the page changed.
+///
+/// The annotation is active while any player holds such a clip, and the snapshot of the view its
+/// activation invokes is displayed for that long — ISO 32000-2 §13.7.2.3.5's "displayed in place
+/// of the current artwork" — and taken away once no player does, Table 336's deactivation having
+/// reached the page by the only route that sees each one (ADR 3889). An annotation that is not a
+/// rich media annotation, or whose view names no image, changes nothing on the page.
+pub(crate) fn in_hand(open: &mut Open, annotation: ObjectId, in_hand: bool) -> bool {
+    let holders = open.in_hand.entry(annotation).or_insert(0);
+    *holders = if in_hand {
+        holders.saturating_add(1)
+    } else {
+        holders.saturating_sub(1)
+    };
+    let held = *holders > 0;
+    if !held {
+        open.in_hand.remove(&annotation);
+    }
+    if held == open.view.shows_snapshot(annotation) {
+        return false;
+    }
+    let object = open.document.get(annotation);
+    let names_an_image = object.as_dict().is_some_and(|dict| {
+        rich_media::invoked_view(&open.document, dict).is_some_and(|view| view.snapshot.is_some())
+    });
+    (names_an_image || !held) && open.view.show_snapshot(annotation, held)
 }

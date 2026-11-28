@@ -168,6 +168,9 @@ pub(super) mod command_kind {
     pub(in crate::protocol) const SHOWS_VIDEO_HERE: u8 = 56;
     // What the host's windows can do for a clip's floating or full-screen window (ADR 3585).
     pub(in crate::protocol) const OPENS_MEDIA_WINDOWS: u8 = 57;
+    // A clip associated with an annotation taken by one of the host's players or left their hands,
+    // which only the host's players know and the confined worker draws a snapshot for (ADR 3889).
+    pub(in crate::protocol) const IN_HAND: u8 = 58;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -500,6 +503,17 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         Command::PlayingIn { document, screen } => {
             writer.u8(k::PLAYING_IN).document(*document);
             super::event::write_screen(&mut writer, screen.as_ref());
+        }
+        Command::InHand {
+            document,
+            annotation,
+            in_hand,
+        } => {
+            writer
+                .u8(k::IN_HAND)
+                .document(*document)
+                .object(*annotation)
+                .bool(*in_hand);
         }
         // Table 29's arrangement crosses for the reason every other policy value does: the
         // confined process is the one that decides which pages to interpret and where each of
@@ -982,6 +996,11 @@ pub(crate) fn decode_command_holding(
         k::PLAYING_IN => Command::PlayingIn {
             document: reader.document("the document a sound plays in")?,
             screen: super::event::read_screen(&mut reader)?,
+        },
+        k::IN_HAND => Command::InHand {
+            document: reader.document("the document a clip in hand belongs to")?,
+            annotation: reader.object("the annotation a clip in hand is associated with")?,
+            in_hand: reader.bool("whether a player holds the clip")?,
         },
         k::BESIDE => Command::Beside(match reader.u8("a reserved name")? {
             0 => None,

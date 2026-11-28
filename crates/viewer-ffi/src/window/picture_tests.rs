@@ -40,10 +40,19 @@ fn temporary(name: &str) -> PathBuf {
 /// The window over the video document of `count` pictures at the level `open`, page one drawn,
 /// its host having said it draws pictures; and the pictures the clip carries.
 fn a_window(document: &Path, count: u32) -> (Window, Vec<pdf_media_worker::video::Picture>) {
+    a_window_over(document, count, showing::a_video_document)
+}
+
+/// [`a_window`] over the document `built` makes of the clip.
+fn a_window_over(
+    document: &Path,
+    count: u32,
+    built: fn(&[u8]) -> Vec<u8>,
+) -> (Window, Vec<pdf_media_worker::video::Picture>) {
     let (sets, units, pictures) =
         pcm_stream::stream(count, 16, 16, pcm_stream::Coding::Progressive);
     let clip = pcm_stream::mp4(&sets, &units, 16, 16);
-    std::fs::write(document, showing::a_video_document(&clip)).expect("write the document");
+    std::fs::write(document, built(&clip)).expect("write the document");
     let mut window = Window::open_hearing(
         document,
         None,
@@ -436,6 +445,45 @@ fn a_movie_s_poster_and_its_bar_reach_a_window_driven_from_c() {
     assert!(
         window.controller().is_ok_and(|bar| !bar.playing),
         "the button paused the movie"
+    );
+    let _ = std::fs::remove_file(&document);
+}
+
+/// Whether the page the core last interpreted reports Table 344's snapshot drawn in place of the
+/// rich media annotation's appearance.
+fn snapshot_drawn(window: &Window) -> bool {
+    let Answer::Reports(reports) = window.state.viewer.query(Query::Reports) else {
+        return false;
+    };
+    reports
+        .iter()
+        .flat_map(|page| page.notes.iter())
+        .any(|note| note.contains(showing::SNAPSHOT_SHOWN))
+}
+
+/// ISO 32000-2 §13.7.2.3.5's snapshot in a window driven from C: a rich media annotation's `Video`
+/// configuration activated plays in its rectangle, the window tells the core its player holds the
+/// clip, and the page is drawn with Table 344's image in place of the annotation's appearance
+/// until the clip has ended, when the window tells the core it has left the player's hands and the
+/// appearance is drawn again (ADR 3889).
+#[test]
+fn a_rich_media_snapshot_stands_while_the_clip_plays_in_a_window_driven_from_c() {
+    let document = temporary("snapshot.pdf");
+    let (mut window, _) = a_window_over(&document, 12, showing::a_rich_media_document);
+    let mut host = Host::default();
+    assert!(!snapshot_drawn(&window), "the appearance before activation");
+    window.dispatch(Command::Activate(showing::RICH_MEDIA));
+    timer_until(&mut window, &mut host, "drawn the snapshot", |window, _| {
+        snapshot_drawn(window)
+    });
+    timer_until(&mut window, &mut host, "ended the clip", |_, host| {
+        host.last().contains("ended after")
+    });
+    rest(&mut window);
+    assert!(
+        !snapshot_drawn(&window),
+        "the appearance once the clip has left the player; said {:?}",
+        host.said
     );
     let _ = std::fs::remove_file(&document);
 }

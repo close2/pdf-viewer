@@ -27,7 +27,9 @@ mod deprecated_media;
 mod rich_media;
 
 pub(crate) use deprecated_media::{exhibited, posters};
-pub(crate) use rich_media::{plays as rich_media_plays, presented as rich_media_presented};
+pub(crate) use rich_media::{
+    in_hand as rich_media_in_hand, plays as rich_media_plays, presented as rich_media_presented,
+};
 
 /// One media request a chain of actions made, in the chain's order.
 #[derive(Debug)]

@@ -211,8 +211,8 @@ siting on the device (`render-raster`) and on the processor as the oracle (`rend
 while a rich media annotation's `Sound` or `Video` configuration is played on Table 335's
 conditions, its first instance of its kind whose asset the players take presented `Embedded` in its
 rectangle or `Windowed` in a window held within the document window (ADRs 3854, 3855, 3865 to 3867),
-its view and animation read and what a clip cannot take of them said — Table 344's snapshot not yet
-displayed (ADRs 3881, 3882) —
+its view and animation read and what a clip cannot take of them said, and Table 344's snapshot
+drawn in place of its appearance while a player holds the clip (ADRs 3881, 3882, 3889) —
 and its §13.7.2.3.2 assets listed and saved as embedded files from its page (ADR 2399) — §14.9's accessibility entries, §12.4.4's whole presentation
 read **and played** — every one of Table 164's transition styles drawn frame by frame (ADR 0230),
 four of them — `Blinds`, `Dissolve`, `Glitter`, `Fly` — at a quantity the table does not state,

@@ -5267,10 +5267,10 @@ note = "Out of scope on `CLAUDE.md` principle 5's clause 13 entry, on its exclus
 [[clause]]
 clause = "13.7"
 title = "Rich media"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-model/src/media/rich_media.rs", "crates/pdf-model/src/media/rich_media/views.rs"]
-test = ["crates/pdf-model/src/media/rich_media/views.rs::the_view_is_the_named_or_the_first_and_its_snapshot_and_params_are_said"]
-note = "Aggregate of the rows below. A heading with no text of its own. Partial as its leaves are: the `Sound` and `Video` configurations' settings, presentation, configurations and instances are `implemented` (13.7.2.2.1 to 13.7.2.2.3, 13.7.2.2.5, 13.7.2.2.6, 13.7.2.3.3, 13.7.2.3.4), the assets (13.7.2.3.1, 13.7.2.3.2) and the inactive appearance (13.7.2.1) `implemented`, Table 344's snapshot `reported` — read and said, not displayed (13.7.2.3.5, ADR 3881) — and the keyframe animation (13.7.2.2.4) and the run time's state data (13.7.2.3.6) `out-of-scope` on `CLAUDE.md` principle 5's clause 13 entry, with the `3D` configuration and the rendering of U3D and PRC artwork."
+test = ["crates/pdf-model/src/media/rich_media/views.rs::the_view_is_the_named_or_the_first_and_its_snapshot_and_params_are_said", "crates/viewer-core/tests/rich_media_snapshot.rs::the_snapshot_stands_in_for_the_appearance_while_the_player_holds_the_clip"]
+note = "A heading with no text of its own, implemented as its subclauses are: the `Sound` and `Video` configurations' settings, presentation, configurations and instances (13.7.2.2.1 to 13.7.2.2.3, 13.7.2.2.5, 13.7.2.2.6, 13.7.2.3.3, 13.7.2.3.4), the assets (13.7.2.3.1, 13.7.2.3.2), the inactive appearance (13.7.2.1) and Table 344's snapshot, displayed from activation to deactivation (13.7.2.3.5, ADR 3889), are built, 13.7.1 states no requirement; the keyframe animation (13.7.2.2.4) and the run time's state data (13.7.2.3.6) are out of scope on the clause 13 entry. The `3D` configuration stays on `CLAUDE.md` principle 5's clause 13 entry with the rendering of U3D and PRC artwork, and Table 335's /Scripts on its JavaScript entry (ISO 21757-1)."
 
 [[clause]]
 clause = "13.7.1"
@@ -5283,10 +5283,10 @@ note = "States no requirement: an overview of the framework, which says itself t
 [[clause]]
 clause = "13.7.2"
 title = "RichMedia annotations"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-model/src/media/rich_media.rs", "crates/pdf-model/src/media/rich_media/views.rs"]
-test = ["crates/pdf-model/src/media/rich_media/views.rs::the_view_is_the_named_or_the_first_and_its_snapshot_and_params_are_said"]
-note = "Aggregate of the rows below. A heading with no text of its own. Partial as its leaves are: the `Sound` and `Video` configurations' settings, presentation, configurations and instances are `implemented` (13.7.2.2.1 to 13.7.2.2.3, 13.7.2.2.5, 13.7.2.2.6, 13.7.2.3.3, 13.7.2.3.4), the assets (13.7.2.3.1, 13.7.2.3.2) and the inactive appearance (13.7.2.1) `implemented`, Table 344's snapshot `reported` — read and said, not displayed (13.7.2.3.5, ADR 3881) — and the keyframe animation (13.7.2.2.4) and the run time's state data (13.7.2.3.6) `out-of-scope` on `CLAUDE.md` principle 5's clause 13 entry, with the `3D` configuration and the rendering of U3D and PRC artwork."
+test = ["crates/pdf-model/src/media/rich_media/views.rs::the_view_is_the_named_or_the_first_and_its_snapshot_and_params_are_said", "crates/viewer-core/tests/rich_media_snapshot.rs::the_snapshot_stands_in_for_the_appearance_while_the_player_holds_the_clip"]
+note = "A heading with no text of its own, implemented as its subclauses are: the `Sound` and `Video` configurations' settings, presentation, configurations and instances (13.7.2.2.1 to 13.7.2.2.3, 13.7.2.2.5, 13.7.2.2.6, 13.7.2.3.3, 13.7.2.3.4), the assets (13.7.2.3.1, 13.7.2.3.2), the inactive appearance (13.7.2.1) and Table 344's snapshot, displayed from activation to deactivation (13.7.2.3.5, ADR 3889), are built; the keyframe animation (13.7.2.2.4) and the run time's state data (13.7.2.3.6) are out of scope on the clause 13 entry. The `3D` configuration stays on `CLAUDE.md` principle 5's clause 13 entry with the rendering of U3D and PRC artwork, and Table 335's /Scripts on its JavaScript entry (ISO 21757-1)."
 
 [[clause]]
 clause = "13.7.2.1"
@@ -5354,10 +5354,10 @@ note = "Tables 339 and 340 are read: the window's /Width and /Height with their 
 [[clause]]
 clause = "13.7.2.3"
 title = "RichMediaContent dictionary"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-model/src/media/rich_media.rs", "crates/pdf-model/src/media/rich_media/views.rs"]
-test = ["crates/pdf-model/src/media/rich_media/views.rs::the_view_is_the_named_or_the_first_and_its_snapshot_and_params_are_said"]
-note = "Aggregate of the rows below. A heading with no text of its own. Partial as its leaves are: Table 341's assets (13.7.2.3.1, 13.7.2.3.2), Table 342's configuration and Table 343's instances (13.7.2.3.3, 13.7.2.3.4) `implemented`; Table 344's snapshot `reported`, read and said and not displayed (13.7.2.3.5, ADR 3881); the view params' state data (13.7.2.3.6) `out-of-scope` on the clause 13 entry, as the rich media run time's."
+test = ["crates/pdf-model/src/media/rich_media/views.rs::the_view_is_the_named_or_the_first_and_its_snapshot_and_params_are_said", "crates/viewer-core/tests/rich_media_snapshot.rs::the_snapshot_stands_in_for_the_appearance_while_the_player_holds_the_clip"]
+note = "A heading with no text of its own, implemented as its subclauses are: Table 341's assets (13.7.2.3.1, 13.7.2.3.2), Table 342's configuration and Table 343's instances (13.7.2.3.3, 13.7.2.3.4) and Table 344's view with its snapshot displayed from activation to deactivation (13.7.2.3.5, ADR 3889) are built for the `Sound` and `Video` configurations, and the view params' state data (13.7.2.3.6) is out of scope on the clause 13 entry as the rich media run time's. The `3D` configuration stays on `CLAUDE.md` principle 5's clause 13 entry with the rendering of U3D and PRC artwork, and Table 335's /Scripts on its JavaScript entry (ISO 21757-1)."
 
 [[clause]]
 clause = "13.7.2.3.1"
@@ -5394,10 +5394,10 @@ note = "Table 343 is read: each instance of the configuration's kind is tried in
 [[clause]]
 clause = "13.7.2.3.5"
 title = "View dictionary"
-status = "reported"
-code = ["crates/pdf-model/src/media/rich_media/views.rs", "crates/pdf-model/src/media/rich_media.rs", "crates/viewer-core/src/interact/rich_media.rs"]
-test = ["crates/pdf-model/src/media/rich_media/views.rs::the_view_is_the_named_or_the_first_and_its_snapshot_and_params_are_said", "crates/viewer-core/tests/rich_media_activation.rs::a_refused_configuration_says_the_view_its_activation_would_invoke"]
-note = "**Reported: Table 344's /Snapshot is read and said, not displayed.** \"If the Snapshot entry exists, the image it describes shall be displayed in place of the current artwork.\" `pdf_model::media::rich_media::invoked_view` reads the view activation invokes — Table 335's /View, else the first of Table 341's /Views — checks /Snapshot is an image XObject and says on every such activation that it is not displayed; the view's Table 315 components are said as setting no scene in a sound or video clip, and /Params are read past by name (13.7.2.3.6). What moves the row: the page shows the snapshot from activation to deactivation, which needs the players to tell the core when a clip associated with an annotation leaves their hands — Table 336's XD is the reader's stop of a player — as `Command::PlayingIn` already does for a sound in a screen, then a `ViewState` set read by `annotation::decide` (ADR 3881, `doc/todo/80` section 1 step 4)."
+status = "implemented"
+code = ["crates/pdf-model/src/media/rich_media/views.rs", "crates/pdf-model/src/appearance.rs", "crates/pdf-model/src/annotation.rs", "crates/pdf-model/src/view/annotations.rs", "crates/viewer-core/src/interact/rich_media.rs", "crates/viewer-host/src/in_hand.rs"]
+test = ["crates/viewer-core/tests/rich_media_snapshot.rs::the_snapshot_stands_in_for_the_appearance_while_the_player_holds_the_clip", "crates/viewer-core/tests/rich_media_snapshot.rs::the_snapshot_stands_until_every_player_holding_the_clip_has_let_it_go", "crates/viewer-core/tests/rich_media_snapshot.rs::a_refused_activation_displays_no_snapshot_and_says_so", "crates/viewer-host/src/video/tests.rs::the_core_is_told_when_an_associated_clip_is_taken_and_when_it_leaves", "crates/viewer-ffi/src/window/picture_tests.rs::a_rich_media_snapshot_stands_while_the_clip_plays_in_a_window_driven_from_c", "crates/pdf-model/src/media/rich_media/views.rs::the_view_is_the_named_or_the_first_and_its_snapshot_and_params_are_said"]
+note = "\"If the Snapshot entry exists, the image it describes shall be displayed in place of the current artwork.\" `pdf_model::media::rich_media::invoked_view` reads the view activation invokes — Table 335's /View, else the first of Table 341's /Views — and checks /Snapshot is an image XObject. The image stands from activation to deactivation: every window that plays (winit, GTK 4, Qt, the C ABI window) tells the core with `Command::InHand` when its sound or picture player takes a clip associated with the annotation and when the clip leaves it — Table 336's XD (Escape, the controller bar), the clip's end, the stop a PC or PI asks for, a refusal (`viewer_host::in_hand::Holding`); the core counts the players holding it (`Open::in_hand`) and marks `ViewState::show_snapshot`, and `annotation::decide` sets the stored normal appearance aside for the image, fitted in /Rect as Table 306's poster is and reported as a placement this program chose (`appearance::rich_media_snapshot`; ADRs 1561, 3881, 3889). The permission to modify the image's colour space is not taken. A refused (`3D`) activation invokes no view and says the snapshot is not displayed. The view's Table 315 components are said as setting no scene in a sound or video clip, and /Params are read past by name (13.7.2.3.6)."
 
 [[clause]]
 clause = "13.7.2.3.6"

@@ -312,3 +312,39 @@ fn a_movie_s_poster_is_handed_until_it_plays_in_the_qt_window() {
     );
     let _ = std::fs::remove_file(&document);
 }
+
+/// Whether the page the core last interpreted reports Table 344's snapshot drawn in place of the
+/// rich media annotation's appearance.
+fn snapshot_drawn(host: &Host) -> bool {
+    let Answer::Reports(reports) = host.state.viewer.query(Query::Reports) else {
+        return false;
+    };
+    reports
+        .iter()
+        .flat_map(|page| page.notes.iter())
+        .any(|note| note.contains(showing::SNAPSHOT_SHOWN))
+}
+
+/// **A rich media snapshot stands while the clip plays in the Qt window** (ISO 32000-2
+/// §13.7.2.3.5, ADR 3889): a rich media annotation's `Video` configuration activated plays in its
+/// rectangle, the window tells the core its player holds the clip, and the page is drawn with
+/// Table 344's image in place of the appearance until the clip has ended, when the window tells
+/// the core the clip has left its player.
+#[test]
+fn a_rich_media_snapshot_stands_while_the_clip_plays_in_the_qt_window() {
+    let document = temporary("snapshot.pdf");
+    let (mut host, _) = a_window_of(&document, 12, showing::a_rich_media_document);
+    let mut said = Vec::new();
+    assert!(!snapshot_drawn(&host), "the appearance before");
+    host.dispatch(Command::Activate(showing::RICH_MEDIA));
+    timer_until(&mut host, &mut said, "drawn the snapshot", snapshot_drawn);
+    timer_until(&mut host, &mut said, "ended the clip", |host| {
+        !snapshot_drawn(host)
+    });
+    assert!(
+        said.iter().any(|line| line.contains("ended after"))
+            || host.message.contains("ended after"),
+        "the snapshot went with the clip's end: {said:?}"
+    );
+    let _ = std::fs::remove_file(&document);
+}

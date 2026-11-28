@@ -558,9 +558,10 @@ enum Refusal {
     /// Table 192's `/TP` names the side the caption goes on and not how much room it gets, so
     /// the caption is drawn in [`CAPTION_SHARE`] of the rectangle — a share this program chose.
     CaptionShareChosen(i64),
-    /// Table 306's `/Poster` image is drawn in `/Rect` at a placement this program chose, since
-    /// §13.4 states none (ADR 1561).
-    PosterPlacementChosen,
+    /// Table 306's `/Poster` image or Table 344's `/Snapshot` image, the entry named, is drawn in
+    /// `/Rect` at a placement this program chose, since neither clause states one (ADRs 1561,
+    /// 3889).
+    PlacementChosen(Fitted),
     /// §12.7.4.3's variable text could not be laid out, or not entirely.
     Text(Owed),
     /// An operand the construction computed has no §7.3.3 syntax — an infinity or a NaN its
@@ -592,9 +593,13 @@ impl Refusal {
                  §12.5.6.4 requires an appearance for"
             ),
             Self::NotDerivable(why) => format!("no appearance stream, and {why}"),
-            Self::PosterPlacementChosen => "no appearance stream, and Table 306's /Poster image \
-                 is drawn scaled proportionally and centred in /Rect — a placement this program \
-                 chose, since §13.4 states none"
+            Self::PlacementChosen(Fitted::Snapshot) => "its appearance is set aside while its \
+                 view's snapshot is displayed, and Table 344's /Snapshot image is drawn scaled proportionally and centred in /Rect — a placement this \
+                 program chose, since §13.7.2.3.5 states none"
+                .to_owned(),
+            Self::PlacementChosen(Fitted::Poster) => "no appearance stream, and Table 306's \
+                 /Poster image is drawn scaled proportionally and centred in /Rect — a placement \
+                 this program chose, since §13.4 states none"
                 .to_owned(),
             Self::CaptionShareChosen(code) => format!(
                 "no appearance stream, and Table 192's /TP {code} states which side of the icon \
@@ -723,6 +728,8 @@ pub(crate) fn construct(
         // is the §12.5.6 subclause that hands both over; it states no requirement of its own and
         // its ledger row takes the status of §13.6.2 and §13.7.2.1, `implemented` for the normal
         // appearance (ADR 1946).
+        // §13.7.2.3.5's snapshot, while the activation that invoked its view stands (ADR 3889).
+        b"RichMedia" if view.snapshot => rich_media_snapshot(document, annotation, &mut stream),
         b"3D" | b"RichMedia" => Err(Refusal::NotDerivable(
             "its clause requires the appearance stream for the annotation's inactive state, and \
              the artwork behind it is clause 13's",
@@ -2053,6 +2060,31 @@ fn movie_poster(document: &Document, annotation: &Dictionary, stream: &mut Strea
             "Table 306's /Poster stream is not an image XObject, which the table requires",
         ));
     }
+    fitted_image(document, reference, image, rect, stream, Fitted::Poster)
+}
+
+/// Which image [`fitted_image`] places: the two that are fitted into `/Rect` the same way.
+#[derive(Clone, Copy)]
+enum Fitted {
+    /// Table 306's `/Poster` (ADR 1561).
+    Poster,
+    /// Table 344's `/Snapshot` (ADR 3889).
+    Snapshot,
+}
+
+/// The image `XObject` `reference` (its dictionary `image`) painted into `rect` by Table 250's
+/// defaults — scaled proportionally until it meets the rectangle's width or height, and centred —
+/// which is this program's choice and is reported as one (ADRs 1561, 3889). The image's own
+/// `/Width` and `/Height` are its aspect ratio, since §8.9.5 maps every image onto the unit
+/// square.
+fn fitted_image(
+    document: &Document,
+    reference: Object,
+    image: &Dictionary,
+    rect: [f32; 4],
+    stream: &mut Stream,
+    fitted_as: Fitted,
+) -> Outcome {
     let side = |key| {
         let samples = document.get_key(image, key).as_integer()?;
         #[expect(
@@ -2063,15 +2095,24 @@ fn movie_poster(document: &Document, annotation: &Dictionary, stream: &mut Strea
         (samples > 0.0).then_some(samples)
     };
     let (Some(width), Some(height)) = (side("Width"), side("Height")) else {
-        return Err(Refusal::NotDerivable(
-            "Table 306's /Poster image states no positive /Width and /Height, so it has no \
-             aspect ratio to place by",
-        ));
+        return Err(Refusal::NotDerivable(match fitted_as {
+            Fitted::Poster => {
+                "Table 306's /Poster image states no positive /Width and /Height, so it has no \
+                 aspect ratio to place by"
+            }
+            Fitted::Snapshot => {
+                "Table 344's /Snapshot image states no positive /Width and /Height, so it has no \
+                 aspect ratio to place by"
+            }
+        }));
     };
     let Some(fitted) = IconFit::DEFAULT.place([0.0, 0.0, width, height], rect) else {
-        return Err(Refusal::NotDerivable(
-            "/Rect has no area, so the poster image has nowhere to be displayed",
-        ));
+        return Err(Refusal::NotDerivable(match fitted_as {
+            Fitted::Poster => "/Rect has no area, so the poster image has nowhere to be displayed",
+            Fitted::Snapshot => {
+                "/Rect has no area, so the snapshot image has nowhere to be displayed"
+            }
+        }));
     };
     // `place` scales the image's sample grid; `Do` paints the unit square, so the scale is
     // carried over onto the grid's own size.
@@ -2084,7 +2125,52 @@ fn movie_poster(document: &Document, annotation: &Dictionary, stream: &mut Strea
         fitted.f,
     );
     stream.form(document, reference, placement);
-    Ok(Painted::partly(Refusal::PosterPlacementChosen))
+    Ok(Painted::partly(Refusal::PlacementChosen(fitted_as)))
+}
+
+/// §13.7.2.3.5's snapshot, displayed in place of a rich media annotation's artwork while
+/// [`crate::view::ViewState::shows_snapshot`] says its activation stands (ADR 3889).
+///
+/// ISO 32000-2 §13.7.2.3.5, under Table 344:
+///
+/// > If the Snapshot entry exists, the image it describes shall be displayed in place of the
+/// > current artwork.
+///
+/// The image is the one the view the activation invokes names — Table 335's `/View`, else the first
+/// of Table 341's `/Views` (`crate::media::rich_media::invoked_view`) — and it is fitted into
+/// `/Rect` as Table 306's poster is, since neither table states a placement. The sentence after it
+/// lets "the colour space of the image ... be modified by the interactive PDF processor", a
+/// permission this construction does not take: the image is painted as its own colour space states.
+fn rich_media_snapshot(
+    document: &Document,
+    annotation: &Dictionary,
+    stream: &mut Stream,
+) -> Outcome {
+    let rect = rectangle(document, annotation)?;
+    let Some(snapshot) =
+        crate::media::rich_media::invoked_view(document, annotation).and_then(|view| view.snapshot)
+    else {
+        return Err(Refusal::NotDerivable(
+            "the view its activation invokes states no image XObject as Table 344's /Snapshot, so \
+             no snapshot is displayed",
+        ));
+    };
+    let reference = Object::Reference(snapshot);
+    let image = document.resolve(&reference);
+    let Some(image) = image.as_stream() else {
+        return Err(Refusal::NotDerivable(
+            "Table 344's /Snapshot is not a stream holding an image XObject, which the table \
+             requires",
+        ));
+    };
+    fitted_image(
+        document,
+        reference,
+        &image.dict,
+        rect,
+        stream,
+        Fitted::Snapshot,
+    )
 }
 
 type IconLookup = fn(&[u8]) -> Option<&'static [icon::Figure]>;

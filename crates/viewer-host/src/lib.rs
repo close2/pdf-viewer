@@ -149,6 +149,7 @@ pub mod fit;
 pub mod form;
 pub mod geometry;
 pub mod gesture;
+mod in_hand;
 pub mod keys;
 pub mod loading;
 pub mod machine_faces;

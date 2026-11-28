@@ -7,7 +7,8 @@
 //! start; an operation naming another annotation, or a rendition not in the state it acts on, has
 //! "no effect" and says so; `/OP` 4 resumes the paused rendition instead of playing a second one
 //! and does nothing while it sounds; the rectangle Table 294's `/W` 3 paints stays painted while
-//! paused and is cleared by the stop.
+//! paused and is cleared by the stop, and the core is told the clip associated with the
+//! annotation was taken and, at the stop, let go — what Table 344's snapshot stands for (ADR 3889).
 //!
 //! The worker is the program beside the test binary: `cargo build -p pdf-media-worker --bins`
 //! first (trap 10).
@@ -167,16 +168,27 @@ fn played(or_resume: bool) -> Played {
     }
 }
 
-/// The screen annotations the core is told are painted, in order: `Some(n)` painted, `None`
-/// cleared.
-fn painted(player: &mut Player) -> Vec<Option<u32>> {
+/// What the core is told, in order: a screen annotation painted (`painted n`) or cleared
+/// (`cleared`), Table 294's `/W` 3 (ADR 3407); and the annotation a clip in hand is associated
+/// with taken (`held n`) or let go (`let go n`), for Table 344's snapshot (ADR 3889).
+fn painted(player: &mut Player) -> Vec<String> {
     player
         .repainted()
         .into_iter()
         .filter_map(|command| match command {
-            Command::PlayingIn { screen, .. } => {
-                Some(screen.map(|screen| screen.annotation.number))
-            }
+            Command::PlayingIn { screen, .. } => Some(screen.map_or_else(
+                || "cleared".to_owned(),
+                |screen| format!("painted {}", screen.annotation.number),
+            )),
+            Command::InHand {
+                annotation,
+                in_hand,
+                ..
+            } => Some(format!(
+                "{} {}",
+                if in_hand { "held" } else { "let go" },
+                annotation.number
+            )),
             _ => None,
         })
         .collect()
@@ -199,7 +211,7 @@ fn a_rendition_is_paused_resumed_where_it_stopped_and_stopped() {
         matches!(first, Heard::Playing(_)),
         "the worker must be built: `cargo build -p pdf-media-worker --bins`; {first:?}"
     );
-    assert_eq!(painted(&mut player), [Some(4)]);
+    assert_eq!(painted(&mut player), ["painted 4", "held 4"]);
 
     // Another annotation's rendition, and a resume of one not paused: no effect, said.
     player.operate(DOCUMENT, OTHER, MediaOperation::Stop);
@@ -263,7 +275,7 @@ fn a_rendition_is_paused_resumed_where_it_stopped_and_stopped() {
         matches!(&stopped, Heard::Stopped(said) if said.contains("/OP 1")),
         "{stopped:?}"
     );
-    assert_eq!(painted(&mut player), [None]);
+    assert_eq!(painted(&mut player), ["cleared", "let go 4"]);
     player.operate(DOCUMENT, SCREEN, MediaOperation::Stop);
     assert!(matches!(one(&mut player, &woken), Heard::Unchanged(_)));
     drop(player);

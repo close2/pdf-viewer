@@ -121,6 +121,10 @@ pub(crate) struct Open {
     /// Whether RFC 0008 section 6.5's open sequence has run, which [`crate::Command::Presented`]
     /// asks once for each document (ADR 1602).
     pub(crate) presented: bool,
+    /// How many of the window's players hold a clip associated with each annotation now, as
+    /// [`crate::Command::InHand`] tells it: a clip with sound and pictures is in two players'
+    /// hands, and it has left the window's only when it has left both (ADR 3889).
+    pub(crate) in_hand: BTreeMap<ObjectId, u8>,
     /// What this document's reader answered about its scripts, and the runner standing in until
     /// they did (RFC 0008 section 6.3, ADR 1616).
     pub(crate) consent: crate::scripting::Consent,
@@ -1149,6 +1153,7 @@ impl Open {
             layout,
             zoom: INITIAL_ZOOM,
             presented: false,
+            in_hand: BTreeMap::new(),
             consent: crate::scripting::Consent::default(),
             scripts_said: 0,
             pending_views: open_view.into_iter().collect(),

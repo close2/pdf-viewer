@@ -645,6 +645,23 @@ impl Viewer {
                     events.push(damage(viewport));
                 }
             }
+            // Table 344's snapshot, displayed while a clip associated with its rich media
+            // annotation is in the players' hands, and the page drawn again at each change
+            // (ADR 3889).
+            Command::InHand {
+                document,
+                annotation,
+                in_hand,
+            } => {
+                let viewport = self.viewport;
+                let Some(open) = self.documents.get_mut(&document) else {
+                    return;
+                };
+                if interact::rich_media_in_hand(open, annotation, in_hand) {
+                    open.stale();
+                    events.push(damage(viewport));
+                }
+            }
             // A name and nothing else: nothing is opened, nothing is drawn and no document is
             // touched, because what this carries is what the window *could* do rather than
             // something it has been asked to do (ADR 1263).

@@ -480,6 +480,29 @@ pub enum Command {
         /// Where it plays and what is painted there, or `None` once it has stopped.
         screen: Option<Screen>,
     },
+    /// A clip associated with an annotation has been taken by one of this host's players, or has
+    /// left its hands: each player knows both, and nothing else does.
+    ///
+    /// Sent with `in_hand` true when a player takes a clip whose [`crate::SoundData::rendition`]
+    /// names `annotation`, and false when the clip leaves it — the reader's stop (ISO 32000-2
+    /// Table 336's `XD`: Escape, or the controller bar), the clip's end, a later clip in its
+    /// place, a rendition action's stop, the stop a deactivation condition (Table 336's `PC` or
+    /// `PI`) asks for, or a refusal. A clip with sound and pictures is held by two players, which
+    /// each send it (ADR 3889).
+    ///
+    /// While a clip associated with a rich media annotation is in hand, the annotation is active,
+    /// and the snapshot of the view its activation invoked — Table 344's `/Snapshot`, "displayed
+    /// in place of the current artwork" (§13.7.2.3.5) — is drawn in place of its appearance; once
+    /// it has left every player's hands, the appearance is drawn again. **Nothing changes for a
+    /// host that never sends this**: no snapshot is drawn, and that is said on the activation.
+    InHand {
+        /// Which document's clip.
+        document: DocumentId,
+        /// The annotation the clip is associated with.
+        annotation: ObjectId,
+        /// Whether the player holds it now.
+        in_hand: bool,
+    },
     /// What this host does with a page whose whole raster would be past [`crate::MAX_PIXELS`].
     ///
     /// **A statement about the host's drawing, and the same shape as [`Self::Delegate`].**

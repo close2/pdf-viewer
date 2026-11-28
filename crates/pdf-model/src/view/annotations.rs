@@ -37,6 +37,29 @@ impl ViewState {
         self.playing_in
     }
 
+    /// Displays a rich media annotation's snapshot in place of its appearance, or takes it away.
+    ///
+    /// ISO 32000-2 Table 344's `/Snapshot` is an image `XObject` to be displayed when the view is
+    /// invoked, and §13.7.2.3.5 has it "displayed in place of the current artwork". The view
+    /// is invoked when the annotation is activated and the snapshot stands until it is
+    /// deactivated, so the window calls this when its players take a clip associated with the
+    /// annotation and again when the clip leaves their hands — the reader's stop (Table 336's
+    /// `XD`), the clip's end, or a stop a deactivation condition asked for (ADR 3889). Answers
+    /// whether anything changed, so that the caller draws the page again only then.
+    pub fn show_snapshot(&mut self, annotation: ObjectId, shown: bool) -> bool {
+        if shown {
+            self.snapshots.insert(annotation)
+        } else {
+            self.snapshots.remove(&annotation)
+        }
+    }
+
+    /// Whether `annotation`'s snapshot is displayed now ([`Self::show_snapshot`]).
+    #[must_use]
+    pub fn shows_snapshot(&self, annotation: ObjectId) -> bool {
+        self.snapshots.contains(&annotation)
+    }
+
     /// Which of Table 170's appearances this annotation shows now.
     ///
     /// [`Appearance::Normal`] for every annotation the pointer is not on, which §12.5.5 makes
@@ -115,6 +138,7 @@ impl ViewState {
             editing: self.is_editing(annotation),
             displayed: self.displayed(annotation),
             scripted: self.scripted(annotation),
+            snapshot: self.shows_snapshot(annotation),
         }
     }
 

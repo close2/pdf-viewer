@@ -386,6 +386,14 @@ pub(crate) fn describe_command(command: &Command) -> String {
             document.0,
             screen.map(|screen| screen.annotation)
         ),
+        Command::InHand {
+            document,
+            annotation,
+            in_hand,
+        } => format!(
+            "a clip of document {} associated with {annotation:?} in a player's hands {in_hand}",
+            document.0
+        ),
         Command::Oversize(oversize) => format!("oversized pages {oversize:?}"),
         Command::Answer { proceed, .. } => format!("answer {proceed}"),
         Command::Scripts(scripting) => describe_scripting(scripting).to_owned(),

@@ -182,6 +182,14 @@ pub struct ViewState {
     /// what is happening on the screen rather than of the file, and kept here because it decides a
     /// mark the next render draws.
     playing_in: Option<(ObjectId, crate::media::Background)>,
+    /// The rich media annotations whose invoked view's snapshot is displayed now, in place of
+    /// their appearance: ISO 32000-2 Table 344's `/Snapshot`, from activation to deactivation
+    /// (ADR 3889).
+    ///
+    /// A property of what is happening on the screen, as [`Self::playing_in`] is: the window says
+    /// when a clip associated with the annotation enters its players' hands and when it leaves
+    /// them, because only its players know.
+    snapshots: BTreeSet<ObjectId>,
     /// How large the page is being drawn, in logical pixels per default user space unit.
     ///
     /// The one thing in this struct that is a property of the *window* rather than of anything
@@ -942,6 +950,12 @@ pub struct AnnotationView<'a> {
     /// `fillColor`, `strokeColor`, `borderStyle`, `alignment`, `charLimit` — and `required`, which
     /// a save writes: the latest of each, empty where no script set one (ADR 1617).
     pub scripted: &'a [Property],
+    /// Whether this rich media annotation's invoked view has its snapshot displayed now —
+    /// [`ViewState::shows_snapshot`]. ISO 32000-2 §13.7.2.3.5: "If the Snapshot entry exists, the
+    /// image it describes shall be displayed in place of the current artwork", so
+    /// `crate::annotation::decide` sets the stored appearance aside for the image while this is
+    /// `true` (ADR 3889).
+    pub snapshot: bool,
 }
 
 /// §12.5.6.22's target media, and how the page is placed on it.
@@ -1111,6 +1125,7 @@ impl ViewState {
             supplied: 0,
             pointer: None,
             playing_in: None,
+            snapshots: BTreeSet::new(),
             magnification: None,
             widget_appearances: WidgetAppearances::default(),
             audience: Audience::NONE,
