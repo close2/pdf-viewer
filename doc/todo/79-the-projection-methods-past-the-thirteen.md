@@ -11,7 +11,7 @@ command that prints it is in ADR 3823. The method sections are IOGP Guidance Not
 
 ## What is built
 
-Thirty-six method codes, 5758 of the table's 5780 projected systems (99.6 %), four of them refused by
+Forty-six method codes, 5767 of the table's 5780 projected systems (99.8 %), four of them refused by
 the parameters the table cannot carry (below): the census's eight (ADRs 1586,
 1587, 1672) — Transverse Mercator, Lambert Conic Conformal 1SP and 2SP, Mercator A and B,
 Pseudo-Mercator, Albers, oblique stereographic — and ADR 3822's five, each tested on its section's
@@ -50,6 +50,23 @@ Laborde Grid, EPSG 29701, and its Greenwich form 8441; four printed lines read i
 Transverse Mercator Zoned Grid System (3.2.3.2, which prints no example: WGS 84 / UTM grid system,
 EPSG 32600 and 32700, against each zone's own system; ADR 3879).
 
+And rows 19 to 27 (ADRs 3885 to 3888), each the method of one system, each tested on its worked example
+through that system: Hyperbolic Cassini-Soldner (3.2.2.1, Vanua Levu Grid, EPSG 3139, in links; its
+first estimate's divisor is a length in chains and the example's `ϕ1'` drops its sign), Modified
+Azimuthal Equidistant (3.3.3.1, Guam 1963 / Yap Islands, 3295; its distance `s` is evaluated as the
+sine rule's quotient with `sin α` divided out, which is also its `sin α = 0` case), the Guam
+Projection (3.3.3.2, Guam SPCS, 3993, its three reverse steps), Mercator (Spherical) and the code it
+replaced, Mercator (1SP) (Spherical) (3.2.1.1's example on its sphere, and EPSG 3785 against 3857;
+ADR 3886), Lambert Conic Conformal (2SP Belgium) (3.1.1.4, BD72 / Belge Lambert 72, 31300), Lambert
+Conic Near-Conformal (3.1.1.6, Deir ez Zor / Levant Zone, 22700, its reverse by the section's
+iteration and `θ′` signed as `r′` is), the New Zealand Map Grid (3.4.1 prints no formulas: the Office
+of the Surveyor-General's Technical Report 4.2 and its three test points, through 27200; ADR 3887),
+the Tunisia Mining Grid (3.4.2, EPSG 22300, and the decree's tabulated ends), and Transverse Mercator
+3D (no section: the Dataset's own description and example, LUREF / Luxembourg TM (3D), 9895; ADR
+3888).
+
+**What is left of the table** is the three methods below, 13 systems, and all three wait on Q1114.
+
 Rows 6, 10 and 17, Azimuthal Equidistant (1125), Lambert Conic Conformal 1SP variant B (1102) and
 Local Orthographic (1130), are not in the September 2019 revision (its 3.3.5 is the Orthographic,
 9840). The revision that has them sits behind a download form asking for personal details
@@ -83,15 +100,15 @@ the table holds it. Each built moves §12.10.4's note; the last moves the row to
 | 16 | Laborde Oblique Mercator, built | 9813 | 2 | 3.2.4.2 |
 | 17 | Local Orthographic, waits on Q1114 | 1130 | 2 | not in the September 2019 revision |
 | 18 | Transverse Mercator Zoned Grid System, built | 9824 | 2 | 3.2.3.2 |
-| 19 | Hyperbolic Cassini-Soldner | 9833 | 1 | 3.2.2.1 |
-| 20 | Modified Azimuthal Equidistant | 9832 | 1 | 3.3.3.1 |
-| 21 | Guam Projection | 9831 | 1 | 3.3.3.2 |
-| 22 | Mercator (1SP) (Spherical) | 9841 | 1 | 3.2.1.1 |
-| 23 | Lambert Conic Conformal (2SP Belgium) | 9803 | 1 | 3.1.1.4 |
-| 24 | Lambert Conic Near-Conformal | 9817 | 1 | 3.1.1.6 |
-| 25 | New Zealand Map Grid | 9811 | 1 | 3.4.1 |
-| 26 | Tunisia Mining Grid | 9816 | 1 | 3.4.2 |
-| 27 | Transverse Mercator 3D | 1111 | 1 | not a section of the September 2019 revision; the Dataset's own description is read first |
+| 19 | Hyperbolic Cassini-Soldner, built | 9833 | 1 | 3.2.2.1 |
+| 20 | Modified Azimuthal Equidistant, built | 9832 | 1 | 3.3.3.1 |
+| 21 | Guam Projection, built | 9831 | 1 | 3.3.3.2 |
+| 22 | Mercator (1SP) (Spherical), built (and Mercator (Spherical), 1026) | 9841 | 1 | 3.2.1.1 |
+| 23 | Lambert Conic Conformal (2SP Belgium), built | 9803 | 1 | 3.1.1.4 |
+| 24 | Lambert Conic Near-Conformal, built | 9817 | 1 | 3.1.1.6 |
+| 25 | New Zealand Map Grid, built | 9811 | 1 | 3.4.1 |
+| 26 | Tunisia Mining Grid, built | 9816 | 1 | 3.4.2 |
+| 27 | Transverse Mercator 3D, built | 1111 | 1 | not a section of the September 2019 revision; the Dataset's own description is read first |
 
 The sections are the Guidance Note's table of contents; whether each prints a worked example, and
 for which system, is read by the round that takes the row, and that example (or, where none is

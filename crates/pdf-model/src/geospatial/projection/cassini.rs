@@ -3,8 +3,21 @@
 //! The method is the transverse aspect of the equidistant cylindrical projection: true scale along
 //! the central meridian, and the meridian distance `M` from the equator its northing. Both
 //! directions are the section's series, which need no iteration.
+//!
+//! Hyperbolic Cassini-Soldner, EPSG method 9833, is section 3.2.2.1's modification of the
+//! northing for the Vanua Levu grid of Fiji, and of the reverse's `M1` to undo it.
 
 use super::{LatLon, Projection};
+
+/// Section 3.2.2.1's divisor of `N − FN` in its first estimate of the latitude,
+/// `ϕ1' = ϕO + (N – FN)/315320`, a length in the chains of the section's example (a radius of
+/// the meridian near Vanua Levu, whose `ρ` the example prints as 315176.48 chains), here in metres.
+///
+/// The example's Clarke 1880 axis, 20926202 ft, is 317063.667 chains: its chain is 66
+/// international feet, 20.1168 m, the chain whose hundredth is the grid's link (EPSG unit 9098).
+/// The estimate only seeds `ρ1'` and `ν1'`, whose product changes the correction `q` by parts in
+/// a million per hundredth of a radian, so the divisor's unit is read, never tuned (ADR 3885).
+const VANUA_LEVU_DIVISOR: f64 = 315_320.0 * 20.1168;
 
 /// Section 3.2.2's meridian distance `M` from the equator to a latitude, the series to its sixth
 /// power of `e` as the section prints it, and section 3.1.4's for Bonne.
@@ -77,5 +90,32 @@ impl Projection {
                 + (d - t1 * d.powi(3) / 3.0 + (1.0 + 3.0 * t1) * t1 * d.powi(5) / 15.0)
                     / phi1.cos(),
         }
+    }
+
+    /// Section 3.2.2.1's forward formulas: the easting as the standard method's, and
+    /// `N = FN + X – (X³/6ρν)`, with `ρ` and `ν` at the point's latitude.
+    pub(super) fn hyperbolic_cassini_forward(&self, latitude: f64, delta: f64) -> (f64, f64) {
+        let (easting, x) = self.cassini_forward(latitude, delta);
+        let rho = self.ellipsoid.meridian_radius(latitude);
+        let nu = self.ellipsoid.prime_vertical_radius(latitude);
+        (easting, x - x.powi(3) / (6.0 * rho * nu))
+    }
+
+    /// Section 3.2.2.1's reverse formulas: the standard method's, with `M1 = MO + (N – FN) + q`,
+    /// where `q = (N – FN + q′)³ / 6ρ1′ν1′` and `q′ = (N – FN)³ / 6ρ1′ν1′`, the radii taken at the
+    /// first estimate `ϕ1′ = ϕO + (N – FN)/315320`. `cassini` adds `MO` itself, so it is given
+    /// `y + q`.
+    ///
+    /// The section offers these "for the Fiji Vanua Levu grid", the method's one system; `q` is
+    /// the forward's `X³/6ρν` with `X` estimated twice, so the reverse undoes the forward to
+    /// within the term's own change between `ϕ1′` and the point, well inside a millimetre there.
+    pub(super) fn hyperbolic_cassini(&self, x: f64, y: f64) -> LatLon {
+        let estimate = Self::get(self.parameters.origin_latitude) + y / VANUA_LEVU_DIVISOR;
+        let radii = 6.0
+            * self.ellipsoid.meridian_radius(estimate)
+            * self.ellipsoid.prime_vertical_radius(estimate);
+        let q_first = y.powi(3) / radii;
+        let q = (y + q_first).powi(3) / radii;
+        self.cassini(x, y + q)
     }
 }

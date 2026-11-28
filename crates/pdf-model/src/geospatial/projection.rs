@@ -40,10 +40,15 @@ mod cylindrical;
 mod equal_earth;
 mod krovak;
 mod laborde;
+mod micronesia;
+mod near_conformal;
+mod new_zealand;
 mod oblique;
 mod polar;
 mod polyconic;
 mod spherical;
+mod spherical_mercator;
+mod tunisia;
 mod urban;
 mod zoned;
 
@@ -65,9 +70,14 @@ const CONVERGED: f64 = 1e-14;
 /// forward formulas would return a finite grid point for a place no grid holds.
 const AT_THE_POLE: f64 = 1e-12;
 
-/// The latitude poleward of which Guidance Note 7-2 section 3.2.1.2 says the Pseudo-Mercator's
-/// northing formula fails and is not to be used: 88°.
+/// The latitude poleward of which Guidance Note 7-2 sections 3.2.1.1 and 3.2.1.2 say the
+/// spherical Mercator's and the Pseudo-Mercator's northing formula fails and is not to be used:
+/// 88°.
 const PSEUDO_MERCATOR_LIMIT: f64 = 88.0 * std::f64::consts::PI / 180.0;
+
+/// Section 3.1.1.4's turn of the Belgian 1972 grid's angle θ, `a = 29.2985` arc-seconds, in
+/// radians.
+const BELGIUM_TURN: f64 = 29.2985 / 3600.0 * std::f64::consts::PI / 180.0;
 
 /// A projection method this module evaluates, with the section of Guidance Note 7-2 it follows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,6 +172,33 @@ pub enum Method {
     /// Transverse Mercator Zoned Grid System, EPSG method 9824, section 3.2.3.2: the Transverse
     /// Mercator of the zone a longitude falls in, the zone's number prefixed to the easting.
     TransverseMercatorZonedGridSystem,
+    /// Hyperbolic Cassini-Soldner, EPSG method 9833, section 3.2.2.1: Cassini-Soldner with the
+    /// northing less `X³/6ρν`.
+    HyperbolicCassiniSoldner,
+    /// Modified Azimuthal Equidistant, EPSG method 9832, section 3.3.3.1: the distance from the
+    /// origin along a normal section rather than the geodesic.
+    ModifiedAzimuthalEquidistant,
+    /// Guam Projection, EPSG method 9831, section 3.3.3.2: a simplified oblique azimuthal
+    /// equidistant.
+    GuamProjection,
+    /// Mercator (Spherical), EPSG method 1026, section 3.2.1.1, and the code it replaced, Mercator
+    /// (1SP) (Spherical), 9841, which also stated a scale factor (ADR 3886).
+    MercatorSpherical,
+    /// Lambert Conic Conformal (2SP Belgium), EPSG method 9803, section 3.1.1.4: the 2SP method
+    /// with its angle θ turned by 29.2985″.
+    LambertConicConformal2SpBelgium,
+    /// Lambert Conic Near-Conformal, EPSG method 9817, section 3.1.1.6: the Army Map Service's
+    /// one-parallel series truncated at the third order.
+    LambertConicNearConformal,
+    /// New Zealand Map Grid, EPSG method 9811, section 3.4.1, by the formulas of the Office of
+    /// the Surveyor-General's Technical Report 4.2 (ADR 3887).
+    NewZealandMapGrid,
+    /// Tunisia Mining Grid, EPSG method 9816, section 3.4.2: latitude and longitude linear in the
+    /// northing and the easting, at two rates of latitude.
+    TunisiaMiningGrid,
+    /// Transverse Mercator 3D, EPSG method 1111: the Transverse Mercator in both directions, the
+    /// ellipsoidal height carried across unchanged (the Dataset's own description; ADR 3888).
+    TransverseMercator3D,
 }
 
 impl Method {
@@ -207,6 +244,15 @@ impl Method {
             Self::BonneSouthOrientated => "Bonne (South Orientated)",
             Self::LabordeObliqueMercator => "Laborde Oblique Mercator",
             Self::TransverseMercatorZonedGridSystem => "Transverse Mercator Zoned Grid System",
+            Self::HyperbolicCassiniSoldner => "Hyperbolic Cassini-Soldner",
+            Self::ModifiedAzimuthalEquidistant => "Modified Azimuthal Equidistant",
+            Self::GuamProjection => "Guam Projection",
+            Self::MercatorSpherical => "Mercator (Spherical)",
+            Self::LambertConicConformal2SpBelgium => "Lambert Conic Conformal (2SP Belgium)",
+            Self::LambertConicNearConformal => "Lambert Conic Near-Conformal",
+            Self::NewZealandMapGrid => "New Zealand Map Grid",
+            Self::TunisiaMiningGrid => "Tunisia Mining Grid",
+            Self::TransverseMercator3D => "Transverse Mercator 3D",
         }
     }
 }
@@ -388,6 +434,21 @@ fn required_bonne(p: &Parameters, method: Method) -> Result<(), Refusal> {
     Ok(())
 }
 
+/// The near-conformal Lambert's required parameters (section 3.1.1.6), refused on the equator,
+/// where its `rO = kO νO / tan ϕO` and `λ = λO + θ′ / sin ϕO` divide by zero.
+fn required_near_conformal(p: &Parameters, method: Method) -> Result<(), Refusal> {
+    let origin = required(p.origin_latitude, method, "latitude of natural origin")?;
+    required(p.origin_longitude, method, "longitude of natural origin")?;
+    required(p.scale, method, "scale factor at natural origin")?;
+    if origin == 0.0 {
+        return Err(Refusal::Unsupported {
+            method: method.name(),
+            reason: "a latitude of natural origin on the equator",
+        });
+    }
+    Ok(())
+}
+
 /// The zoned Transverse Mercator's required parameters (section 3.2.3.2), and a width that gives
 /// the section's `1 ≤ Z ≤ 360/W` a whole number of zones round the earth.
 fn required_zoned(p: &Parameters, method: Method) -> Result<(), Refusal> {
@@ -401,6 +462,109 @@ fn required_zoned(p: &Parameters, method: Method) -> Result<(), Refusal> {
             method: method.name(),
             reason: "a zone width that does not divide 360 degrees",
         });
+    }
+    Ok(())
+}
+
+/// The parameters a method's formulas use, or a refusal naming the first missing, and the
+/// refusals of the cases its section leaves open.
+fn required_parameters(p: &Parameters, method: Method) -> Result<(), Refusal> {
+    match method {
+        Method::TransverseMercator
+        | Method::TransverseMercator3D
+        | Method::TransverseMercatorSouthOrientated
+        | Method::ObliqueStereographic
+        | Method::LambertConicConformal1Sp
+        | Method::LambertConicConformalWestOrientated => {
+            required(p.origin_latitude, method, "latitude of natural origin")?;
+            required(p.origin_longitude, method, "longitude of natural origin")?;
+            required(p.scale, method, "scale factor at natural origin")?;
+        }
+        Method::LambertConicConformal2Sp
+        | Method::LambertConicConformal2SpBelgium
+        | Method::AlbersEqualArea => {
+            required(p.origin_latitude, method, "latitude of false origin")?;
+            required(p.origin_longitude, method, "longitude of false origin")?;
+            required(p.parallel_1, method, "latitude of 1st standard parallel")?;
+            required(p.parallel_2, method, "latitude of 2nd standard parallel")?;
+        }
+        Method::MercatorVariantA => {
+            required(p.origin_longitude, method, "longitude of natural origin")?;
+            required(p.scale, method, "scale factor at natural origin")?;
+        }
+        Method::MercatorVariantB
+        | Method::LambertCylindricalEqualArea
+        | Method::LambertCylindricalEqualAreaSpherical
+        | Method::EquidistantCylindrical
+        | Method::EquidistantCylindricalSpherical => {
+            required(p.origin_longitude, method, "longitude of natural origin")?;
+            required(p.parallel_1, method, "latitude of 1st standard parallel")?;
+        }
+        Method::PseudoMercator | Method::EqualEarth => {
+            required(p.origin_longitude, method, "longitude of natural origin")?;
+        }
+        Method::CassiniSoldner
+        | Method::HyperbolicCassiniSoldner
+        | Method::ModifiedAzimuthalEquidistant
+        | Method::GuamProjection
+        | Method::NewZealandMapGrid
+        | Method::MercatorSpherical
+        | Method::LambertAzimuthalEqualArea
+        | Method::LambertAzimuthalEqualAreaSpherical
+        | Method::AmericanPolyconic => {
+            required(p.origin_latitude, method, "latitude of natural origin")?;
+            required(p.origin_longitude, method, "longitude of natural origin")?;
+        }
+        Method::PolarStereographicA => {
+            let origin = required(p.origin_latitude, method, "latitude of natural origin")?;
+            required(p.origin_longitude, method, "longitude of natural origin")?;
+            required(p.scale, method, "scale factor at natural origin")?;
+            // Section 3.3.1.2's note 1: the latitude of natural origin only names the pole,
+            // and "the only valid entries are ±90°".
+            if (origin.abs() - FRAC_PI_2).abs() > 1e-12 {
+                return Err(Refusal::Unsupported {
+                    method: method.name(),
+                    reason: "a latitude of natural origin other than a pole",
+                });
+            }
+        }
+        Method::HotineObliqueMercatorA
+        | Method::HotineObliqueMercatorB
+        | Method::LabordeObliqueMercator => required_oblique(p, method)?,
+        Method::ColombiaUrban => {
+            required(p.origin_latitude, method, "latitude of natural origin")?;
+            required(p.origin_longitude, method, "longitude of natural origin")?;
+            required(p.origin_height, method, "projection plane origin height")?;
+        }
+        Method::LambertConicConformal2SpMichigan => {
+            required(p.origin_latitude, method, "latitude of false origin")?;
+            required(p.origin_longitude, method, "longitude of false origin")?;
+            required(p.parallel_1, method, "latitude of 1st standard parallel")?;
+            required(p.parallel_2, method, "latitude of 2nd standard parallel")?;
+            required(p.ellipsoid_scale, method, "ellipsoid scaling factor")?;
+        }
+        Method::Krovak
+        | Method::KrovakNorthOrientated
+        | Method::KrovakModified
+        | Method::KrovakModifiedNorthOrientated => required_krovak(p, method)?,
+        Method::Bonne | Method::BonneSouthOrientated => required_bonne(p, method)?,
+        Method::TransverseMercatorZonedGridSystem => required_zoned(p, method)?,
+        Method::LambertConicNearConformal => required_near_conformal(p, method)?,
+        Method::TunisiaMiningGrid => {
+            required(p.origin_latitude, method, "latitude of false origin")?;
+            required(p.origin_longitude, method, "longitude of false origin")?;
+        }
+        Method::PolarStereographicB | Method::PolarStereographicC => {
+            let parallel = required(p.parallel_1, method, "latitude of standard parallel")?;
+            required(p.origin_longitude, method, "longitude of origin")?;
+            // Note 2 takes the pole from the parallel's hemisphere, which the equator has not.
+            if parallel.abs() < f64::MIN_POSITIVE {
+                return Err(Refusal::Unsupported {
+                    method: method.name(),
+                    reason: "a standard parallel on the equator",
+                });
+            }
+        }
     }
     Ok(())
 }
@@ -448,90 +612,7 @@ impl Projection {
         parameters: Parameters,
     ) -> Result<Self, Refusal> {
         let p = &parameters;
-        match method {
-            Method::TransverseMercator
-            | Method::TransverseMercatorSouthOrientated
-            | Method::ObliqueStereographic
-            | Method::LambertConicConformal1Sp
-            | Method::LambertConicConformalWestOrientated => {
-                required(p.origin_latitude, method, "latitude of natural origin")?;
-                required(p.origin_longitude, method, "longitude of natural origin")?;
-                required(p.scale, method, "scale factor at natural origin")?;
-            }
-            Method::LambertConicConformal2Sp | Method::AlbersEqualArea => {
-                required(p.origin_latitude, method, "latitude of false origin")?;
-                required(p.origin_longitude, method, "longitude of false origin")?;
-                required(p.parallel_1, method, "latitude of 1st standard parallel")?;
-                required(p.parallel_2, method, "latitude of 2nd standard parallel")?;
-            }
-            Method::MercatorVariantA => {
-                required(p.origin_longitude, method, "longitude of natural origin")?;
-                required(p.scale, method, "scale factor at natural origin")?;
-            }
-            Method::MercatorVariantB
-            | Method::LambertCylindricalEqualArea
-            | Method::LambertCylindricalEqualAreaSpherical
-            | Method::EquidistantCylindrical
-            | Method::EquidistantCylindricalSpherical => {
-                required(p.origin_longitude, method, "longitude of natural origin")?;
-                required(p.parallel_1, method, "latitude of 1st standard parallel")?;
-            }
-            Method::PseudoMercator | Method::EqualEarth => {
-                required(p.origin_longitude, method, "longitude of natural origin")?;
-            }
-            Method::CassiniSoldner
-            | Method::LambertAzimuthalEqualArea
-            | Method::LambertAzimuthalEqualAreaSpherical
-            | Method::AmericanPolyconic => {
-                required(p.origin_latitude, method, "latitude of natural origin")?;
-                required(p.origin_longitude, method, "longitude of natural origin")?;
-            }
-            Method::PolarStereographicA => {
-                let origin = required(p.origin_latitude, method, "latitude of natural origin")?;
-                required(p.origin_longitude, method, "longitude of natural origin")?;
-                required(p.scale, method, "scale factor at natural origin")?;
-                // Section 3.3.1.2's note 1: the latitude of natural origin only names the pole,
-                // and "the only valid entries are ±90°".
-                if (origin.abs() - FRAC_PI_2).abs() > 1e-12 {
-                    return Err(Refusal::Unsupported {
-                        method: method.name(),
-                        reason: "a latitude of natural origin other than a pole",
-                    });
-                }
-            }
-            Method::HotineObliqueMercatorA
-            | Method::HotineObliqueMercatorB
-            | Method::LabordeObliqueMercator => required_oblique(p, method)?,
-            Method::ColombiaUrban => {
-                required(p.origin_latitude, method, "latitude of natural origin")?;
-                required(p.origin_longitude, method, "longitude of natural origin")?;
-                required(p.origin_height, method, "projection plane origin height")?;
-            }
-            Method::LambertConicConformal2SpMichigan => {
-                required(p.origin_latitude, method, "latitude of false origin")?;
-                required(p.origin_longitude, method, "longitude of false origin")?;
-                required(p.parallel_1, method, "latitude of 1st standard parallel")?;
-                required(p.parallel_2, method, "latitude of 2nd standard parallel")?;
-                required(p.ellipsoid_scale, method, "ellipsoid scaling factor")?;
-            }
-            Method::Krovak
-            | Method::KrovakNorthOrientated
-            | Method::KrovakModified
-            | Method::KrovakModifiedNorthOrientated => required_krovak(p, method)?,
-            Method::Bonne | Method::BonneSouthOrientated => required_bonne(p, method)?,
-            Method::TransverseMercatorZonedGridSystem => required_zoned(p, method)?,
-            Method::PolarStereographicB | Method::PolarStereographicC => {
-                let parallel = required(p.parallel_1, method, "latitude of standard parallel")?;
-                required(p.origin_longitude, method, "longitude of origin")?;
-                // Note 2 takes the pole from the parallel's hemisphere, which the equator has not.
-                if parallel.abs() < f64::MIN_POSITIVE {
-                    return Err(Refusal::Unsupported {
-                        method: method.name(),
-                        reason: "a standard parallel on the equator",
-                    });
-                }
-            }
-        }
+        required_parameters(p, method)?;
         if method == Method::ObliqueStereographic && p.origin_latitude.is_some_and(|v| v < 0.0) {
             return Err(Refusal::Unsupported {
                 method: method.name(),
@@ -564,7 +645,8 @@ impl Projection {
     /// method sends to infinity or folds onto another — Mercator's poles, a cone's far pole, the
     /// stereographic's antipode, a Transverse Mercator point more than 90° from the central
     /// meridian (whose formulas' `asin` answers for the mirror point instead), and the
-    /// Pseudo-Mercator poleward of 88°, where section 3.2.1.2 says its formula is not to be used.
+    /// spherical Mercator and the Pseudo-Mercator poleward of 88°, where sections 3.2.1.1 and
+    /// 3.2.1.2 say their formula is not to be used.
     pub fn forward(&self, point: LatLon) -> Result<GridPoint, Refusal> {
         let LatLon {
             latitude,
@@ -597,12 +679,48 @@ impl Projection {
                 Err(self.outside())
             };
         }
-        let (x, y) = match self.method {
-            Method::TransverseMercator => self.transverse_mercator_forward(latitude, delta)?,
+        let (x, y) = self.plane_forward(latitude, delta)?;
+        // not a repair: this evaluates a reading logged where the string is read; an offset it
+        // does not state is `super::system`'s WKT_FALSE_ORIGIN_ABSENT.
+        let easting = x + p.false_easting.unwrap_or(0.0);
+        let northing = y + p.false_northing.unwrap_or(0.0);
+        if easting.is_finite() && northing.is_finite() {
+            Ok(GridPoint { easting, northing })
+        } else {
+            Err(self.outside())
+        }
+    }
+
+    /// Each method's forward formulas but Krovak's and the zoned grid's, `delta` being λ − λO:
+    /// the easting and northing less the false easting and northing.
+    fn plane_forward(&self, latitude: f64, delta: f64) -> Result<(f64, f64), Refusal> {
+        let p = &self.parameters;
+        Ok(match self.method {
+            // Transverse Mercator 3D's height is carried across unchanged, so its easting and
+            // northing are the general case's.
+            Method::TransverseMercator | Method::TransverseMercator3D => {
+                self.transverse_mercator_forward(latitude, delta)?
+            }
             Method::LambertConicConformal2Sp | Method::LambertConicConformal2SpMichigan => {
                 let (n, big_f, r_f) = self.lambert_2sp_cone();
                 self.cone_forward(latitude, delta, n, self.lambert_axis() * big_f, r_f)?
             }
+            // Section 3.1.1.4: `E = EF + r sin(θ – a)` and `N = NF + rF – r cos(θ – a)`, and
+            // `θ = n(λ – λF)`, so the turn is the 2SP evaluation's at `λ – λF – a/n`.
+            Method::LambertConicConformal2SpBelgium => {
+                let (n, big_f, r_f) = self.lambert_2sp_cone();
+                let turned = delta - BELGIUM_TURN / n;
+                self.cone_forward(latitude, turned, n, self.lambert_axis() * big_f, r_f)?
+            }
+            Method::HyperbolicCassiniSoldner => self.hyperbolic_cassini_forward(latitude, delta),
+            Method::ModifiedAzimuthalEquidistant => {
+                self.modified_azimuthal_forward(latitude, delta)
+            }
+            Method::GuamProjection => self.guam_forward(latitude, delta),
+            Method::MercatorSpherical => self.spherical_mercator_forward(latitude, delta)?,
+            Method::LambertConicNearConformal => self.near_conformal_forward(latitude, delta),
+            Method::NewZealandMapGrid => self.nzmg_forward(latitude, delta),
+            Method::TunisiaMiningGrid => self.tunisia_forward(latitude, delta),
             Method::LambertConicConformal1Sp => {
                 let (n, big_f, r0) = self.lambert_1sp_cone();
                 let a = self.ellipsoid.semi_major_axis;
@@ -668,16 +786,7 @@ impl Projection {
             | Method::KrovakModified
             | Method::KrovakModifiedNorthOrientated
             | Method::TransverseMercatorZonedGridSystem => return Err(self.outside()),
-        };
-        // not a repair: this evaluates a reading logged where the string is read; an offset it
-        // does not state is `super::system`'s WKT_FALSE_ORIGIN_ABSENT.
-        let easting = x + p.false_easting.unwrap_or(0.0);
-        let northing = y + p.false_northing.unwrap_or(0.0);
-        if easting.is_finite() && northing.is_finite() {
-            Ok(GridPoint { easting, northing })
-        } else {
-            Err(self.outside())
-        }
+        })
     }
 
     /// The latitude and longitude of an easting and a northing, in metres.
@@ -722,10 +831,28 @@ impl Projection {
         let x = easting - p.false_easting.unwrap_or(0.0);
         let y = northing - p.false_northing.unwrap_or(0.0);
         let answer = match self.method {
-            Method::TransverseMercator => self.transverse_mercator(x, y)?,
+            Method::TransverseMercator | Method::TransverseMercator3D => {
+                self.transverse_mercator(x, y)?
+            }
             Method::LambertConicConformal2Sp | Method::LambertConicConformal2SpMichigan => {
                 self.lambert_2sp(x, y)?
             }
+            // Section 3.1.1.4's reverse: `λ = [(θ′ + a)/n] + λF`.
+            Method::LambertConicConformal2SpBelgium => {
+                let answer = self.lambert_2sp(x, y)?;
+                let (n, _, _) = self.lambert_2sp_cone();
+                LatLon {
+                    longitude: answer.longitude + BELGIUM_TURN / n,
+                    ..answer
+                }
+            }
+            Method::HyperbolicCassiniSoldner => self.hyperbolic_cassini(x, y),
+            Method::ModifiedAzimuthalEquidistant => self.modified_azimuthal(x, y),
+            Method::GuamProjection => self.guam(x, y),
+            Method::MercatorSpherical => self.spherical_mercator(x, y),
+            Method::LambertConicNearConformal => self.near_conformal(x, y)?,
+            Method::NewZealandMapGrid => self.nzmg(x, y)?,
+            Method::TunisiaMiningGrid => self.tunisia(x, y),
             Method::LambertConicConformal1Sp => self.lambert_1sp(x, y)?,
             Method::MercatorVariantA | Method::MercatorVariantB => self.mercator(x, y),
             Method::PseudoMercator => self.pseudo_mercator(x, y),
@@ -767,8 +894,10 @@ impl Projection {
             | Method::KrovakModifiedNorthOrientated
             | Method::TransverseMercatorZonedGridSystem => return Err(self.outside()),
         };
-        let within_method =
-            self.method != Method::PseudoMercator || answer.latitude.abs() <= PSEUDO_MERCATOR_LIMIT;
+        let within_method = !matches!(
+            self.method,
+            Method::PseudoMercator | Method::MercatorSpherical
+        ) || answer.latitude.abs() <= PSEUDO_MERCATOR_LIMIT;
         if answer.latitude.is_finite()
             && answer.longitude.is_finite()
             && answer.latitude.abs() <= FRAC_PI_2 + 1e-12

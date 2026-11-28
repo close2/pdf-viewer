@@ -630,6 +630,15 @@ fn named_by_code(code: i64) -> Option<Named> {
         9828 => Some(Named::Exact(Method::BonneSouthOrientated)),
         9813 => Some(Named::Exact(Method::LabordeObliqueMercator)),
         9824 => Some(Named::Exact(Method::TransverseMercatorZonedGridSystem)),
+        9833 => Some(Named::Exact(Method::HyperbolicCassiniSoldner)),
+        9832 => Some(Named::Exact(Method::ModifiedAzimuthalEquidistant)),
+        9831 => Some(Named::Exact(Method::GuamProjection)),
+        1026 | 9841 => Some(Named::Exact(Method::MercatorSpherical)),
+        9803 => Some(Named::Exact(Method::LambertConicConformal2SpBelgium)),
+        9817 => Some(Named::Exact(Method::LambertConicNearConformal)),
+        9811 => Some(Named::Exact(Method::NewZealandMapGrid)),
+        9816 => Some(Named::Exact(Method::TunisiaMiningGrid)),
+        1111 => Some(Named::Exact(Method::TransverseMercator3D)),
         _ => None,
     }
 }
@@ -702,6 +711,15 @@ fn named(name: &str, code: Option<i64>) -> Option<Named> {
         "transversemercatorzonedgridsystem" => {
             Named::Exact(Method::TransverseMercatorZonedGridSystem)
         }
+        "hyperboliccassinisoldner" => Named::Exact(Method::HyperbolicCassiniSoldner),
+        "modifiedazimuthalequidistant" => Named::Exact(Method::ModifiedAzimuthalEquidistant),
+        "guamprojection" => Named::Exact(Method::GuamProjection),
+        "mercatorspherical" | "mercator1spspherical" => Named::Exact(Method::MercatorSpherical),
+        "lambertconicconformal2spbelgium" => Named::Exact(Method::LambertConicConformal2SpBelgium),
+        "lambertconicnearconformal" => Named::Exact(Method::LambertConicNearConformal),
+        "newzealandmapgrid" => Named::Exact(Method::NewZealandMapGrid),
+        "tunisiamininggrid" => Named::Exact(Method::TunisiaMiningGrid),
+        "transversemercator3d" => Named::Exact(Method::TransverseMercator3D),
         _ => return None,
     })
 }

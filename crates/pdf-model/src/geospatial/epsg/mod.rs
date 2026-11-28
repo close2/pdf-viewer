@@ -266,6 +266,16 @@ fn method(code: u32) -> Option<ProjectionMethod> {
         9828 => ProjectionMethod::BonneSouthOrientated,
         9813 => ProjectionMethod::LabordeObliqueMercator,
         9824 => ProjectionMethod::TransverseMercatorZonedGridSystem,
+        9833 => ProjectionMethod::HyperbolicCassiniSoldner,
+        9832 => ProjectionMethod::ModifiedAzimuthalEquidistant,
+        9831 => ProjectionMethod::GuamProjection,
+        // 9841 is the code 1026 replaced, which also stated a scale factor (ADR 3886).
+        1026 | 9841 => ProjectionMethod::MercatorSpherical,
+        9803 => ProjectionMethod::LambertConicConformal2SpBelgium,
+        9817 => ProjectionMethod::LambertConicNearConformal,
+        9811 => ProjectionMethod::NewZealandMapGrid,
+        9816 => ProjectionMethod::TunisiaMiningGrid,
+        1111 => ProjectionMethod::TransverseMercator3D,
         _ => return None,
     })
 }
@@ -352,3 +362,6 @@ mod tests;
 
 #[cfg(test)]
 mod method_tests;
+
+#[cfg(test)]
+mod one_system_tests;

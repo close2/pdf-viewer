@@ -171,14 +171,14 @@ fn epsg_2278_reads_sexagesimal_parameters_and_us_survey_feet() {
 
 #[test]
 fn a_code_whose_method_is_not_built_is_refused_by_its_number_and_the_methods_name() {
-    // Vanua Levu 1915 / Vanua Levu Grid is Hyperbolic Cassini-Soldner, EPSG method 9833,
-    // `doc/todo/79`'s nineteenth entry.
+    // WGS 84 / Equi7 Europe is Azimuthal Equidistant, EPSG method 1125, `doc/todo/79`'s sixth
+    // entry, which the September 2019 revision of Guidance Note 7-2 has no section for.
     assert_eq!(
-        system(3139),
+        system(27704),
         Err(Refusal::EpsgMethod {
-            code: 3139,
-            method: "Hyperbolic Cassini-Soldner",
-            method_code: 9833,
+            code: 27704,
+            method: "Azimuthal Equidistant",
+            method_code: 1125,
         })
     );
 }
