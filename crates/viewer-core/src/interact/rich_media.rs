@@ -56,8 +56,8 @@ pub(super) fn pressed(open: &Open, annotation: ObjectId, dict: &Dictionary, outc
         dict,
         super::deprecated_media::processor(open),
     ) {
-        Ok(clip) => played(
-            clip,
+        Ok(activated) => played(
+            activated,
             annotation,
             &format!("{subject} is activated"),
             outcome,
@@ -114,7 +114,7 @@ pub(super) fn raised(
         ));
     }
     if activates
-        && let Ok(clip) = rich_media::activated(
+        && let Ok(activated) = rich_media::activated(
             &open.document,
             dict,
             super::deprecated_media::processor(open),
@@ -126,7 +126,7 @@ pub(super) fn raised(
             "its page became visible (Table 335's /Condition PV)"
         };
         played(
-            clip,
+            activated,
             annotation,
             &format!("this rich media annotation is activated because {condition}"),
             outcome,
@@ -157,17 +157,29 @@ pub(crate) fn presented(open: &Open, current: &[ObjectId], visible: &[ObjectId])
 }
 
 /// The configuration's clip handed to the players associated with `annotation`, as Table 218's
-/// `/OP` 4 associates one, with what it sets aside said.
+/// `/OP` 4 associates one, presented as Table 338 states, with what it reads differently and what
+/// it sets aside said (ADRs 3855, 3865).
 fn played(
-    clip: pdf_model::media::Clip,
+    activated: rich_media::Activated,
     annotation: ObjectId,
     subject: &str,
     outcome: &mut Outcome,
 ) {
+    let rich_media::Activated { clip, notes } = activated;
+    let presented = if clip.window.is_some() {
+        "in a floating window of its own (Table 338's Windowed)"
+    } else if clip.background.is_some() {
+        "in the annotation's rectangle (Table 338's Embedded)"
+    } else {
+        "as a sound"
+    };
     outcome.notes.push(format!(
-        "{subject} — this program's player plays {}",
+        "{subject} — this program's player plays {} {presented}",
         clip.describe()
     ));
+    outcome
+        .notes
+        .extend(notes.iter().map(|note| format!("{subject} — {note}")));
     outcome.notes.extend(
         clip.unhonoured
             .iter()

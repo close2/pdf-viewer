@@ -275,6 +275,7 @@ fn every_carried_event_round_trips() {
                         user_close: true,
                         resize: pdf_model::media::Resize::KeepingAspect,
                         title: Some("A clip".to_owned()),
+                        held_within: Some((-18, 18)),
                     }),
                     monitor: pdf_model::media::MonitorSpecifier::ColourDepth,
                     colour: [0.0, 0.5, 1.0],

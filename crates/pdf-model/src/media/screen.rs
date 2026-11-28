@@ -185,7 +185,8 @@ pub enum Resize {
     Free,
 }
 
-/// Table 295's floating window, settled from `MH`'s `/F` and `BE`'s.
+/// Table 295's floating window, settled from `MH`'s `/F` and `BE`'s, or §13.7.2.2.6's rich media
+/// window, settled from Tables 339 and 340 ([`super::rich_media::presentation`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Floating {
     /// `/D`: "the dimensions of the rectangle in which the media shall play, not including such
@@ -206,6 +207,14 @@ pub struct Floating {
     pub resize: Resize,
     /// `/TT`, chosen for the reader's language by §14.9.2.4, where it states text for one.
     pub title: Option<String>,
+    /// For §13.7.2.2.6's rich media window, how far in pixels it is moved from where
+    /// [`Self::position`] stands it, rightward then downward — Table 340's `/HOffset` and
+    /// `/VOffset` — after which it is held inside the window [`Self::relative`] names, moved and if
+    /// need be shrunk onto it: "An interactive PDF processor that supports Windowed styles shall
+    /// constrain the window extent to be within the presentation area of the interactive PDF
+    /// processor". `None` for Table 295's window, which states no offset and whose `/O` is about
+    /// the monitors alone.
+    pub held_within: Option<(i32, i32)>,
 }
 
 /// A window of the host's own a clip's pictures are shown in — Table 294's `/W` 0 or 1.
@@ -498,6 +507,7 @@ fn floating_window(
         user_close,
         resize,
         title,
+        held_within: None,
     })
 }
 

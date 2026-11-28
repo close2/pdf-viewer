@@ -241,3 +241,60 @@ fn page_close_and_page_invisible_deactivate_and_explicit_leaves_it_playing() {
     let turned: Vec<Event> = viewer.handle(Command::GoTo(PageTarget::Index(1))).collect();
     assert!(stopped(&turned).is_empty(), "XD: {turned:?}");
 }
+
+/// Table 338's presentation reaches the players: `Embedded` is the annotation's rectangle, its
+/// background at no opacity where `/Transparent` is true; `Windowed` is a floating window of the
+/// host's, for a window that opens and places one, and nothing on the page; and for one that does
+/// not, the rectangle, said (ADR 3865).
+#[test]
+fn the_presentation_style_decides_the_rectangle_or_a_window_of_its_own() {
+    let shown = |settings: &str, screens: Option<pdf_model::media::Screens>| {
+        let (mut viewer, _, _) = opened(document(0, settings, "Video", "video#2Fmp4"));
+        if let Some(screens) = screens {
+            viewer
+                .handle(Command::OpensMediaWindows(screens))
+                .for_each(drop);
+        }
+        let events = pressed(&mut viewer).expect("the page has a geometry");
+        let sound = events
+            .iter()
+            .find_map(|event| match event {
+                Event::Media {
+                    sound: Some(sound), ..
+                } => Some(sound.clone()),
+                _ => None,
+            })
+            .expect("a clip played");
+        (sound, said(&events))
+    };
+    let (sound, _) = shown(
+        "<< /Activation << /Presentation << /Transparent true >> >> >>",
+        None,
+    );
+    let screen = sound.screen.expect("Embedded, the default");
+    assert_eq!(screen.annotation, ANNOTATION);
+    assert!(screen.background.opacity.abs() < f32::EPSILON);
+    assert!(sound.window.is_none());
+
+    let windowed = "<< /Activation << /Presentation << /Style /Windowed >> >> >>";
+    let placing = pdf_model::media::Screens {
+        windows: true,
+        placed: true,
+        monitors: [true; 7],
+    };
+    let (sound, notes) = shown(windowed, Some(placing));
+    assert!(sound.screen.is_none(), "nothing drawn on the page");
+    assert!(sound.window.is_some(), "{notes:?}");
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains("Table 338's Windowed")),
+        "{notes:?}"
+    );
+    let (sound, notes) = shown(windowed, None);
+    assert!(sound.window.is_none() && sound.screen.is_some());
+    assert!(
+        notes.iter().any(|note| note.contains("presented Embedded")),
+        "{notes:?}"
+    );
+}

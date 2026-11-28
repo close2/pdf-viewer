@@ -1514,6 +1514,7 @@ fn a_floating_window_is_read_from_table_295_and_a_full_screen_window_ignores_it(
             user_close: true,
             resize: Resize::Free,
             title: Some("A clip".to_owned()),
+            held_within: None,
         }),
         "MH's /D wins over BE's; the rest come from BE or their defaults"
     );

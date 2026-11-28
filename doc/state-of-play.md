@@ -208,8 +208,10 @@ checked by the host, an interlaced track handed off by name (ADRs 3526 to 3528),
 carrying its sequence's VUI signal and converted to RGB by that signal's matrix, range and chroma
 siting on the device (`render-raster`) and on the processor as the oracle (`render-cpu`, ADR 3529)
 — no window draws them yet,
-while a rich media annotation's §13.7.2.3.2 assets are listed and saved as embedded files from its page
-and handed to no player (ADR 2399) — §14.9's accessibility entries, §12.4.4's whole presentation
+while a rich media annotation's `Sound` or `Video` configuration is played on Table 335's
+conditions, its first instance of its kind whose asset the players take presented `Embedded` in its
+rectangle or `Windowed` in a window held within the document window (ADRs 3854, 3855, 3865 to 3867),
+and its §13.7.2.3.2 assets listed and saved as embedded files from its page (ADR 2399) — §14.9's accessibility entries, §12.4.4's whole presentation
 read **and played** — every one of Table 164's transition styles drawn frame by frame (ADR 0230),
 four of them — `Blinds`, `Dissolve`, `Glitter`, `Fly` — at a quantity the table does not state,
 which this program chose and says is its own (ADR 1299), with §12.4.4.2's states walked inside a page before an arrow key turns it, on the mode

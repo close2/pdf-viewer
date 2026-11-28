@@ -265,6 +265,11 @@ pub struct Placement {
 /// shows: 0 leaves it; 1 moves it, and shrinks it if it is larger than the monitor that holds most
 /// of it, onto that monitor; 2 answers that the clip is non-viable.
 ///
+/// A rich media window (§13.7.2.2.6) is then moved by its [`Floating::held_within`] offset —
+/// Table 340's `/HOffset` and `/VOffset` from the edge its alignment names — and held inside
+/// `reference`, the document window that is this program's presentation area, before `/O`'s
+/// rule is asked (ADR 3865).
+///
 /// # Errors
 ///
 /// `/O` 2's "Consider the object to be non-viable", as a sentence.
@@ -286,26 +291,39 @@ pub fn place(
         };
         i32::try_from(i64::from(start).saturating_add(offset)).unwrap_or(start)
     };
+    let moved = |at: i32, by: i32| at.saturating_add(by);
     let outer = Area {
-        x: along(
-            reference.x,
-            reference.width,
-            outer_width,
-            floating.position.column(),
+        x: moved(
+            along(
+                reference.x,
+                reference.width,
+                outer_width,
+                floating.position.column(),
+            ),
+            floating.held_within.map_or(0, |offset| offset.0),
         ),
-        y: along(
-            reference.y,
-            reference.height,
-            outer_height,
-            floating.position.row(),
+        y: moved(
+            along(
+                reference.y,
+                reference.height,
+                outer_height,
+                floating.position.row(),
+            ),
+            floating.held_within.map_or(0, |offset| offset.1),
         ),
         width: outer_width,
         height: outer_height,
     };
-    let placed = Placement {
-        outer,
-        inner: (width, height),
+    let placed = if floating.held_within.is_some() {
+        held_within(outer, (width, height), frame, reference)
+    } else {
+        Placement {
+            outer,
+            inner: (width, height),
+        }
     };
+    let outer = placed.outer;
+    let (width, height) = placed.inner;
     if on_screen(outer, monitors) {
         return Ok(placed);
     }
@@ -345,6 +363,35 @@ pub fn place(
                 inner: (inner_width, inner_height),
             })
         }
+    }
+}
+
+/// `outer`, around a picture of `inner` pixels inside a frame of `frame`, moved onto `reference`
+/// and shrunk where it is larger: §13.7.2.2.6's "constrain the window extent to be within the
+/// presentation area" (ADR 3865). A side the reference cannot hold even without its picture keeps
+/// one pixel of picture and stands at the reference's near edge.
+fn held_within(outer: Area, inner: (u32, u32), frame: (u32, u32), reference: Area) -> Placement {
+    let inner = (
+        inner.0.min(reference.width.saturating_sub(frame.0)).max(1),
+        inner.1.min(reference.height.saturating_sub(frame.1)).max(1),
+    );
+    let width = inner.0.saturating_add(frame.0);
+    let height = inner.1.saturating_add(frame.1);
+    let clamp = |at: i32, size: u32, start: i32, room: u32| -> i32 {
+        let last = i64::from(start)
+            .saturating_add(i64::from(room))
+            .saturating_sub(i64::from(size));
+        let at = i64::from(at).min(last).max(i64::from(start));
+        i32::try_from(at).unwrap_or(start)
+    };
+    Placement {
+        outer: Area {
+            x: clamp(outer.x, width, reference.x, reference.width),
+            y: clamp(outer.y, height, reference.y, reference.height),
+            width,
+            height,
+        },
+        inner,
     }
 }
 
@@ -513,6 +560,7 @@ mod tests {
             user_close: true,
             resize: Resize::Fixed,
             title: None,
+            held_within: None,
         }
     }
 
@@ -554,6 +602,39 @@ mod tests {
             Ok(1280)
         );
         assert!(relative_to(Relative::Document, &monitors, None, 0).is_err());
+    }
+
+    /// §13.7.2.2.6's rich media window: Table 340's offsets move it from the edge its alignment
+    /// names — the example's 18 units from the top-right corner — and "constrain the window extent
+    /// to be within the presentation area" moves a window pushed past the document window's edge
+    /// back onto it and shrinks one larger than it (ADR 3865).
+    #[test]
+    fn a_rich_media_window_is_offset_from_its_corner_and_held_within_the_document_window() {
+        let monitors = two();
+        let reference = Area {
+            x: 100,
+            y: 50,
+            width: 1000,
+            height: 800,
+        };
+        let rich = |size: (u32, u32), offset: (i32, i32)| Floating {
+            held_within: Some(offset),
+            ..floating(2, Offscreen::OnScreen, size)
+        };
+        let at = |window: &Floating| {
+            place(window, reference, (20, 40), &monitors)
+                .map(|placed| (placed.outer.x, placed.outer.y, placed.inner))
+        };
+        // Far and Near, offset 18 towards Near horizontally and towards Far vertically.
+        assert_eq!(at(&rich((288, 216), (-18, 18))), Ok((774, 68, (288, 216))));
+        // Pushed 500 pixels past the right edge, it is moved back flush against it.
+        assert_eq!(at(&rich((288, 216), (500, 18))), Ok((792, 68, (288, 216))));
+        // Larger than the document window, it is shrunk to it, frame included.
+        assert_eq!(at(&rich((1200, 900), (0, 0))), Ok((100, 50, (980, 760))));
+        // Table 295's window is not held within: past the edge it stays where it was put.
+        // Table 295's window is placed by `/P` alone, and past the edge it stays where it was put.
+        let free = floating(2, Offscreen::Ignore, (1400, 216));
+        assert_eq!(at(&free).map(|(x, _, _)| x), Ok(-320));
     }
 
     /// Table 295's `/O`: a window partly off every monitor is left by 0, moved and shrunk onto

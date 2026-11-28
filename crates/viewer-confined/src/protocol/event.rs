@@ -1163,7 +1163,11 @@ fn write_window(writer: &mut Writer, window: Option<&pdf_model::media::Window>) 
                 .u8(resize)
                 .bool(floating.title_bar)
                 .bool(floating.user_close)
-                .option_str(floating.title.as_deref());
+                .option_str(floating.title.as_deref())
+                .bool(floating.held_within.is_some());
+            if let Some((right, down)) = floating.held_within {
+                writer.i64(i64::from(right)).i64(i64::from(down));
+            }
         }
         WindowKind::FullScreen => {
             writer.u8(2);
@@ -1182,6 +1186,13 @@ fn read_window(reader: &mut Reader<'_>) -> Result<Option<pdf_model::media::Windo
     let unrecognised = |what: &'static str, value: u8| ProtocolError::Unrecognised {
         what,
         value: u32::from(value),
+    };
+    // An offset the core wrote from an `i32`; a wider one is not its message.
+    let offset = |value: i64| {
+        i32::try_from(value).map_err(|_| ProtocolError::Unrecognised {
+            what: "a floating window's offset",
+            value: u32::MAX,
+        })
     };
     let kind = match reader.u8("a clip's window")? {
         0 => return Ok(None),
@@ -1221,6 +1232,14 @@ fn read_window(reader: &mut Reader<'_>) -> Result<Option<pdf_model::media::Windo
                 user_close: reader.bool("a floating window's /UC")?,
                 resize,
                 title: reader.option_string("a floating window's /TT")?,
+                held_within: if reader.bool("whether a floating window is held within")? {
+                    Some((
+                        offset(reader.i64("a floating window's rightward offset")?)?,
+                        offset(reader.i64("a floating window's downward offset")?)?,
+                    ))
+                } else {
+                    None
+                },
             })
         }
         2 => WindowKind::FullScreen,

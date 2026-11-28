@@ -1,6 +1,6 @@
 # 80 — Rich media's `Sound` and `Video` configurations, and a movie played backward
 
-Status: section 1's step 1 **built** (ADRs 3854, 3855), steps 2 to 5 planned (ADR 3820; review
+Status: section 1's steps 1 to 3 **built** (ADRs 3854, 3855, 3865 to 3867), steps 4 and 5 planned (ADR 3820; review
 2278 D03); section 2 **built** (ADRs 3818, 3837, 3841 to 3843, 3853; review 2278 D01), and the 13.4
 row `implemented`. The rich media rows stay `out-of-scope` until section 1's last step is built.
 Priority: the clause 13 lane, after its open fix rounds; questions never block it.
@@ -14,11 +14,11 @@ name wherever a configuration or an instance names them.
    `/Condition` (`XA`, `PO`, `PV`; `XD`, `PC`, `PI`), the configuration `/Configuration` names or
    the first, and the press path of ADR 3819 replaced, for a configuration the players take, by a
    play. Activated by a page open or visibility as the screen annotation's `/PO` and `/PV` are.
-2. **Presentation** — Table 338: `Embedded` ("A interactive PDF processor shall support the state
+2. **Presentation** — **built** (ADRs 3865, 3866). Table 338: `Embedded` ("A interactive PDF processor shall support the state
    Embedded") in the annotation's rectangle as the video player already draws, `Windowed` in a
    floating window held "within the presentation area" (Table 339), `Transparent`,
    `PassContextClick`.
-3. **Configurations and instances** — Table 342's `Sound` and `Video`, Table 343's instance
+3. **Configurations and instances** — **built** (ADR 3867). Table 342's `Sound` and `Video`, Table 343's instance
    `/Subtype` matched to its asset: the asset types Parts 1 and 2 decode (WAVE, MP4 with H.264 and
    AAC) played; any other handed off by name. This match is a documented choice: §13.7 names no
    asset format for either (RFC 0015 section 10.1).

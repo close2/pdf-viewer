@@ -58,8 +58,9 @@ pub(crate) enum Asked {
     Media {
         /// The document's label, for the sentence either answer prints.
         document: String,
-        /// What would be handed over.
-        handed: viewer_host::Handed,
+        /// What would be handed over, boxed because a clip's play parameters and window make it
+        /// the largest thing a question holds by far.
+        handed: Box<viewer_host::Handed>,
     },
     /// Table Annex O.4's `fdf`, or §12.7.6.4's file, named by an absolute URI, which a `yes`
     /// fetches (ADR 2076).
@@ -330,7 +331,7 @@ impl Host {
             viewer_host::Handing::Ask { handed, question } => self.put_the_question(
                 Asked::Media {
                     document: label,
-                    handed,
+                    handed: Box::new(handed),
                 },
                 &question,
             ),

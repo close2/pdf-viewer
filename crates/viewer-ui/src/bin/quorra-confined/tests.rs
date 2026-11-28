@@ -217,8 +217,11 @@ fn a_clip_at_the_default_is_asked_and_escape_declines_it() {
     assert!(
         matches!(
             &host.asked,
-            Some(super::asking::Asked::Media { handed: viewer_host::Handed::Written { file_name, .. }, .. })
-                if file_name == "clip.wav"
+            Some(super::asking::Asked::Media { handed, .. })
+                if matches!(
+                    handed.as_ref(),
+                    viewer_host::Handed::Written { file_name, .. } if file_name == "clip.wav"
+                )
         ),
         "the clip is what is asked about"
     );

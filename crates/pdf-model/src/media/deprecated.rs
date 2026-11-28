@@ -513,6 +513,7 @@ fn floating(
             user_close: true,
             resize: Resize::Fixed,
             title: None,
+            held_within: None,
         }),
         monitor: MonitorSpecifier::Largest,
         colour: Background::DEFAULT_COLOUR,
