@@ -16,8 +16,8 @@
 //! The method set began as the census's — the methods the documents of the crawl name, from
 //! Transverse Mercator (85 documents) to the oblique stereographic (3) — and grows by
 //! `doc/todo/79`'s list of the methods the carried EPSG table's systems state, in its order. A
-//! method neither carries — Krovak, the vertical perspective — is refused by its name, as is
-//! every other (ADR 1586, ADR 3823).
+//! method neither carries — the vertical perspective — is refused by its name, as is every other
+//! (ADR 1586, ADR 3823).
 //!
 //! Angles in and out are radians and lengths metres; [`super::system`] converts the file's units
 //! on the way in.
@@ -35,8 +35,11 @@ use super::ellipsoid::Ellipsoid;
 
 mod azimuthal;
 mod cassini;
+mod krovak;
 mod oblique;
 mod polar;
+mod polyconic;
+mod spherical;
 mod urban;
 
 /// How many times an iterated latitude is refined before the answer is refused.
@@ -114,6 +117,24 @@ pub enum Method {
     HotineObliqueMercatorB,
     /// Colombia Urban, EPSG method 1052, section 3.4.3: a plane at the height of the origin.
     ColombiaUrban,
+    /// Lambert Azimuthal Equal Area (Spherical), EPSG method 1027, section 3.3.2.1: the spherical
+    /// form, by the formulas of the work the section names (USGS Professional Paper 1395).
+    LambertAzimuthalEqualAreaSpherical,
+    /// American Polyconic, EPSG method 9818, section 3.1.5.
+    AmericanPolyconic,
+    /// Lambert Conic Conformal (2SP Michigan), EPSG method 1051, section 3.1.1.5: the 2SP
+    /// projection on the ellipsoid scaled by [`Parameters::ellipsoid_scale`].
+    LambertConicConformal2SpMichigan,
+    /// Krovak, EPSG method 9819, section 3.1.2.1: axes increasing to the south and the west.
+    Krovak,
+    /// Krovak (North Orientated), EPSG method 1041, section 3.1.2.2: the same grid with both
+    /// coordinates negated.
+    KrovakNorthOrientated,
+    /// Krovak Modified, EPSG method 1042, section 3.1.2.3: Krovak with section 3.1.2.3's
+    /// polynomial correction of the plane coordinates.
+    KrovakModified,
+    /// Krovak Modified (North Orientated), EPSG method 1043, section 3.1.2.4.
+    KrovakModifiedNorthOrientated,
 }
 
 impl Method {
@@ -141,6 +162,13 @@ impl Method {
             Self::HotineObliqueMercatorA => "Hotine Oblique Mercator (variant A)",
             Self::HotineObliqueMercatorB => "Hotine Oblique Mercator (variant B)",
             Self::ColombiaUrban => "Colombia Urban",
+            Self::LambertAzimuthalEqualAreaSpherical => "Lambert Azimuthal Equal Area (Spherical)",
+            Self::AmericanPolyconic => "American Polyconic",
+            Self::LambertConicConformal2SpMichigan => "Lambert Conic Conformal (2SP Michigan)",
+            Self::Krovak => "Krovak",
+            Self::KrovakNorthOrientated => "Krovak (North Orientated)",
+            Self::KrovakModified => "Krovak Modified",
+            Self::KrovakModifiedNorthOrientated => "Krovak Modified (North Orientated)",
         }
     }
 }
@@ -153,11 +181,13 @@ impl Method {
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Parameters {
     /// The latitude of the natural origin, or of the false origin for the methods defined at
-    /// one (the two-parallel Lambert and Albers), or of the projection centre for Hotine's.
+    /// one (the two-parallel Lambert and Albers), or of the projection centre for Hotine's and
+    /// Krovak's.
     pub origin_latitude: Option<f64>,
     /// The longitude of the same origin.
     pub origin_longitude: Option<f64>,
-    /// The scale factor at the natural origin, or on the initial line for Hotine's.
+    /// The scale factor at the natural origin, on the initial line for Hotine's, or on the pseudo
+    /// standard parallel for Krovak's.
     pub scale: Option<f64>,
     /// The false easting, the easting at the false origin, or Hotine variant B's easting at the
     /// projection centre.
@@ -165,16 +195,25 @@ pub struct Parameters {
     /// The false northing, the northing at the false origin, or Hotine variant B's northing at the
     /// projection centre.
     pub false_northing: Option<f64>,
-    /// The latitude of the first standard parallel.
+    /// The latitude of the first standard parallel, or Krovak's pseudo standard parallel φP.
     pub parallel_1: Option<f64>,
     /// The latitude of the second standard parallel.
     pub parallel_2: Option<f64>,
-    /// Hotine's azimuth of the initial line at the projection centre, αC.
+    /// Hotine's azimuth of the initial line at the projection centre, αC, or Krovak's co-latitude
+    /// of the cone axis, which section 3.1.2.1 also writes αC.
     pub azimuth: Option<f64>,
     /// Hotine's angle from the rectified to the skew grid, γC.
     pub rectified_grid_angle: Option<f64>,
     /// Colombia Urban's height of the projection origin, hO, in metres above the ellipsoid.
     pub origin_height: Option<f64>,
+    /// The Michigan variant's ellipsoid scaling factor, K (section 3.1.1.5).
+    pub ellipsoid_scale: Option<f64>,
+    /// Krovak Modified's ordinates of the evaluation point, XO and YO, in metres (section
+    /// 3.1.2.3).
+    pub evaluation_point: [Option<f64>; 2],
+    /// Krovak Modified's polynomial coefficients C1 to C10 (section 3.1.2.3), each in the unit
+    /// its term needs to be a length in metres.
+    pub coefficients: [Option<f64>; 10],
 }
 
 /// A projection ready to evaluate: a method, its ellipsoid and its parameters.
@@ -231,6 +270,38 @@ struct ConformalSphere {
     c: f64,
     /// The origin's conformal latitude, `χO`.
     chi_0: f64,
+}
+
+/// The names Guidance Note 7-2 section 3.1.2.3 gives Krovak Modified's coefficients.
+const COEFFICIENT_NAMES: [&str; 10] = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10"];
+
+/// Krovak's required parameters (section 3.1.2.1), and the modified forms' polynomial (section
+/// 3.1.2.3), or a refusal naming the first missing.
+fn required_krovak(p: &Parameters, method: Method) -> Result<(), Refusal> {
+    required(p.origin_latitude, method, "latitude of projection centre")?;
+    required(p.origin_longitude, method, "longitude of origin")?;
+    required(p.azimuth, method, "co-latitude of cone axis")?;
+    required(p.parallel_1, method, "latitude of pseudo standard parallel")?;
+    required(p.scale, method, "scale factor on pseudo standard parallel")?;
+    if matches!(
+        method,
+        Method::KrovakModified | Method::KrovakModifiedNorthOrientated
+    ) {
+        required(
+            p.evaluation_point[0],
+            method,
+            "ordinate 1 of evaluation point",
+        )?;
+        required(
+            p.evaluation_point[1],
+            method,
+            "ordinate 2 of evaluation point",
+        )?;
+        for (value, name) in p.coefficients.iter().zip(COEFFICIENT_NAMES) {
+            required(*value, method, name)?;
+        }
+    }
+    Ok(())
 }
 
 /// A required parameter, or a refusal naming it.
@@ -303,7 +374,10 @@ impl Projection {
             Method::PseudoMercator => {
                 required(p.origin_longitude, method, "longitude of natural origin")?;
             }
-            Method::CassiniSoldner | Method::LambertAzimuthalEqualArea => {
+            Method::CassiniSoldner
+            | Method::LambertAzimuthalEqualArea
+            | Method::LambertAzimuthalEqualAreaSpherical
+            | Method::AmericanPolyconic => {
                 required(p.origin_latitude, method, "latitude of natural origin")?;
                 required(p.origin_longitude, method, "longitude of natural origin")?;
             }
@@ -336,6 +410,17 @@ impl Projection {
                 required(p.origin_longitude, method, "longitude of natural origin")?;
                 required(p.origin_height, method, "projection plane origin height")?;
             }
+            Method::LambertConicConformal2SpMichigan => {
+                required(p.origin_latitude, method, "latitude of false origin")?;
+                required(p.origin_longitude, method, "longitude of false origin")?;
+                required(p.parallel_1, method, "latitude of 1st standard parallel")?;
+                required(p.parallel_2, method, "latitude of 2nd standard parallel")?;
+                required(p.ellipsoid_scale, method, "ellipsoid scaling factor")?;
+            }
+            Method::Krovak
+            | Method::KrovakNorthOrientated
+            | Method::KrovakModified
+            | Method::KrovakModifiedNorthOrientated => required_krovak(p, method)?,
             Method::PolarStereographicB | Method::PolarStereographicC => {
                 let parallel = required(p.parallel_1, method, "latitude of standard parallel")?;
                 required(p.origin_longitude, method, "longitude of origin")?;
@@ -394,12 +479,27 @@ impl Projection {
         let latitude = latitude.clamp(-FRAC_PI_2, FRAC_PI_2);
         let p = &self.parameters;
         let delta = wrap(longitude - Self::get(p.origin_longitude));
+        if let Some(north) = self.krovak_orientation() {
+            // Krovak's false easting and northing are added before the north-orientated variants
+            // negate the grid coordinates (sections 3.1.2.1 to 3.1.2.4), so they are applied in
+            // `krovak_forward` rather than below.
+            let [westing, southing] = self.krovak_forward(latitude, delta);
+            let (easting, northing) = if north {
+                (-westing, -southing)
+            } else {
+                (westing, southing)
+            };
+            return if easting.is_finite() && northing.is_finite() {
+                Ok(GridPoint { easting, northing })
+            } else {
+                Err(self.outside())
+            };
+        }
         let (x, y) = match self.method {
             Method::TransverseMercator => self.transverse_mercator_forward(latitude, delta)?,
-            Method::LambertConicConformal2Sp => {
+            Method::LambertConicConformal2Sp | Method::LambertConicConformal2SpMichigan => {
                 let (n, big_f, r_f) = self.lambert_2sp_cone();
-                let a = self.ellipsoid.semi_major_axis;
-                self.cone_forward(latitude, delta, n, a * big_f, r_f)?
+                self.cone_forward(latitude, delta, n, self.lambert_axis() * big_f, r_f)?
             }
             Method::LambertConicConformal1Sp => {
                 let (n, big_f, r0) = self.lambert_1sp_cone();
@@ -436,6 +536,15 @@ impl Projection {
                 self.hotine_forward(latitude, delta)
             }
             Method::ColombiaUrban => self.urban_forward(latitude, delta),
+            Method::LambertAzimuthalEqualAreaSpherical => {
+                self.spherical_azimuthal_forward(latitude, delta)
+            }
+            Method::AmericanPolyconic => self.polyconic_forward(latitude, delta),
+            // Evaluated above, where `krovak_orientation` answers for every Krovak method.
+            Method::Krovak
+            | Method::KrovakNorthOrientated
+            | Method::KrovakModified
+            | Method::KrovakModifiedNorthOrientated => return Err(self.outside()),
         };
         // not a repair: this evaluates a reading logged where the string is read; an offset it
         // does not state is `super::system`'s WKT_FALSE_ORIGIN_ABSENT.
@@ -462,12 +571,35 @@ impl Projection {
     /// Pseudo-Mercator latitude poleward of 88°, section 3.2.1.2's limit in this direction too.
     pub fn inverse(&self, easting: f64, northing: f64) -> Result<LatLon, Refusal> {
         let p = &self.parameters;
+        if let Some(north) = self.krovak_orientation() {
+            let (westing, southing) = if north {
+                (-easting, -northing)
+            } else {
+                (easting, northing)
+            };
+            let answer = self.krovak_inverse(westing, southing)?;
+            return if answer.latitude.is_finite()
+                && answer.longitude.is_finite()
+                && answer.latitude.abs() <= FRAC_PI_2 + 1e-12
+            {
+                Ok(LatLon {
+                    // not a repair: a rounding guard on a latitude already checked to lie within
+                    // the sphere, not a file value.
+                    latitude: answer.latitude.clamp(-FRAC_PI_2, FRAC_PI_2),
+                    longitude: wrap(answer.longitude),
+                })
+            } else {
+                Err(self.outside())
+            };
+        }
         // not a repair: this evaluates a reading logged where the string is read, as in `forward`.
         let x = easting - p.false_easting.unwrap_or(0.0);
         let y = northing - p.false_northing.unwrap_or(0.0);
         let answer = match self.method {
             Method::TransverseMercator => self.transverse_mercator(x, y)?,
-            Method::LambertConicConformal2Sp => self.lambert_2sp(x, y)?,
+            Method::LambertConicConformal2Sp | Method::LambertConicConformal2SpMichigan => {
+                self.lambert_2sp(x, y)?
+            }
             Method::LambertConicConformal1Sp => self.lambert_1sp(x, y)?,
             Method::MercatorVariantA | Method::MercatorVariantB => self.mercator(x, y),
             Method::PseudoMercator => self.pseudo_mercator(x, y),
@@ -488,6 +620,13 @@ impl Projection {
                 self.hotine_inverse(x, y)
             }
             Method::ColombiaUrban => self.urban_inverse(x, y),
+            Method::LambertAzimuthalEqualAreaSpherical => self.spherical_azimuthal(x, y),
+            Method::AmericanPolyconic => self.polyconic(x, y)?,
+            // Evaluated above, where `krovak_orientation` answers for every Krovak method.
+            Method::Krovak
+            | Method::KrovakNorthOrientated
+            | Method::KrovakModified
+            | Method::KrovakModifiedNorthOrientated => return Err(self.outside()),
         };
         let within_method =
             self.method != Method::PseudoMercator || answer.latitude.abs() <= PSEUDO_MERCATOR_LIMIT;
@@ -639,10 +778,22 @@ impl Projection {
         (m, t)
     }
 
+    /// The semi-major axis the 2SP formulas scale `r` and `t′` by: the ellipsoid's, or for the
+    /// Michigan variant `a K`, section 3.1.1.5's "r = a K F tⁿ for rF and r" and "t' = (r'/(a K
+    /// F))^1/n".
+    fn lambert_axis(&self) -> f64 {
+        let a = self.ellipsoid.semi_major_axis;
+        if self.method == Method::LambertConicConformal2SpMichigan {
+            a * Self::get(self.parameters.ellipsoid_scale)
+        } else {
+            a
+        }
+    }
+
     /// Section 3.1.1.1's cone: `n`, `F` and `rF`, the radius of the false origin's parallel.
     fn lambert_2sp_cone(&self) -> (f64, f64, f64) {
         let p = &self.parameters;
-        let a = self.ellipsoid.semi_major_axis;
+        let a = self.lambert_axis();
         let (m1, t1) = self.lambert_m_t(Self::get(p.parallel_1));
         let (m2, t2) = self.lambert_m_t(Self::get(p.parallel_2));
         let (_, t_f) = self.lambert_m_t(Self::get(p.origin_latitude));
@@ -714,7 +865,7 @@ impl Projection {
     /// r cos θ` with `r` of n's sign, and an `atan2` of two arguments both negated is θ ± π.
     /// The northern cone (`n > 0`) is unchanged by it, and the section's worked example is one.
     fn lambert_2sp(&self, x: f64, y: f64) -> Result<LatLon, Refusal> {
-        let a = self.ellipsoid.semi_major_axis;
+        let a = self.lambert_axis();
         let (n, big_f, r_f) = self.lambert_2sp_cone();
         let sign = n.signum();
         let r_prime = sign * (x * x + (r_f - y).powi(2)).sqrt();
@@ -1013,6 +1164,10 @@ mod tests {
     const GROUND_BUDGET: f64 = 0.015;
 
     /// A projection whose parameters are all stated.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "each test's literal parameters move into the projection once"
+    )]
     fn projection(method: Method, ellipsoid: Ellipsoid, parameters: Parameters) -> Projection {
         Projection::new(method, ellipsoid, parameters).expect("every parameter stated")
     }

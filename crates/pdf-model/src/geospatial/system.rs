@@ -485,7 +485,19 @@ enum Role {
     RectifiedGridAngle,
     /// Colombia Urban's height of the projection origin.
     OriginHeight,
+    /// The Michigan variant's ellipsoid scaling factor.
+    EllipsoidScale,
+    /// Krovak Modified's ordinate 1 (0) or 2 (1) of the evaluation point.
+    EvaluationPoint(usize),
+    /// Krovak Modified's coefficient C1 (0) to C10 (9).
+    PolynomialCoefficient(usize),
 }
+
+/// The EPSG codes of Krovak Modified's coefficients C1 to C10 (Guidance Note 7-2 section 3.1.2.3).
+const COEFFICIENT_CODES: [i64; 10] = [1026, 1027, 1028, 1029, 1030, 1031, 1032, 1033, 1034, 1035];
+
+/// The same coefficients' names, normalised.
+const COEFFICIENT_NAMES: [&str; 10] = ["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10"];
 
 /// Which [`Role`] a parameter plays, or `None` for a name this reader does not know.
 fn role(name: &str, code: Option<i64>) -> Option<Role> {
@@ -494,14 +506,21 @@ fn role(name: &str, code: Option<i64>) -> Option<Role> {
         return match code {
             8801 | 8811 | 8821 => Some(Role::OriginLatitude),
             8802 | 8812 | 8822 | 8833 => Some(Role::OriginLongitude),
-            8805 | 8815 => Some(Role::Scale),
+            8805 | 8815 | 8819 => Some(Role::Scale),
             8806 | 8816 | 8826 => Some(Role::FalseEasting),
             8807 | 8817 | 8827 => Some(Role::FalseNorthing),
-            8823 | 8832 => Some(Role::Parallel1),
+            8823 | 8832 | 8818 => Some(Role::Parallel1),
             8824 => Some(Role::Parallel2),
-            8813 => Some(Role::Azimuth),
+            8813 | 1036 => Some(Role::Azimuth),
             8814 => Some(Role::RectifiedGridAngle),
             1039 => Some(Role::OriginHeight),
+            1038 => Some(Role::EllipsoidScale),
+            8617 => Some(Role::EvaluationPoint(0)),
+            8618 => Some(Role::EvaluationPoint(1)),
+            1026..=1035 => COEFFICIENT_CODES
+                .iter()
+                .position(|known| *known == code)
+                .map(Role::PolynomialCoefficient),
             _ => None,
         };
     }
@@ -517,24 +536,32 @@ fn role(name: &str, code: Option<i64>) -> Option<Role> {
         | "longitudeoffalseorigin"
         | "longitudeofcenter"
         | "longitudeofprojectioncentre" => Some(Role::OriginLongitude),
-        "scalefactor" | "scalefactoratnaturalorigin" | "scalefactoroninitialline" => {
-            Some(Role::Scale)
-        }
+        "scalefactor"
+        | "scalefactoratnaturalorigin"
+        | "scalefactoroninitialline"
+        | "scalefactoronpseudostandardparallel" => Some(Role::Scale),
         "falseeasting" | "eastingatfalseorigin" | "eastingatprojectioncentre" => {
             Some(Role::FalseEasting)
         }
         "falsenorthing" | "northingatfalseorigin" | "northingatprojectioncentre" => {
             Some(Role::FalseNorthing)
         }
-        "azimuthofinitialline" => Some(Role::Azimuth),
+        "azimuthofinitialline" | "colatitudeofconeaxis" => Some(Role::Azimuth),
+        "ellipsoidscalingfactor" => Some(Role::EllipsoidScale),
+        "ordinate1ofevaluationpoint" => Some(Role::EvaluationPoint(0)),
+        "ordinate2ofevaluationpoint" => Some(Role::EvaluationPoint(1)),
         "anglefromrectifiedtoskewgrid" => Some(Role::RectifiedGridAngle),
         "projectionplaneoriginheight" => Some(Role::OriginHeight),
-        "standardparallel1" | "latitudeof1ststandardparallel" | "latitudeofstandardparallel" => {
-            Some(Role::Parallel1)
-        }
+        "standardparallel1"
+        | "latitudeof1ststandardparallel"
+        | "latitudeofstandardparallel"
+        | "latitudeofpseudostandardparallel" => Some(Role::Parallel1),
         "standardparallel2" | "latitudeof2ndstandardparallel" => Some(Role::Parallel2),
         "auxiliaryspheretype" => Some(Role::AuxiliarySphere),
-        _ => None,
+        other => COEFFICIENT_NAMES
+            .iter()
+            .position(|known| *known == other)
+            .map(Role::PolynomialCoefficient),
     }
 }
 
@@ -573,6 +600,13 @@ fn named(name: &str, code: Option<i64>) -> Option<Named> {
             9812 => Some(Named::Exact(Method::HotineObliqueMercatorA)),
             9815 => Some(Named::Exact(Method::HotineObliqueMercatorB)),
             1052 => Some(Named::Exact(Method::ColombiaUrban)),
+            1027 => Some(Named::Exact(Method::LambertAzimuthalEqualAreaSpherical)),
+            9818 => Some(Named::Exact(Method::AmericanPolyconic)),
+            1051 => Some(Named::Exact(Method::LambertConicConformal2SpMichigan)),
+            9819 => Some(Named::Exact(Method::Krovak)),
+            1041 => Some(Named::Exact(Method::KrovakNorthOrientated)),
+            1042 => Some(Named::Exact(Method::KrovakModified)),
+            1043 => Some(Named::Exact(Method::KrovakModifiedNorthOrientated)),
             _ => None,
         };
     }
@@ -615,6 +649,17 @@ fn named(name: &str, code: Option<i64>) -> Option<Named> {
         "hotineobliquemercatorvarianta" => Named::Exact(Method::HotineObliqueMercatorA),
         "hotineobliquemercatorvariantb" => Named::Exact(Method::HotineObliqueMercatorB),
         "colombiaurban" => Named::Exact(Method::ColombiaUrban),
+        "lambertazimuthalequalareaspherical" => {
+            Named::Exact(Method::LambertAzimuthalEqualAreaSpherical)
+        }
+        "americanpolyconic" | "polyconic" => Named::Exact(Method::AmericanPolyconic),
+        "lambertconicconformal2spmichigan" => {
+            Named::Exact(Method::LambertConicConformal2SpMichigan)
+        }
+        "krovak" => Named::Exact(Method::Krovak),
+        "krovaknorthorientated" => Named::Exact(Method::KrovakNorthOrientated),
+        "krovakmodified" => Named::Exact(Method::KrovakModified),
+        "krovakmodifiednorthorientated" => Named::Exact(Method::KrovakModifiedNorthOrientated),
         _ => return None,
     })
 }
@@ -661,6 +706,47 @@ fn epsg_code(node: &Node, noted: &mut Noted) -> Option<i64> {
         }
         _ => None,
     }
+}
+
+/// One parameter's value given the role it plays, through the stated unit's converters: an angle,
+/// a length, and a ratio.
+fn assign(
+    (parameters, auxiliary_sphere): (&mut Parameters, &mut Option<f64>),
+    role: Role,
+    value: f64,
+    [angle, length, ratio]: [&dyn Fn(f64) -> Result<f64, Refusal>; 3],
+) -> Result<(), Refusal> {
+    match role {
+        Role::OriginLatitude => parameters.origin_latitude = Some(angle(value)?),
+        Role::OriginLongitude => parameters.origin_longitude = Some(angle(value)?),
+        Role::Parallel1 => parameters.parallel_1 = Some(angle(value)?),
+        Role::Parallel2 => parameters.parallel_2 = Some(angle(value)?),
+        Role::FalseEasting => parameters.false_easting = Some(length(value)?),
+        Role::FalseNorthing => parameters.false_northing = Some(length(value)?),
+        Role::Scale => {
+            parameters.scale = Some(ratio(value)?);
+        }
+        Role::AuxiliarySphere => *auxiliary_sphere = Some(value),
+        Role::Azimuth => parameters.azimuth = Some(angle(value)?),
+        Role::RectifiedGridAngle => parameters.rectified_grid_angle = Some(angle(value)?),
+        Role::OriginHeight => parameters.origin_height = Some(length(value)?),
+        Role::EllipsoidScale => {
+            parameters.ellipsoid_scale = Some(ratio(value)?);
+        }
+        Role::EvaluationPoint(index) => {
+            if let Some(slot) = parameters.evaluation_point.get_mut(index) {
+                *slot = Some(length(value)?);
+            }
+        }
+        // The coefficients are numbers the polynomial's terms make lengths of; their stated
+        // unit is the Dataset's "coefficient", a ratio of one.
+        Role::PolynomialCoefficient(index) => {
+            if let Some(slot) = parameters.coefficients.get_mut(index) {
+                *slot = Some(value);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// A projected system, from `PROJCS` or ISO 19162 section 9's `PROJCRS`.
@@ -747,21 +833,15 @@ fn projected(node: &Node, noted: &mut Noted) -> Result<ProjectedSystem, Refusal>
             };
             Ok(value * unit)
         };
-        match role {
-            Role::OriginLatitude => parameters.origin_latitude = Some(angle(value)?),
-            Role::OriginLongitude => parameters.origin_longitude = Some(angle(value)?),
-            Role::Parallel1 => parameters.parallel_1 = Some(angle(value)?),
-            Role::Parallel2 => parameters.parallel_2 = Some(angle(value)?),
-            Role::FalseEasting => parameters.false_easting = Some(length(value)?),
-            Role::FalseNorthing => parameters.false_northing = Some(length(value)?),
-            Role::Scale => {
-                parameters.scale = Some(value * unit_factor(stated_unit.filter(|_| newer), 1.0)?);
-            }
-            Role::AuxiliarySphere => auxiliary_sphere = Some(value),
-            Role::Azimuth => parameters.azimuth = Some(angle(value)?),
-            Role::RectifiedGridAngle => parameters.rectified_grid_angle = Some(angle(value)?),
-            Role::OriginHeight => parameters.origin_height = Some(length(value)?),
-        }
+        let ratio = |value: f64| -> Result<f64, Refusal> {
+            Ok(value * unit_factor(stated_unit.filter(|_| newer), 1.0)?)
+        };
+        assign(
+            (&mut parameters, &mut auxiliary_sphere),
+            role,
+            value,
+            [&angle, &length, &ratio],
+        )?;
     }
     if family == Named::AuxiliarySphere && auxiliary_sphere.is_none() {
         // ESRI's projection names its sphere by this parameter; one stating none is read as type

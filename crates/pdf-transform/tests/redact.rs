@@ -8037,3 +8037,201 @@ fn an_element_a_copy_lost_is_restated_though_another_page_draws_the_form_whole()
         "the other page draws the form whole"
     );
 }
+
+/// Two pages that each name their resources themselves (§7.7.3.3) — the first `first.0`, the
+/// second `second.0` — under one `/Pages` node that states none; the first draws `first.1` under
+/// the region (80, 80)–(120, 120), the second, numbered after `extras`, draws `second.1`.
+fn two_pages_naming(first: (&str, &str), second: (&str, &str), extras: &[Vec<u8>]) -> Vec<u8> {
+    let second_page = 6 + extras.len();
+    let mut objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        format!("<< /Type /Pages /Kids [3 0 R {second_page} 0 R] /Count 2 >>").into_bytes(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources {} \
+             /Contents 4 0 R /Annots [5 0 R] >>",
+            first.0
+        )
+        .into_bytes(),
+        stream_object("", first.1.as_bytes()),
+        b"<< /Type /Annot /Subtype /Redact /Rect [80 80 120 120] >>".to_vec(),
+    ];
+    objects.extend(extras.iter().cloned());
+    objects.push(
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources {} /Contents {} 0 R >>",
+            second.0,
+            second_page + 1
+        )
+        .into_bytes(),
+    );
+    objects.push(stream_object("", second.1.as_bytes()));
+    assemble_bytes(&objects)
+}
+
+/// [`two_pages_naming`] with object 6 the resource dictionary `holder` both pages name, in which
+/// `SHADING` stands for [`sampled_radial`]'s shading written directly; object 7 is its function.
+fn two_pages_naming_directly(holder: &str, (first, second): (&str, &str)) -> Vec<u8> {
+    let mut objects = sampled_radial("false false");
+    let shading = String::from_utf8(objects.remove(0)).expect("the fixture is ASCII");
+    two_pages_naming(
+        ("6 0 R", first),
+        ("6 0 R", second),
+        &[
+            holder.replace("SHADING", &shading).into_bytes(),
+            objects.remove(0),
+        ],
+    )
+}
+
+/// The producer's sample table, which every fixture here holds and the region covers part of.
+fn the_sample_table() -> Vec<u8> {
+    (0..17u8).map(|k| 40 + k * 12).collect()
+}
+
+/// A shading written directly in the one `/Resources` object both pages name (§7.7.3.3), painted
+/// only on the redacted page: the shared object is restated with the edited entry, no stream of
+/// the output holds the producer's table, and the other page draws what it drew (§12.5.6.23,
+/// ADR 3873).
+#[test]
+fn a_direct_shading_in_resources_both_pages_name_keeps_no_covered_samples() {
+    let bytes = two_pages_naming_directly(
+        "<< /Shading << /Sh0 SHADING >> >>",
+        (
+            "q 20 20 160 160 re W n /Sh0 sh Q",
+            "0 0 1 rg 20 20 50 50 re f",
+        ),
+    );
+    assert!(any_stream_holds(&bytes, &the_sample_table()));
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        !any_stream_holds(&out, &the_sample_table()),
+        "no stream holds the table with the inner circles' samples"
+    );
+    held_outside_and_blank_inside(&bytes, &out, [80.0, 80.0, 120.0, 120.0], &[]);
+    second_page_unchanged(&bytes, &out);
+}
+
+/// The same with a shading pattern written directly in the shared object (§8.7.4.5.4, ADR 3873).
+#[test]
+fn a_direct_shading_pattern_in_resources_both_pages_name_keeps_no_covered_samples() {
+    let bytes = two_pages_naming_directly(
+        "<< /Pattern << /P0 << /PatternType 2 /Shading SHADING >> >> >>",
+        (
+            "/Pattern cs /P0 scn 20 20 160 160 re f",
+            "0 0 1 rg 20 20 50 50 re f",
+        ),
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(!any_stream_holds(&out, &the_sample_table()));
+    held_outside_and_blank_inside(&bytes, &out, [80.0, 80.0, 120.0, 120.0], &[]);
+    second_page_unchanged(&bytes, &out);
+}
+
+/// Where the other page paints the shared entry too, it is that page's drawing and is kept for it
+/// (§12.5.6.23, ADR 3873).
+#[test]
+fn a_direct_shading_in_resources_both_pages_name_and_paint_is_kept_for_the_other() {
+    let bytes = two_pages_naming_directly(
+        "<< /Shading << /Sh0 SHADING >> >>",
+        (
+            "q 20 20 160 160 re W n /Sh0 sh Q",
+            "q 0 0 60 60 re W n /Sh0 sh Q",
+        ),
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        any_stream_holds(&out, &the_sample_table()),
+        "the other page's table is kept"
+    );
+    held_outside_and_blank_inside(&bytes, &out, [80.0, 80.0, 120.0, 120.0], &[]);
+    second_page_unchanged(&bytes, &out);
+}
+
+/// A shading written directly in a `/Shading` table both pages' own resource dictionaries name by
+/// reference: the table is the object restated, and the other page still resolves every name it
+/// had (§7.7.3.3, §12.5.6.23, ADR 3873).
+#[test]
+fn a_direct_shading_in_a_table_both_pages_name_is_restated_in_the_table() {
+    let mut objects = sampled_radial("false false");
+    let shading = String::from_utf8(objects.remove(0)).expect("the fixture is ASCII");
+    let bytes = two_pages_naming(
+        ("<< /Shading 6 0 R >>", "q 20 20 160 160 re W n /Sh0 sh Q"),
+        ("<< /Shading 6 0 R >>", "0 0 1 rg 20 20 50 50 re f"),
+        &[
+            format!("<< /Sh0 {shading} /Sh1 << /ShadingType 2 /ColorSpace /DeviceGray /Coords [0 0 1 0] /Function << /FunctionType 2 /Domain [0 1] /N 1 >> >> >>").into_bytes(),
+            objects.remove(0),
+        ],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(!any_stream_holds(&out, &the_sample_table()));
+    let document = Document::open_with_limits(out.clone(), Limits::DEFAULT).expect("it opens");
+    let second = pdf_model::Pages::new(&document).get(1).expect("page two");
+    let shadings = document.get_key(&second.resources, "Shading");
+    let shadings = shadings.as_dict().expect("the table");
+    assert!(
+        shadings.get("Sh0").is_some() && shadings.get("Sh1").is_some(),
+        "the other page resolves both names: {shadings:?}"
+    );
+    held_outside_and_blank_inside(&bytes, &out, [80.0, 80.0, 120.0, 120.0], &[]);
+    second_page_unchanged(&bytes, &out);
+}
+
+/// A form only the redacted page draws, whose `/Resources` is an object the other page names as
+/// its own, holding the shading directly: the form's edit names the replacement, and the shared
+/// object is restated with it too, so the other page, which never paints it, keeps no covered
+/// sample for nothing (§7.8.3, §12.5.6.23, ADR 3873).
+#[test]
+fn a_direct_shading_in_a_form_s_resources_another_page_names_keeps_no_covered_samples() {
+    let mut objects = sampled_radial("false false");
+    let shading = String::from_utf8(objects.remove(0)).expect("the fixture is ASCII");
+    let bytes = two_pages_naming(
+        ("<< /XObject << /Fm1 8 0 R >> >>", "/Fm1 Do"),
+        ("6 0 R", "0 0 1 rg 20 20 50 50 re f"),
+        &[
+            format!("<< /Shading << /Sh0 {shading} >> >>").into_bytes(),
+            objects.remove(0),
+            stream_object(
+                "/Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources 6 0 R",
+                b"q 20 20 160 160 re W n /Sh0 sh Q",
+            ),
+        ],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(!any_stream_holds(&out, &the_sample_table()));
+    held_outside_and_blank_inside(&bytes, &out, [80.0, 80.0, 120.0, 120.0], &[]);
+    second_page_unchanged(&bytes, &out);
+}
+
+/// A form drawn without resources of its own falls back on the page's (§7.8.3); a shading written
+/// directly in the page's own dictionary and painted only inside the form is the form's edit, and
+/// the page's dictionary, which is written with the page, names the replacement too (ADR 3873).
+#[test]
+fn a_direct_shading_a_form_without_resources_paints_from_the_page_keeps_no_covered_samples() {
+    let mut objects = sampled_radial("false false");
+    let shading = String::from_utf8(objects.remove(0)).expect("the fixture is ASCII");
+    let bytes = two_pages_naming(
+        (
+            &format!("<< /XObject << /Fm1 8 0 R >> /Shading << /Sh0 {shading} >> >>"),
+            "/Fm1 Do",
+        ),
+        ("<< >>", "0 0 1 rg 20 20 50 50 re f"),
+        &[
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+            objects.remove(0),
+            stream_object(
+                "/Type /XObject /Subtype /Form /BBox [0 0 200 200]",
+                b"q 20 20 160 160 re W n /Sh0 sh Q",
+            ),
+        ],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(!any_stream_holds(&out, &the_sample_table()));
+    held_outside_and_blank_inside(&bytes, &out, [80.0, 80.0, 120.0, 120.0], &[]);
+    second_page_unchanged(&bytes, &out);
+}

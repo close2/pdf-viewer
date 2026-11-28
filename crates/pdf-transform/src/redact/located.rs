@@ -251,6 +251,44 @@ impl Walk<'_> {
         }
     }
 
+    /// Names, in the page's own resources, the replacement of each entry a form drew from them.
+    ///
+    /// A form that states no `/Resources` resolves its names in the page's (§7.8.3, ADR 0255), so
+    /// the entry its draw replaced is the page's too: the form's copy names the replacement, and
+    /// unless the page's resources do as well they carry the producer's entry, with every stream
+    /// it names, wherever the page is written (ADR 3873). An entry the page's own content replaced
+    /// already keeps the page's replacement, which is the one its draws need.
+    pub(super) fn override_fallen_back(&mut self) {
+        let fallen: Vec<(Category, Vec<u8>, Key)> = self
+            .located
+            .iter()
+            .filter_map(|(key, _)| match key {
+                Key::Direct {
+                    form: Some(form),
+                    category,
+                    name,
+                } if self
+                    .document
+                    .get(*form)
+                    .as_stream()
+                    .is_some_and(|stream| stream.dict.get("Resources").is_none()) =>
+                {
+                    Some((*category, name.clone(), key.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        for (category, name, key) in fallen {
+            if !self
+                .added_overrides
+                .iter()
+                .any(|(known, named, _)| *known == category && *named == name)
+            {
+                self.added_overrides.push((category, name, key));
+            }
+        }
+    }
+
     /// Builds each requested entry's replacement, or `None` where nothing of it is located in the
     /// region alone; or the refusal by name.
     pub(super) fn finish_located(&self) -> Result<HashMap<Key, Built>, String> {

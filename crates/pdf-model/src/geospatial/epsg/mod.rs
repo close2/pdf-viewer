@@ -246,6 +246,13 @@ fn method(code: u32) -> Option<ProjectionMethod> {
         9812 => ProjectionMethod::HotineObliqueMercatorA,
         9815 => ProjectionMethod::HotineObliqueMercatorB,
         1052 => ProjectionMethod::ColombiaUrban,
+        1027 => ProjectionMethod::LambertAzimuthalEqualAreaSpherical,
+        9818 => ProjectionMethod::AmericanPolyconic,
+        1051 => ProjectionMethod::LambertConicConformal2SpMichigan,
+        9819 => ProjectionMethod::Krovak,
+        1041 => ProjectionMethod::KrovakNorthOrientated,
+        1042 => ProjectionMethod::KrovakModified,
+        1043 => ProjectionMethod::KrovakModifiedNorthOrientated,
         _ => return None,
     })
 }
@@ -275,15 +282,30 @@ fn projected(record: &Projected) -> Result<ProjectedSystem, Refusal> {
             // easting and northing at the centre (8816, 8817) play the same roles.
             8801 | 8811 | 8821 => parameters.origin_latitude = Some(angle()?),
             8802 | 8812 | 8822 | 8833 => parameters.origin_longitude = Some(angle()?),
-            8805 | 8815 => parameters.scale = Some(scale_value(value, unit, code)?),
+            // Krovak's scale on the pseudo standard parallel (8819) is its one scale factor.
+            8805 | 8815 | 8819 => parameters.scale = Some(scale_value(value, unit, code)?),
             8806 | 8816 | 8826 => parameters.false_easting = Some(length()?),
             8807 | 8817 | 8827 => parameters.false_northing = Some(length()?),
-            8813 => parameters.azimuth = Some(angle()?),
+            // Krovak's co-latitude of the cone axis (1036) is the αC Hotine's azimuth is.
+            8813 | 1036 => parameters.azimuth = Some(angle()?),
             8814 => parameters.rectified_grid_angle = Some(angle()?),
             1039 => parameters.origin_height = Some(length()?),
             // Polar Stereographic's latitude of standard parallel is its one parallel, and its
-            // longitude of origin plays the natural origin's role.
-            8823 | 8832 => parameters.parallel_1 = Some(angle()?),
+            // longitude of origin plays the natural origin's role,
+            // and Krovak's pseudo standard parallel (8818) is its one parallel too.
+            8823 | 8832 | 8818 => parameters.parallel_1 = Some(angle()?),
+            1038 => parameters.ellipsoid_scale = Some(scale_value(value, unit, code)?),
+            8617 => parameters.evaluation_point[0] = Some(length()?),
+            8618 => parameters.evaluation_point[1] = Some(length()?),
+            // Krovak Modified's C1 to C10 (1026 to 1035), each a coefficient of unity.
+            1026..=1035 => {
+                let slot = (1026..=1035)
+                    .position(|known: u32| known == parameter)
+                    .and_then(|index| parameters.coefficients.get_mut(index));
+                if let Some(slot) = slot {
+                    *slot = Some(scale_value(value, unit, code)?);
+                }
+            }
             8824 => parameters.parallel_2 = Some(angle()?),
             other => {
                 // Every parameter of the methods built is one of the codes above; another is one

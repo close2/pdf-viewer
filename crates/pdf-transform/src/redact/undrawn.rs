@@ -31,7 +31,10 @@
 //! holding it — the node, or the resource dictionary or category table it names by reference — is
 //! restated with the page's replacement written in the entry's place and every other entry carried
 //! as it was ([`DirectEntry`], ADR 3869). Every page that inherits it resolves the name to the
-//! replacement, and none of them draws it, so none of their drawings changes.
+//! replacement, and none of them draws it, so none of their drawings changes. The same holds for
+//! one written in a resource dictionary or category table that the page, or a form it draws,
+//! names by reference and something else names too (§7.7.3.3, §7.8.3); and a form that states no
+//! resources of its own gives its replacement to the page's (ADR 3873).
 //!
 //! The search errs one way only. Whatever it cannot read — a stream that does not decode, a
 //! pattern, a Type 3 glyph, a soft mask's group, a resource it reaches without a `Do` naming it —
@@ -89,14 +92,18 @@ struct Own {
 /// Lets each form or image a page copied take its original's place where nothing the output
 /// still draws reaches the original (the module's rule), and gives each page the direct entries
 /// whose holders it restates.
-pub(super) fn adopt(document: &Document, applied: &mut [AppliedPage]) {
+pub(super) fn adopt(
+    document: &Document,
+    applied: &mut [AppliedPage],
+    counts: &HashMap<u32, usize>,
+) {
     let candidates: HashSet<ObjectId> = applied.iter().flat_map(copied).collect();
     let mut directs: Vec<DirectEntry> = Vec::new();
     let mut own_directs: Vec<HashSet<usize>> = Vec::with_capacity(applied.len());
     for page in applied.iter() {
         let mut own = HashSet::new();
         for key in page.names.located.keys() {
-            if let Some(found) = direct_entry(document, page, key) {
+            if let Some(found) = direct_entry(document, page, key, counts) {
                 let index = directs
                     .iter()
                     .position(|known| known.holder == found.holder && known.path == found.path)
@@ -159,50 +166,61 @@ pub(super) fn adopt(document: &Document, applied: &mut [AppliedPage]) {
     }
 }
 
-/// Where a page's direct shading or pattern entry `key` is written, if an ancestor node states the
-/// resources that hold it (§7.7.3.4's inheritance).
+/// Where a page's direct shading or pattern entry `key` is written, if an object that outlives
+/// the edited stream holds it: an ancestor node's resources (§7.7.3.4's inheritance), or a
+/// resource dictionary or category table the stream that names it — the page, or a form with
+/// resources of its own (§7.8.3) — names by reference and something else names too (§7.7.3.3).
 ///
-/// A page's own `/Resources` is rebuilt with the page and holds nothing past it, so an entry there
-/// is not one. The entry found is checked against the page's effective resources, so a `/Parent`
-/// chain that disagrees with the tree the pages were read from finds nothing rather than another
-/// dictionary.
-fn direct_entry(document: &Document, page: &AppliedPage, key: &Key) -> Option<DirectEntry> {
+/// A dictionary written directly in the page or the form is rebuilt with it and holds nothing
+/// past it, and so is an object only the edited stream names: its restated resources name the
+/// replacement in its place, and nothing reaches the producer's. The entry found is checked
+/// against the resources the stream's names were resolved in, so a `/Parent` chain that disagrees
+/// with the tree the pages were read from finds nothing rather than another dictionary.
+fn direct_entry(
+    document: &Document,
+    page: &AppliedPage,
+    key: &Key,
+    counts: &HashMap<u32, usize>,
+) -> Option<DirectEntry> {
     let Key::Direct {
-        form: None,
+        form,
         category,
         name,
     } = key
     else {
         return None;
     };
-    let mut node = page.page_id;
-    let mut found = None;
-    for _ in 0..MAX_DEPTH {
-        let object = document.get(node);
-        let Object::Dictionary(dict) = &object else {
-            return None;
-        };
-        match dict.get("Resources") {
-            Some(Object::Reference(id)) if matches!(document.get(*id), Object::Dictionary(_)) => {
-                found = Some((*id, Vec::new()));
+    // A form's names resolve in its own `/Resources`, or in the page's where it states none,
+    // which is how the walk resolved them (ADR 0255).
+    let stated_by_form = form.and_then(|id| {
+        let object = document.get(id);
+        let stream = object.as_stream()?;
+        match stream.dict.get("Resources")? {
+            Object::Reference(resources) => {
+                let resolved = document.get(*resources);
+                let resolved = resolved.as_dict()?.clone();
+                Some((id, (*resources, Vec::new()), resolved))
             }
-            Some(Object::Dictionary(_)) => found = Some((node, vec![b"Resources".to_vec()])),
-            // §7.3.9: a null or an absent entry is inherited from the parent.
-            _ => {}
+            Object::Dictionary(resources) => {
+                Some((id, (id, vec![b"Resources".to_vec()]), resources.clone()))
+            }
+            _ => None,
         }
-        if found.is_some() {
-            break;
-        }
-        node = dict.get("Parent")?.as_reference()?;
-    }
-    let (mut holder, mut path) = found?;
-    if node == page.page_id {
-        return None;
-    }
+    });
+    let (stream, (mut holder, mut path), resolved_in) = if let Some(found) = stated_by_form {
+        found
+    } else {
+        let (node, found) = stating_node(document, page.page_id)?;
+        (node, found, page.resources.clone())
+    };
     let mut current = document.get(holder);
     for step in &path {
         current = match &current {
             Object::Dictionary(dict) => dict.get_by_name(&Name::new(step.as_slice()))?.clone(),
+            Object::Stream(stream) => stream
+                .dict
+                .get_by_name(&Name::new(step.as_slice()))?
+                .clone(),
             _ => return None,
         };
     }
@@ -224,11 +242,18 @@ fn direct_entry(document: &Document, page: &AppliedPage, key: &Key) -> Option<Di
         return None;
     };
     let entry = table.get_by_name(&Name::new(name.as_slice()))?;
-    let effective = document.get_key(&page.resources, category.key());
+    let effective = document.get_key(&resolved_in, category.key());
     let stated = effective
         .as_dict()
         .and_then(|effective| effective.get_by_name(&Name::new(name.as_slice())));
     if matches!(entry, Object::Reference(_)) || stated != Some(entry) {
+        return None;
+    }
+    // The stream's own dictionary is rebuilt with it; an object it names that nothing else does
+    // is reached from nothing once its restated resources replace the name.
+    let own = stream == page.page_id || Some(stream) == *form;
+    let shared = counts.get(&holder.number).is_some_and(|count| *count > 1);
+    if own && (holder == stream || !shared) {
         return None;
     }
     path.push(name.clone());
@@ -238,6 +263,33 @@ fn direct_entry(document: &Document, page: &AppliedPage, key: &Key) -> Option<Di
         key: key.clone(),
         entry: entry.clone(),
     })
+}
+
+/// An object, and the keys from it down to a dictionary it holds directly.
+type Place = (ObjectId, Vec<Vec<u8>>);
+
+/// The node whose `/Resources` the page's resolve in — the page itself, or the nearest ancestor
+/// stating them (§7.3.9: a null or an absent entry is inherited) — with the object holding that
+/// dictionary and the keys from it down to the dictionary.
+fn stating_node(document: &Document, page: ObjectId) -> Option<(ObjectId, Place)> {
+    let mut node = page;
+    for _ in 0..MAX_DEPTH {
+        let object = document.get(node);
+        let Object::Dictionary(dict) = &object else {
+            return None;
+        };
+        match dict.get("Resources") {
+            Some(Object::Reference(id)) if matches!(document.get(*id), Object::Dictionary(_)) => {
+                return Some((node, (*id, Vec::new())));
+            }
+            Some(Object::Dictionary(_)) => {
+                return Some((node, (node, vec![b"Resources".to_vec()])));
+            }
+            _ => {}
+        }
+        node = dict.get("Parent")?.as_reference()?;
+    }
+    None
 }
 
 /// The objects a page's resources were given copies of: what its draws of them reach instead.

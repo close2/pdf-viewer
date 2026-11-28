@@ -11,7 +11,8 @@ command that prints it is in ADR 3823. The method sections are IOGP Guidance Not
 
 ## What is built
 
-Eighteen methods, 5716 of the table's 5780 projected systems (98.9 %): the census's eight (ADRs 1586,
+Twenty-five method codes, 5741 of the table's 5780 projected systems (99.3 %), four of them refused by
+the parameters the table cannot carry (below): the census's eight (ADRs 1586,
 1587, 1672) — Transverse Mercator, Lambert Conic Conformal 1SP and 2SP, Mercator A and B,
 Pseudo-Mercator, Albers, oblique stereographic — and ADR 3822's five, each tested on its section's
 worked example through the EPSG code the example is stated for: Cassini-Soldner (3.2.2, Trinidad
@@ -26,6 +27,20 @@ example's parameters because no carried system states them with variant A), and 
 Conformal West Orientated (3.1.1.3, which prints no example: tested on Qornoq 1927 / Greenland zone
 1 east, EPSG 2297, against the 1SP formulas the section states it as). Hotine's special case at an
 azimuth of 90° is read as a choice (ADR 3871, tested on CH1903 / LV03, EPSG 21781).
+
+And rows 7 to 11 (ADRs 3875, 3876): Lambert Azimuthal Equal Area (Spherical) (3.3.2.1, which prints
+no formulas and names USGS Professional Paper 1395: its formulas and Appendix A example, R = 3, and
+NSIDC EASE-Grid North, EPSG 3408 and 3973), American Polyconic (3.1.5, which prints no example: the
+same paper's ellipsoid example, and SIRGAS 2000 / Brazil Polyconic, EPSG 5880, by round trip),
+Lambert Conic Conformal 2SP Michigan (3.1.1.5, NAD27 / Michigan Central, EPSG 6201), and Krovak in
+its four forms (3.1.2.1 to 3.1.2.4, S-JTSK (Ferro) / Krovak, EPSG 2065, and its East North form,
+5221). The modified forms are tested on their section's printed parameters. Their systems (5224,
+5225 and the two Greenwich forms) are refused by the polynomial's first parameter, because the
+generator's source, PROJ's SQL, holds seven parameters a conversion.
+
+Rows 6 and 10, Azimuthal Equidistant (1125) and Lambert Conic Conformal 1SP variant B (1102), are
+not in the September 2019 revision. The revision that has them sits behind a download form asking
+for personal details (`doc/questions/Q1114`), and both stay refused by name.
 
 ## The order
 
@@ -42,12 +57,12 @@ the table holds it. Each built moves §12.10.4's note; the last moves the row to
 | 3 | Hotine Oblique Mercator (variant A), built | 9812 | 23 | 3.2.4.1 |
 | 4 | Hotine Oblique Mercator (variant B), built | 9815 | 19 | 3.2.4.1 |
 | 5 | Lambert Conic Conformal (West Orientated), built | 9826 | 19 | 3.1.1.3 |
-| 6 | Azimuthal Equidistant | 1125 | 7 | 3.3.3 |
-| 7 | Lambert Azimuthal Equal Area (Spherical) | 1027 | 6 | 3.3.2.1 |
-| 8 | American Polyconic | 9818 | 5 | 3.1.5 |
-| 9 | Lambert Conic Conformal (2SP Michigan) | 1051 | 4 | 3.1.1.5 |
-| 10 | Lambert Conic Conformal (1SP variant B) | 1102 | 4 | 3.1.1.2 |
-| 11 | Krovak, North Orientated, Modified, Modified (North Orientated) | 9819, 1041, 1042, 1043 | 10 | 3.1.2.1 to 3.1.2.4 |
+| 6 | Azimuthal Equidistant, waits on Q1114 | 1125 | 7 | 3.3.3 |
+| 7 | Lambert Azimuthal Equal Area (Spherical), built | 1027 | 6 | 3.3.2.1 |
+| 8 | American Polyconic, built | 9818 | 5 | 3.1.5 |
+| 9 | Lambert Conic Conformal (2SP Michigan), built | 1051 | 4 | 3.1.1.5 |
+| 10 | Lambert Conic Conformal (1SP variant B), waits on Q1114 | 1102 | 4 | 3.1.1.2 |
+| 11 | Krovak, North Orientated, Modified, Modified (North Orientated), built | 9819, 1041, 1042, 1043 | 10 | 3.1.2.1 to 3.1.2.4 |
 | 12 | Equal Earth | 1078 | 3 | 3.4.4 |
 | 13 | Lambert Cylindrical Equal Area, and its spherical form | 9835, 9834 | 3 | 3.2.6, 3.2.6.1 |
 | 14 | Equidistant Cylindrical, and its spherical forms | 1028, 1029, 9823, 9842 | 5 | 3.2.5, 3.2.5.1 |

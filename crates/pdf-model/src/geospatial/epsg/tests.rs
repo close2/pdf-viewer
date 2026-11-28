@@ -1,5 +1,6 @@
 use super::*;
 use crate::geospatial::datum;
+use crate::geospatial::projection::LatLon;
 use crate::geospatial::{GeographicPosition, system::from_wkt};
 
 /// Ten micro-degrees of a micro-degree: a position agreeing this closely is the same position to
@@ -64,6 +65,12 @@ fn every_reference_in_the_table_resolves() {
             Err(Refusal::EpsgMethod { method_code, .. }) => {
                 assert!(method(u32::try_from(method_code).expect("a code")).is_none());
             }
+            // The one record the generator's source cannot carry: PROJ's conversion table holds
+            // seven parameters, and Krovak Modified's polynomial is twelve more (ADR 3875).
+            Err(Refusal::MissingParameter {
+                method: "Krovak Modified" | "Krovak Modified (North Orientated)",
+                parameter: "ordinate 1 of evaluation point",
+            }) => {}
             Err(refusal) => panic!("EPSG {code}: {refusal}"),
         }
     }
@@ -160,13 +167,14 @@ fn epsg_2278_reads_sexagesimal_parameters_and_us_survey_feet() {
 
 #[test]
 fn a_code_whose_method_is_not_built_is_refused_by_its_number_and_the_methods_name() {
-    // S-JTSK (Ferro) / Krovak is Krovak, EPSG method 9819, `doc/todo/79`'s eleventh entry.
+    // WGS 84 / Equal Earth Greenwich is Equal Earth, EPSG method 1078, `doc/todo/79`'s twelfth
+    // entry.
     assert_eq!(
-        system(2065),
+        system(8857),
         Err(Refusal::EpsgMethod {
-            code: 2065,
-            method: "Krovak",
-            method_code: 9819,
+            code: 8857,
+            method: "Equal Earth",
+            method_code: 1078,
         })
     );
 }
@@ -311,7 +319,7 @@ fn lambert_west_orientated_is_the_1sp_projection_with_its_easting_mirrored() {
     .expect("the 1SP parameters");
     let false_easting = west.projection.parameters.false_easting.unwrap_or(0.0);
     for [latitude, longitude] in [[82.0, -45.0], [81.0, -30.0], [83.5, -40.0]] {
-        let point = super::super::projection::LatLon {
+        let point = LatLon {
             latitude: f64::to_radians(latitude),
             longitude: f64::to_radians(longitude),
         };
@@ -330,6 +338,252 @@ fn lambert_west_orientated_is_the_1sp_projection_with_its_easting_mirrored() {
             (back.latitude - point.latitude).abs() < SAME_POSITION
                 && (back.longitude - point.longitude).abs() < SAME_POSITION,
             "{back:?} against {point:?}"
+        );
+    }
+}
+
+#[test]
+fn krovak_reproduces_the_s_jtsk_example() {
+    // Section 3.1.2.1's example, S-JTSK (Ferro) / Krovak (EPSG 2065), whose base system counts
+    // longitude from Ferro: 50°12′32.442″N 34°30′59.179″E of Ferro is the southing 1050538.64 m
+    // and the westing 568991.00 m, carried westing first.
+    worked_example(
+        2065,
+        [dms(50.0, 12.0, 32.442), dms(34.0, 30.0, 59.179)],
+        [568_991.00, 1_050_538.64],
+        0.01,
+    );
+}
+
+#[test]
+fn krovak_north_orientated_negates_both_coordinates() {
+    // Section 3.1.2.2's example, S-JTSK (Ferro) / Krovak East North (EPSG 5221): the same point
+    // is (−568991.00, −1050538.64) m.
+    worked_example(
+        5221,
+        [dms(50.0, 12.0, 32.442), dms(34.0, 30.0, 59.179)],
+        [-568_991.00, -1_050_538.64],
+        0.01,
+    );
+}
+
+/// Section 3.1.2.3's example parameters, S-JTSK/05 (Ferro) / Modified Krovak, as the section
+/// prints them.
+fn modified_krovak(method: ProjectionMethod) -> Projection {
+    let parameters = Parameters {
+        origin_latitude: Some(dms(49.0, 30.0, 0.0).to_radians()),
+        origin_longitude: Some(dms(42.0, 30.0, 0.0).to_radians()),
+        azimuth: Some(dms(30.0, 17.0, 17.303_11).to_radians()),
+        parallel_1: Some(dms(78.0, 30.0, 0.0).to_radians()),
+        scale: Some(0.9999),
+        false_easting: Some(5_000_000.0),
+        false_northing: Some(5_000_000.0),
+        evaluation_point: [Some(1_089_000.0), Some(654_000.0)],
+        coefficients: [
+            2.946_529_277e-2,
+            2.515_965_696e-2,
+            1.193_845_912e-7,
+            -4.668_270_147e-7,
+            9.233_980_362e-12,
+            1.523_735_715e-12,
+            1.696_780_024e-18,
+            4.408_314_235e-18,
+            -8.331_083_518e-24,
+            -3.689_471_323e-24,
+        ]
+        .map(Some),
+        ..Parameters::default()
+    };
+    let bessel = Ellipsoid::new(6_377_397.155, 299.152_812_8).expect("Bessel 1841");
+    Projection::new(method, bessel, parameters).expect("the example's parameters")
+}
+
+#[test]
+fn krovak_modified_reproduces_the_s_jtsk_05_examples() {
+    // Sections 3.1.2.3 and 3.1.2.4's examples, for the same point: the southing 6050538.71 m and
+    // westing 5568990.91 m, and negated for the north-orientated grid. The carried table states
+    // the polynomial of neither system (its conversions hold seven parameters), so the examples are
+    // built from the section's parameters, and the codes are refused by the parameter they lack.
+    let point = LatLon {
+        latitude: dms(50.0, 12.0, 32.442).to_radians(),
+        longitude: dms(34.0, 30.0, 59.179).to_radians(),
+    };
+    for (method, sign) in [
+        (ProjectionMethod::KrovakModified, 1.0),
+        (ProjectionMethod::KrovakModifiedNorthOrientated, -1.0),
+    ] {
+        let projection = modified_krovak(method);
+        let grid = projection.forward(point).expect("the example's point");
+        assert!(
+            (grid.easting - sign * 5_568_990.91).abs() < 0.01
+                && (grid.northing - sign * 6_050_538.71).abs() < 0.01,
+            "{method:?}: {grid:?}"
+        );
+        let back = projection
+            .inverse(sign * 5_568_990.91, sign * 6_050_538.71)
+            .expect("the example's grid point");
+        let second = (0.001 / 3600.0_f64).to_radians();
+        assert!(
+            (back.latitude - point.latitude).abs() < second
+                && (back.longitude - point.longitude).abs() < second,
+            "{method:?}: {back:?}"
+        );
+    }
+    for code in [5224, 5225] {
+        assert!(
+            matches!(
+                system(code),
+                Err(Refusal::MissingParameter {
+                    parameter: "ordinate 1 of evaluation point",
+                    ..
+                })
+            ),
+            "EPSG {code}: {:?}",
+            system(code)
+        );
+    }
+}
+
+#[test]
+fn lambert_2sp_michigan_reproduces_the_michigan_central_example() {
+    // Section 3.1.1.5's example, NAD27 / Michigan Central (EPSG 6201), in US survey feet:
+    // 43°45′N 83°10′W is (2308335.75, 160210.48) ftUS. The reverse is printed "83°10'00.000"E",
+    // the point's own longitude with the hemisphere misprinted; the forward's input is west.
+    worked_example(
+        6201,
+        [43.75, -dms(83.0, 10.0, 0.0)],
+        [2_308_335.75, 160_210.48],
+        0.01,
+    );
+}
+
+#[test]
+fn american_polyconic_reproduces_professional_paper_1395s_example() {
+    // Section 3.1.5 prints no example (it names GIGS test procedure 5107); its formulas are
+    // Professional Paper 1395's, whose Appendix A works the ellipsoid: Clarke 1866, origin 30°N
+    // 96°W, 40°N 75°W is (1776774.5, 1319657.8) m, printed to the decimetre.
+    let clarke = Ellipsoid::new(6_378_206.4, 294.978_698_2).expect("Clarke 1866");
+    let parameters = Parameters {
+        origin_latitude: Some(30f64.to_radians()),
+        origin_longitude: Some((-96f64).to_radians()),
+        ..Parameters::default()
+    };
+    let projection = Projection::new(ProjectionMethod::AmericanPolyconic, clarke, parameters)
+        .expect("the example's parameters");
+    let point = LatLon {
+        latitude: 40f64.to_radians(),
+        longitude: (-75f64).to_radians(),
+    };
+    let grid = projection.forward(point).expect("the example's point");
+    assert!(
+        (grid.easting - 1_776_774.5).abs() < 0.1 && (grid.northing - 1_319_657.8).abs() < 0.1,
+        "{grid:?}"
+    );
+    let back = projection
+        .inverse(1_776_774.5, 1_319_657.8)
+        .expect("the example's grid point");
+    // The decimetre the grid point is printed to is about four micro-degrees.
+    let printed = 1e-5f64.to_radians();
+    assert!(
+        (back.latitude - point.latitude).abs() < printed
+            && (back.longitude - point.longitude).abs() < printed,
+        "{back:?}"
+    );
+    // The equator's case on both sides of it: the forward's `a(λ − λO)` is the limit of the
+    // general formula, and the reverse's case is `A = 0`, the northing at the equator being
+    // `FN − MO` (ADR 3876).
+    for latitude in [-1e-9, 0.0, 1e-9] {
+        let grid = projection
+            .forward(LatLon {
+                latitude,
+                longitude: (-90f64).to_radians(),
+            })
+            .expect("near the equator");
+        let back = projection
+            .inverse(grid.easting, grid.northing)
+            .expect("its grid point");
+        assert!(
+            (back.latitude - latitude).abs() < 1e-10
+                && (back.longitude - (-90f64).to_radians()).abs() < 1e-10,
+            "{latitude}: {grid:?} {back:?}"
+        );
+    }
+    // Through a system the table holds: SIRGAS 2000 / Brazil Polyconic (EPSG 5880).
+    let brazil = projected_of(5880);
+    for [latitude, longitude] in [[-15.0, -47.0], [-30.0, -60.0], [2.0, -40.0]] {
+        let [e, n] = brazil
+            .grid(GeographicPosition {
+                latitude,
+                longitude,
+            })
+            .expect("a point of Brazil");
+        let back = brazil.geographic(e, n).expect("its grid point");
+        assert!(
+            (back.latitude - latitude).abs() < SAME_POSITION
+                && (back.longitude - longitude).abs() < SAME_POSITION,
+            "{back:?}"
+        );
+    }
+}
+
+#[test]
+fn lambert_azimuthal_equal_area_spherical_reproduces_professional_paper_1395s_example() {
+    // Section 3.3.2.1 sends its reader to Professional Paper 1395 "for formulas and example";
+    // Appendix A's spherical example: R = 3, φ1 = 40°N, λ0 = 100°W, 20°S 100°E is
+    // (−4.2339303, 4.0257775).
+    let sphere = Ellipsoid::new(3.0, 0.0).expect("the example's sphere");
+    let parameters = Parameters {
+        origin_latitude: Some(40f64.to_radians()),
+        origin_longitude: Some((-100f64).to_radians()),
+        ..Parameters::default()
+    };
+    let projection = Projection::new(
+        ProjectionMethod::LambertAzimuthalEqualAreaSpherical,
+        sphere,
+        parameters,
+    )
+    .expect("the example's parameters");
+    let point = LatLon {
+        latitude: (-20f64).to_radians(),
+        longitude: 100f64.to_radians(),
+    };
+    let grid = projection.forward(point).expect("the example's point");
+    assert!(
+        (grid.easting + 4.233_930_3).abs() < 1e-7 && (grid.northing - 4.025_777_5).abs() < 1e-7,
+        "{grid:?}"
+    );
+    let back = projection
+        .inverse(-4.233_930_3, 4.025_777_5)
+        .expect("the example's grid point");
+    let printed = 1e-6f64.to_radians();
+    assert!(
+        (back.latitude - point.latitude).abs() < printed
+            && (back.longitude - point.longitude).abs() < printed,
+        "{back:?}"
+    );
+    // NSIDC EASE-Grid North (EPSG 3408) is on the NSIDC authalic sphere, R = 6371228 m: the polar
+    // aspect puts the equator at 2R sin 45° = R√2 from the pole (equation 24-4), and on λ0 below
+    // it. WGS 84 / NSIDC EASE-Grid North (EPSG 3973) states the same on the WGS 84 ellipsoid,
+    // whose authalic radius RA is 6371007.18 m.
+    for (code, radius) in [(3408, 6_371_228.0), (3973, 6_371_007.181)] {
+        let system = projected_of(code);
+        let [e, n] = system
+            .grid(GeographicPosition {
+                latitude: 0.0,
+                longitude: 0.0,
+            })
+            .expect("the equator");
+        assert!(
+            e.abs() < 1e-6 && (n + radius * std::f64::consts::SQRT_2).abs() < 0.01,
+            "EPSG {code}: ({e}, {n})"
+        );
+        let back = system
+            .geographic(1_000_000.0, -2_000_000.0)
+            .expect("a point");
+        let [e, n] = system.grid(back).expect("its grid point");
+        assert!(
+            (e - 1_000_000.0).abs() < 1e-6 && (n + 2_000_000.0).abs() < 1e-6,
+            "EPSG {code}: ({e}, {n})"
         );
     }
 }
@@ -390,7 +644,7 @@ fn the_polar_aspect_of_lambert_azimuthal_equal_area_returns_from_its_own_forward
         for (latitude, longitude) in [(60.0_f64, 30.0_f64), (75.0, -120.0), (45.0, 179.0)] {
             let latitude = latitude.copysign(pole);
             let grid = projection
-                .forward(crate::geospatial::LatLon {
+                .forward(LatLon {
                     latitude: latitude.to_radians(),
                     longitude: longitude.to_radians(),
                 })

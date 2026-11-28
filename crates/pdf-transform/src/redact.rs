@@ -442,7 +442,7 @@ pub(crate) fn run(
     // A copy whose original no page and no appearance still draws takes the original's place,
     // so the producer's covered marks are not left in the file for pages that only inherit the
     // name (ADR 3861).
-    undrawn::adopt(document, &mut applied);
+    undrawn::adopt(document, &mut applied, &counts);
     let written = write_document(document, root, &mut applied, plan, sinks, protect)?;
     if written.dangling {
         report.warnings.push(Warning {
@@ -2102,6 +2102,7 @@ impl<'a> Walk<'a> {
             ));
         }
         let located = self.finish_located()?;
+        self.override_fallen_back();
         Ok((
             PageEdit {
                 content: apply_edits(content, self.edits),
