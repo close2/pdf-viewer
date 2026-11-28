@@ -230,7 +230,7 @@ fn walk(
         )));
     }
     if held == Held::KidsOnly {
-        refuse_what_no_conforming_reader_opens(document, node, dict, kids, depth)?;
+        refuse_what_no_conforming_reader_opens(document, node, kids)?;
     }
     for kid in kids.iter().filter_map(Object::as_reference) {
         walk(document, kid, depth.saturating_add(1), visited, held)?;
@@ -238,34 +238,31 @@ fn walk(
     Ok(())
 }
 
-/// The conversion's two further refusals over one node, both Table 30's: a root that names a
-/// parent, and a child that is no dictionary.
+/// The conversion's further refusal over one node, Table 30's: a child the file places and does
+/// not hold.
 ///
-/// Table 30 makes `/Parent` "not permitted in the root node", and `/Kids` an array of indirect
-/// references to the node's children; a reference to an object the file does not hold is §7.3.10's
-/// null. This reader steps over both and draws the pages it reaches, but a file that carried
-/// either into an archive would state a tree a conforming reader cannot open (ADR 2558), so the
-/// source is declined here, and the structure this reader recovered is written where the caller
-/// grants that loss, its root new and its children the pages drawn.
+/// Table 30 makes `/Kids` an array of indirect references to the node's children. An entry naming
+/// an object the cross-reference information places, which this reader reads as no dictionary, is
+/// a page the producer wrote and the file does not hold; carried into an archive it would state a
+/// tree a conforming reader cannot open (ADR 2558), so the source is declined here, and the
+/// structure this reader recovered is written where the caller grants that loss, `page-not-held`
+/// beside it (ADR 2596).
+///
+/// A root that states `/Parent` and an entry naming no object at all are not declined: both are
+/// restated in the producer's own tree ([`restated_nodes`], ADR 3905). The one exception is an
+/// entry naming no object beside a sibling that is neither a page nor a node: the restated array
+/// would still list a child Table 30 does not allow, so the source is declined as before.
 fn refuse_what_no_conforming_reader_opens(
     document: &Document,
     node: ObjectId,
-    dict: &pdf_syntax::object::Dictionary,
     kids: &[Object],
-    depth: usize,
 ) -> Result<(), Refusal> {
-    if depth == 0 && dict.get("Parent").is_some() {
-        return Err(Refusal::Reconstructed(format!(
-            "§7.7.3.2's Table 30 does not permit /Parent in the root node of the page tree, and \
-             object {}, the root, states one; carried as it stands, the page tree would be one no \
-             conforming reader can open",
-            node.number
-        )));
-    }
-    if let Some(at) = kids
-        .iter()
-        .position(|kid| document.resolve(kid).as_dict().is_none())
-    {
+    let restatable = restatable(document, kids);
+    if let Some(at) = kids.iter().position(|kid| match child(document, kid) {
+        Child::NotHeld => true,
+        Child::NamingNothing => !restatable,
+        Child::Dictionary => false,
+    }) {
         return Err(Refusal::Reconstructed(format!(
             "§7.7.3.2's Table 30 makes /Kids an array of the node's children, and entry {at} of \
              object {}'s names no dictionary; carried as it stands, the page tree would list a \
@@ -274,6 +271,48 @@ fn refuse_what_no_conforming_reader_opens(
         )));
     }
     Ok(())
+}
+
+/// What one `/Kids` entry names, as far as Table 30's `/Kids` row and §7.3.10 tell the kinds
+/// apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Child {
+    /// A dictionary, written by reference or directly: a child a reader can open.
+    Dictionary,
+    /// A reference to an object the cross-reference information places, read as no dictionary.
+    NotHeld,
+    /// No object: a direct value that is no dictionary, or a reference to an object number the
+    /// cross-reference information gives no place for, which §7.3.10 makes the null object.
+    NamingNothing,
+}
+
+/// Whether every dictionary among `kids` is one of the two children Table 30's `/Kids` row
+/// allows, "page objects or other page tree nodes": a page declares `/Type /Page`, and a node
+/// states `/Kids` or declares `/Type /Pages`, `pdf_model`'s reading.
+///
+/// Only where they all are does removing the entries naming no object leave an array of children
+/// the row allows; otherwise the restatement would carry a child of neither kind into the archive,
+/// and the source is declined for the structure this reader recovered (ADR 3905).
+fn restatable(document: &Document, kids: &[Object]) -> bool {
+    kids.iter().all(|kid| {
+        let value = document.resolve(kid);
+        let Some(dict) = value.as_dict() else {
+            return true;
+        };
+        let declared = document.get_key(dict, "Type");
+        let declared = declared.as_name().map(pdf_syntax::Name::as_bytes);
+        matches!(declared, Some(b"Page" | b"Pages")) || dict.get("Kids").is_some()
+    })
+}
+
+/// The kind of child one `/Kids` entry is.
+fn child(document: &Document, kid: &Object) -> Child {
+    match kid {
+        Object::Reference(id) if document.get(*id).as_dict().is_some() => Child::Dictionary,
+        Object::Reference(id) if document.xref().location(id.number).is_some() => Child::NotHeld,
+        _ if kid.as_dict().is_some() => Child::Dictionary,
+        _ => Child::NamingNothing,
+    }
 }
 
 /// How many `/Kids` entries of the page tree name no object, and how many name an object the
@@ -335,15 +374,16 @@ pub(super) fn children_not_held(document: &Document) -> ChildrenNotHeld {
             if examined > MAX_NODES_VISITED {
                 return counted;
             }
-            match kid.as_reference() {
-                Some(id) if document.get(id).as_dict().is_some() => {
-                    pending.push((id, depth.saturating_add(1)));
+            match child(document, kid) {
+                Child::Dictionary => {
+                    if let Some(id) = kid.as_reference() {
+                        pending.push((id, depth.saturating_add(1)));
+                    }
                 }
-                Some(id) if document.xref().location(id.number).is_some() => {
-                    counted.not_held = counted.not_held.saturating_add(1);
+                Child::NotHeld => counted.not_held = counted.not_held.saturating_add(1),
+                Child::NamingNothing => {
+                    counted.naming_nothing = counted.naming_nothing.saturating_add(1);
                 }
-                _ if kid.as_dict().is_some() => {}
-                _ => counted.naming_nothing = counted.naming_nothing.saturating_add(1),
             }
         }
     }
@@ -418,6 +458,140 @@ pub(super) fn restated(document: &Document) -> Result<RestatedCounts, Because> {
     };
     if out.at.is_empty() {
         return Err(Because::NotBuiltYet(NOT_REACHED));
+    }
+    Ok(out)
+}
+
+/// Why a node written inside the catalog or inside its parent's `/Kids` keeps a failing `/Parent`
+/// or a child naming no object.
+const NODE_WRITTEN_INSIDE_ITS_HOLDER: &str = "a page tree node whose /Kids lists an entry naming \
+     no object, or a root that states /Parent, is written directly inside the catalog or inside \
+     its parent's Kids array rather than as an object of its own, and this conversion restates a \
+     node at the object that holds it, which here is another object - so the restatement has no \
+     object to be written at (ADR 3905)";
+
+/// Why a node listing a child of neither kind keeps an entry naming no object.
+const A_CHILD_OF_NEITHER_KIND: &str = "a page tree node whose /Kids lists an entry naming no \
+     object also lists a dictionary that is neither a page nor a page tree node, so removing the \
+     entry would still leave a child ISO 32000-2 section 7.7.3.2's Table 30 does not allow; the \
+     conversion declines such a tree and rebuilds it from the pages this reader draws where \
+     recovered-structure is granted (ADR 3905)";
+
+/// Why a failing node the walk did not reach is not restated.
+const NO_NODE_RESTATED: &str = "the requirement failed, and this conversion's walk of the page \
+     tree found no node to restate - the failing node is past the walk's depth or node bound - so \
+     a rewrite of what it found would leave the failure in place (ADR 3905)";
+
+/// The page tree nodes restated where Table 30 rules out what the producer wrote and the
+/// standard itself says what the entry is without it.
+#[derive(Debug, Default)]
+pub(super) struct RestatedNodes {
+    /// Each node whose `/Kids` lists an entry naming no object, with its `/Kids` written without
+    /// those entries, in the source's numbering.
+    pub(super) kids: BTreeMap<ObjectId, Vec<Object>>,
+    /// The root, where it states `/Parent`.
+    pub(super) root_parent: Option<ObjectId>,
+}
+
+impl RestatedNodes {
+    /// The `/Kids` written at `id`, where it is restated.
+    pub(super) fn kids_at(&self, id: ObjectId) -> Option<&[Object]> {
+        self.kids.get(&id).map(Vec::as_slice)
+    }
+}
+
+/// Every node the producer's page tree restates under ISO 32000-2 §7.7.3.2's Table 30 without a
+/// page lost: the root's `/Parent` removed, and each `/Kids` entry that names no object removed
+/// from its array (ADR 3905).
+///
+/// Table 30's `/Parent` row is "( Required except in root node; not permitted in the root node;
+/// shall be an indirect reference ) The page tree node that is the immediate parent of this one."
+/// The root has no parent for the entry to name, so a root without it states what the row
+/// defines, and no reader is pointed anywhere by it: §7.7.3.1 makes the catalog's `/Pages` the
+/// root, and a reader walks down from there.
+///
+/// An entry naming no object is a direct value that is no dictionary, or a reference to an object
+/// number the file gives no place for, which §7.3.10 makes the null object:
+///
+/// > An indirect reference to an undefined object shall not be considered an error by a PDF
+/// > processor; it shall be treated as a reference to the null object.
+///
+/// It is no leaf and no node, so it is none of the children the `/Kids` row allows ("The children
+/// shall only be page objects or other page tree nodes."), and the `/Kids` arrays are what
+/// "definitively determines the number of descendant pages" (the row's NOTE): the pages beneath
+/// every node are the same with the entry and without it, and `/Count`, where it counted the
+/// entry, is restated from the leaves by [`restated`]. An entry naming an object the file places
+/// and does not hold is a page the producer wrote; it declines the source instead
+/// ([`refuse_a_page_tree_node_with_no_children`]), and the loss `page-not-held` answers it.
+///
+/// The walk visits every node the catalog's `/Pages` reaches, each once, under [`MAX_DEPTH`] and
+/// [`MAX_NODES_VISITED`], since `/Kids` can make a cycle.
+///
+/// # Errors
+///
+/// [`Because::NotBuiltYet`] where a node needing either restatement is written inside the catalog
+/// or inside its parent's `/Kids`, or where the walk reached no node to restate.
+pub(super) fn restated_nodes(document: &Document) -> Result<RestatedNodes, Because> {
+    let mut out = RestatedNodes::default();
+    let Some(root) = document
+        .catalog()
+        .ok()
+        .and_then(|catalog| catalog.get("Pages").cloned())
+    else {
+        return Err(Because::NotBuiltYet(NO_NODE_RESTATED));
+    };
+    let mut visited = 0_usize;
+    let mut walked = std::collections::BTreeSet::new();
+    let mut pending = vec![(root, 0_usize)];
+    while let Some((entry, depth)) = pending.pop() {
+        if depth > MAX_DEPTH || visited > MAX_NODES_VISITED {
+            continue;
+        }
+        let id = entry.as_reference();
+        if id.is_some_and(|id| !walked.insert(id)) {
+            continue;
+        }
+        let value = document.resolve(&entry);
+        let Some(dict) = value.as_dict() else {
+            continue;
+        };
+        visited = visited.saturating_add(1);
+        let kids = document.get_key(dict, "Kids");
+        // The root is held to the `/Parent` row where it is a node, by the reading the walk above
+        // takes: `/Kids` stated, or `/Type /Pages` declared (ADR 2583).
+        let declares_a_node = document
+            .get_key(dict, "Type")
+            .as_name()
+            .is_some_and(|name| name.as_bytes() == b"Pages");
+        if depth == 0
+            && (declares_a_node || dict.get("Kids").is_some())
+            && dict.get("Parent").is_some()
+        {
+            out.root_parent = Some(id.ok_or(Because::NotBuiltYet(NODE_WRITTEN_INSIDE_ITS_HOLDER))?);
+        }
+        let Some(kids) = kids.as_array() else {
+            continue;
+        };
+        let kept: Vec<Object> = kids
+            .iter()
+            .filter(|kid| child(document, kid) != Child::NamingNothing)
+            .cloned()
+            .collect();
+        if kept.len() != kids.len() {
+            let id = id.ok_or(Because::NotBuiltYet(NODE_WRITTEN_INSIDE_ITS_HOLDER))?;
+            if !restatable(document, kids) {
+                return Err(Because::NotBuiltYet(A_CHILD_OF_NEITHER_KIND));
+            }
+            out.kids.insert(id, kept.clone());
+        }
+        pending.extend(
+            kept.into_iter()
+                .filter(|kid| child(document, kid) == Child::Dictionary)
+                .map(|kid| (kid, depth.saturating_add(1))),
+        );
+    }
+    if out.kids.is_empty() && out.root_parent.is_none() {
+        return Err(Because::NotBuiltYet(NO_NODE_RESTATED));
     }
     Ok(out)
 }
@@ -515,6 +689,7 @@ mod tests {
 
     use super::{
         refuse_a_page_tree_no_reader_can_walk, refuse_a_page_tree_node_with_no_children, restated,
+        restated_nodes,
     };
     use crate::Refusal;
     use crate::archive::decision::Because;
@@ -739,5 +914,101 @@ mod tests {
             ]),
             None
         );
+    }
+
+    /// The `/Kids` restated at each node of `objects`, as object numbers, and whether the root's
+    /// `/Parent` goes.
+    /// Each restated node's number and the numbers its `/Kids` keeps.
+    type Restated = Vec<(u32, Vec<u32>)>;
+
+    fn nodes(objects: &[&str]) -> Result<(Restated, bool), Because> {
+        let restated = restated_nodes(&file(objects))?;
+        let kids = restated
+            .kids
+            .iter()
+            .map(|(id, kids)| {
+                let numbers = kids
+                    .iter()
+                    .filter_map(pdf_syntax::object::Object::as_reference)
+                    .map(|kid| kid.number)
+                    .collect();
+                (id.number, numbers)
+            })
+            .collect();
+        Ok((kids, restated.root_parent == Some(ObjectId::new(2, 0))))
+    }
+
+    /// Table 30 does not permit `/Parent` in the root node, and §7.3.10 makes a reference to an
+    /// undefined object the null object, which is no child the `/Kids` row allows (ADR 3905).
+    #[test]
+    fn a_roots_parent_and_a_kid_naming_no_object_are_restated() {
+        let parent = [
+            CATALOG,
+            "<< /Type /Pages /Parent 2 0 R /Kids [3 0 R] /Count 1 >>",
+            PAGE,
+        ];
+        assert_eq!(nodes(&parent), Ok((Vec::new(), true)));
+        let nested = "<< /Type /Pages /Parent 2 0 R /Kids [9 0 R 4 0 R null] /Count 1 >>";
+        let named = [
+            CATALOG,
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            nested,
+            PAGE,
+        ];
+        assert_eq!(nodes(&named), Ok((vec![(3, vec![4])], false)));
+    }
+
+    /// A child the file places and does not hold is a page the producer wrote: it stays in the
+    /// array, and the conversion's walk declines the source for it (ADR 2596).
+    #[test]
+    fn a_kid_the_file_places_and_does_not_hold_is_not_restated_and_declines_the_source() {
+        let objects = [
+            CATALOG,
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 1 >>",
+            PAGE,
+            "(no page)",
+        ];
+        assert!(matches!(nodes(&objects), Err(Because::NotBuiltYet(_))));
+        assert!(matches!(
+            refuse_a_page_tree_node_with_no_children(&file(&objects), ObjectId::new(1, 0)),
+            Err(Refusal::Reconstructed(_))
+        ));
+        let restatable = [
+            CATALOG,
+            "<< /Type /Pages /Parent 2 0 R /Kids [9 0 R 3 0 R] /Count 1 >>",
+            PAGE,
+        ];
+        assert!(
+            refuse_a_page_tree_node_with_no_children(&file(&restatable), ObjectId::new(1, 0))
+                .is_ok()
+        );
+    }
+
+    /// A sibling that is neither a page nor a node keeps the source declined, since the restated
+    /// array would still list a child Table 30 does not allow (`T02-02_003`'s shape, ADR 3905).
+    #[test]
+    fn a_kid_naming_no_object_beside_a_child_of_neither_kind_declines_the_source() {
+        let objects = [
+            CATALOG,
+            "<< /Type /Pages /Kids [3 0 R 4 0 R 9 0 R] /Count 3 >>",
+            PAGE,
+            "<< /Font << >> >>",
+        ];
+        assert!(matches!(nodes(&objects), Err(Because::NotBuiltYet(_))));
+        assert!(matches!(
+            refuse_a_page_tree_node_with_no_children(&file(&objects), ObjectId::new(1, 0)),
+            Err(Refusal::Reconstructed(_))
+        ));
+    }
+
+    /// A node written inside its parent's `/Kids` has no object of its own to restate at.
+    #[test]
+    fn a_node_needing_a_restatement_written_inside_its_parent_keeps_its_refusal() {
+        let direct = [
+            CATALOG,
+            "<< /Type /Pages /Kids [<< /Type /Pages /Kids [9 0 R 3 0 R] >>] /Count 1 >>",
+            PAGE,
+        ];
+        assert!(matches!(nodes(&direct), Err(Because::NotBuiltYet(_))));
     }
 }

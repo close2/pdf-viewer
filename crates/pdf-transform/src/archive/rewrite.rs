@@ -606,6 +606,11 @@ pub enum Rewrite {
     /// 32000-2 §7.7.3.2's Table 30 defines the entry as and its NOTE makes definitive
     /// (`doc/adr/2456`, `doc/adr/2819`).
     PageCountRestated,
+    /// The page tree root states no `/Parent`, and no node's `/Kids` lists an entry naming no
+    /// object: ISO 32000-2 §7.7.3.2's Table 30 does not permit the first, and the second is
+    /// §7.3.10's null, none of the children the table allows, with the pages beneath every node the
+    /// same without it (`super::page_tree::restated_nodes`, `doc/adr/3905`).
+    PageTreeRestated,
     /// Every font descriptor whose `/CharSet` or `/CIDSet` does not describe the whole of its own
     /// embedded program loses that entry.
     ///
@@ -1620,6 +1625,12 @@ impl Rewrite {
                  Kids states the number of page objects beneath it, which ISO 32000-2 \u{a7}7.7.3.2's Table 30 defines the \
                  entry as and which this reader counted"
             }
+            Self::PageTreeRestated => {
+                "the page tree's root loses the Parent entry ISO 32000-2 \u{a7}7.7.3.2's Table 30 \
+                 does not permit in it, and each Kids entry naming no object, which \u{a7}7.3.10 \
+                 makes the null object and which is no page and no node, is removed from its \
+                 array; the pages beneath every node are the same"
+            }
             Self::DescriptorSetRemoved => {
                 "a font descriptor's CharSet or CIDSet, which describes the embedded program \
                  incompletely, is removed — both editions of the base standard make the entry \
@@ -2052,6 +2063,7 @@ impl Rewrite {
             Self::PageResources => "page-resources",
             Self::EmptyResourceDefined => "empty-resource-defined",
             Self::PageCountRestated => "page-count-restated",
+            Self::PageTreeRestated => "page-tree-restated",
             Self::DescriptorSetRemoved => "descriptor-set-removed",
             Self::CidToGidIdentity => "cid-to-gid-identity",
             Self::FontTypeStated => "font-type-stated",
@@ -2293,6 +2305,7 @@ impl<'a> Rewriter<'a> {
                 .as_ref()
                 .ok()
                 .map(|counts| &counts.at),
+            page_nodes: prepared.owed.page_nodes.as_ref().ok(),
             descriptor_sets: prepared.owed.descriptor_sets.as_ref().ok(),
             cid_to_gid: prepared.owed.cid_to_gid.as_ref().ok(),
             font_types: prepared.owed.font_types.as_ref().ok(),
@@ -3329,6 +3342,8 @@ struct Rewriter<'a> {
     undecodable: Option<&'a super::undecodable::Undecodable>,
     /// The `/Count` each page tree node whose own is no integer states (`doc/adr/2456`).
     page_counts: Option<&'a BTreeMap<ObjectId, i64>>,
+    /// The page tree nodes restated where Table 30 rules out what they state (`doc/adr/3905`).
+    page_nodes: Option<&'a super::page_tree::RestatedNodes>,
     /// The subset descriptions removed from each font descriptor.
     descriptor_sets: Option<&'a DescriptorSets>,
     /// The `CIDFont`s given `/CIDToGIDMap` `/Identity`.
@@ -3972,6 +3987,7 @@ impl Rewriter<'_> {
         changed |= self.give_reader_resources(id, out, applied);
         changed |= self.define_empty_resources(id, out, applied);
         changed |= self.restate_page_count(id, out, applied);
+        changed |= self.restate_page_tree_node(id, out, applied);
         changed |= self.remove_descriptor_sets(id, out, applied);
         changed |= self.remove_page_boundaries(id, out, applied);
         changed |= self.write_boxes_as_drawn(id, out, applied);

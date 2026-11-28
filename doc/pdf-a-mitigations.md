@@ -571,6 +571,27 @@ ISO 19005-2 5.1, ISO 19005-4 5.1 · all six · today `the-fence` (ADR 2444)
 - **From a configuration** — nothing.
 - **Departure** — **C**: the output would state a page tree no reader can walk.
 
+### `file-structure/page-tree-root-states-no-parent`
+### `file-structure/page-tree-kids-name-dictionaries`
+ISO 19005-2 5.1, ISO 19005-4 5.1, through ISO 32000-2 §7.7.3.2's Table 30 `/Parent` and `/Kids`
+rows · all six · **built** as a statement (ADR 3905)
+
+- **What was built.** The root loses the `/Parent` the row does not permit in it. Each `/Kids` entry
+  that names no object is removed from its array: a direct value that is no dictionary, or a reference
+  with no cross-reference location, which §7.3.10 makes the null object. The producer's tree is
+  otherwise kept, with its nodes, inherited entries and `/Count`s, and a count that counted such an
+  entry is restated from the leaves. The report counts the rewrite as `page-tree-restated`. No loss is
+  asked for, because the pages beneath every node are the same.
+- **By target** — none.
+- **From a configuration** — nothing; it is a `Mechanical` answer.
+- **Still refused, by name** — a node needing either restatement that is written inside the catalog or
+  inside its parent's `/Kids`, since it has no object of its own to restate at (no corpus document). An
+  entry that the cross-reference information places, with no dictionary there, is not this row's to
+  remove: it declines the source and falls under `page-not-held` (below). An entry naming no object
+  beside a sibling that is neither a page nor a node declines the source for `recovered-structure`,
+  because the restated array would still list a child the row does not allow.
+- **Departure** — not needed.
+
 ### A document declined as a source: the loss `recovered-structure`
 Not a requirement of ISO 19005: the verb's own refusal of a trailer, catalog or page tree node that states no page
 tree (ISO 32000-2 §7.5.5's Table 15, §7.7.2's Table 29) · **built** (ADR 2502)
@@ -601,8 +622,9 @@ Not a requirement of ISO 19005: the rebuild's own refusal of a page tree root wh
 pages than the rebuilt file holds · **built** (ADR 2596, A727)
 
 - **What was built.** A `/Kids` entry that names no object — a direct value that is no dictionary, or
-  a reference with no cross-reference location — is §7.3.10's null; it is no page, it is subtracted
-  from the count before the comparison, and it falls under `recovered-structure`. An entry the
+  a reference with no cross-reference location — is §7.3.10's null; it is no page. It is restated out
+  of the producer's tree with no loss (ADR 3905), and in a source declined for another reason it is
+  subtracted from the count before the comparison. An entry the
   cross-reference information places, with no dictionary there, is a page not held: where the loss
   is taken the pages carried are written, and the count stated and the count carried are named in
   the report, the JSON and `xmpMM:History`. Nothing is drawn for the page that is not there.

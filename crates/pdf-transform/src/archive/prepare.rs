@@ -2116,6 +2116,7 @@ impl Prepared {
                 .copied(),
             Rewrite::EmptyResourceDefined => self.owed.defined_resources.as_ref().err().copied(),
             Rewrite::PageCountRestated => self.owed.page_counts.as_ref().err().copied(),
+            Rewrite::PageTreeRestated => self.owed.page_nodes.as_ref().err().copied(),
             Rewrite::DescriptorSetRemoved => self.owed.descriptor_sets.as_ref().err().copied(),
             Rewrite::CidToGidIdentity => self.owed.cid_to_gid.as_ref().err().copied(),
             Rewrite::FontTypeStated => self.owed.font_types.as_ref().err().copied(),
@@ -2447,6 +2448,9 @@ pub(super) struct Owed {
     pub(super) defined_resources: Result<ReaderResources, Because>,
     /// The page tree nodes whose `/Count` is restated, or why none are (`doc/adr/2456`).
     pub(super) page_counts: Result<super::page_tree::RestatedCounts, Because>,
+    /// The page tree nodes restated where Table 30 rules out what they state, or why none are
+    /// (`doc/adr/3905`).
+    pub(super) page_nodes: Result<super::page_tree::RestatedNodes, Because>,
     /// The font descriptors whose incomplete subset description goes, or why none do.
     pub(super) descriptor_sets: Result<DescriptorSets, Because>,
     /// The `CIDFont`s given `/CIDToGIDMap` `/Identity`, or why none are.
@@ -2614,6 +2618,9 @@ impl Owed {
             form_resources,
             page_counts: asked(wanted(Rewrite::PageCountRestated), || {
                 super::page_tree::restated(document)
+            }),
+            page_nodes: asked(wanted(Rewrite::PageTreeRestated), || {
+                super::page_tree::restated_nodes(document)
             }),
             descriptor_sets: asked(wanted(Rewrite::DescriptorSetRemoved), || {
                 sites::descriptor_sets(document, input)

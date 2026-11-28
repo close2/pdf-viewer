@@ -198,6 +198,20 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "file-structure/page-tree-node-count-counts-its-leaves",
         answer: Answer::Mechanical(Rewrite::PageCountRestated),
     },
+    // The same section through Table 30's `/Parent` row and its `/Kids` row's children: the root
+    // without the `/Parent` the row does not permit in it, and each `/Kids` entry naming no
+    // object — §7.3.10's null, no page and no node — left out of its array, the pages beneath
+    // every node the same (`super::super::page_tree::restated_nodes`, `doc/adr/3905`). An entry
+    // naming an object the file places and does not hold declines the source before stage 1
+    // instead, and the loss `page-not-held` answers it (`doc/adr/2596`).
+    Remedy {
+        requirement: "file-structure/page-tree-root-states-no-parent",
+        answer: Answer::Mechanical(Rewrite::PageTreeRestated),
+    },
+    Remedy {
+        requirement: "file-structure/page-tree-kids-name-dictionaries",
+        answer: Answer::Mechanical(Rewrite::PageTreeRestated),
+    },
     // ISO 19005-2 section 6.1.13, for the values written inside a content stream: an integer past
     // the part's bound written as the real of the same value, a period after its last digit,
     // where every value the row failed at is such an integer and a direct operand of an operator
@@ -296,18 +310,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "file-structure/page-tree-node-kids-is-an-array",
         Because::TheFence(A_NODE_WITH_NO_CHILDREN),
     ),
-    // The same section through Table 30's `/Parent` row and its `/Kids` row's children: the verb
-    // declines such a tree before stage 1 and rebuilds it under `recovered-structure`
-    // (`super::super::page_tree`, `doc/adr/2558`), so a source reaching this row has the fault at a node
-    // that walk does not follow (`doc/adr/2583`).
-    (
-        "file-structure/page-tree-root-states-no-parent",
-        Because::NotBuiltYet(A_TREE_THE_WALK_DOES_NOT_REACH),
-    ),
-    (
-        "file-structure/page-tree-kids-name-dictionaries",
-        Because::NotBuiltYet(A_TREE_THE_WALK_DOES_NOT_REACH),
-    ),
     // The same section through the `/Count` row: a source holding none of the pages its root
     // counts is refused by the verb before anything is rebuilt or decided, under every profile
     // (`super::super::refuse_a_document_holding_none_of_its_pages`, `doc/questions/A775`, ADR
@@ -375,13 +377,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         Because::NotBuiltYet(CONFIGURATION_NAME_NOT_WRITTEN),
     ),
 ];
-
-/// Why a page tree Table 30 rules out keeps its refusal where the conversion's own walk passed it.
-const A_TREE_THE_WALK_DOES_NOT_REACH: &str = "this page tree has a root that states /Parent or a \
-     Kids entry that names no dictionary, which ISO 32000-2 section 7.7.3.2's Table 30 rules out, \
-     at a node written inside the catalog or inside its parent's Kids; this conversion declines \
-     such a tree, and rebuilds it from the pages this reader draws where recovered-structure is \
-     granted, only at a node written as an object of its own";
 
 /// Why a source holding none of the pages it states is not converted (`doc/questions/A775`).
 const NONE_OF_ITS_PAGES: &str = "the source's page tree root counts one page or more and the \

@@ -823,38 +823,48 @@ fn a_source_stating_more_pages_than_the_reader_reaches_is_refused_by_name() {
 }
 
 #[test]
-fn a_root_naming_a_parent_or_a_child_that_is_no_dictionary_is_written_as_a_well_formed_tree() {
+fn a_root_naming_a_parent_or_a_child_naming_no_object_is_restated_in_the_producers_tree() {
     // §7.7.3.2's Table 30 does not permit /Parent in the root node, and makes /Kids the node's
-    // children; PDFBOX-6040-nodeloop's root names itself and lists a reference to an object the file
-    // does not hold, which is §7.3.10's null. Carried as it stands, that is a tree a conforming
-    // reader cannot open, so the source is declined and, behind the loss, rebuilt (ADR 2558).
+    // children, which "shall only be page objects or other page tree nodes"; a reference to an
+    // object the file does not define is §7.3.10's null, which is neither. Both are restated in
+    // the producer's own tree with no loss asked for: the root without the entry, the array
+    // without the reference, and the one page beneath the root the same (ADR 3905). The source
+    // is not declined, so nothing is rebuilt from the pages the reader drew.
     let catalog = "<< /Type /Catalog /Pages 2 0 R >>";
-    for (root, says) in [
+    for (root, failed) in [
         (
             "<< /Type /Pages /Parent 2 0 R /Kids [3 0 R] /Count 1 >>",
-            "does not permit /Parent in the root node",
+            "file-structure/page-tree-root-states-no-parent",
         ),
         (
             "<< /Type /Pages /Kids [9 0 R 3 0 R] /Count 1 >>",
-            "names no dictionary",
+            "file-structure/page-tree-kids-name-dictionaries",
+        ),
+        (
+            "<< /Type /Pages /Kids [null 3 0 R 7] /Count 1 >>",
+            "file-structure/page-tree-kids-name-dictionaries",
         ),
     ] {
         let source = file(&[catalog, root, PAGE], "/Root 1 0 R");
-        let refused = attempt(
-            &source,
-            Target::Four(Flavour::Plain),
-            Authorisations::default(),
-        );
-        let declined = match refused {
-            Err(refusal) => refusal.to_string(),
-            Ok((report, output)) => {
-                assert!(output.is_none(), "{root}: nothing is written unauthorised");
-                format!("{:?}", report.refused)
-            }
-        };
-        assert!(declined.contains(says), "{root}: {declined}");
-        for target in [Target::Two(Level::B), Target::Four(Flavour::Plain)] {
-            let (_, document, _) = recovered(&source, target);
+        for target in TARGETS {
+            let (report, output) = attempt(&source, target, Authorisations::default())
+                .unwrap_or_else(|refusal| panic!("{root}: {refusal}"));
+            assert_eq!(
+                decision(&report, failed),
+                Decision::Mechanical(Rewrite::PageTreeRestated),
+                "{target}: {root}"
+            );
+            assert!(
+                conversion(&report).recovered_structure.is_none(),
+                "{target}: {root}: the producer's tree is kept, not rebuilt"
+            );
+            let output = written(&report, output);
+            assert_eq!(
+                holds(&output, target).verdict(),
+                Verdict::Conforms,
+                "{target}: {root}"
+            );
+            let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
             let catalog = document.catalog().expect("a catalog");
             let tree = document.get_key(&catalog, "Pages");
             let tree = tree.as_dict().expect("the root is a dictionary");
@@ -864,24 +874,59 @@ fn a_root_naming_a_parent_or_a_child_that_is_no_dictionary_is_written_as_a_well_
             );
             let kids = document.get_key(tree, "Kids");
             let kids = kids.as_array().expect("a /Kids array");
-            assert_eq!(kids.len(), 1, "{target}: the one page drawn");
-            for kid in kids {
-                assert!(
-                    kid.as_reference().is_some(),
-                    "{target}: an indirect reference"
-                );
-                let page = document.resolve(kid);
-                let page = page.as_dict().expect("each kid is a dictionary");
-                assert_eq!(
-                    document
-                        .get_key(page, "Type")
-                        .as_name()
-                        .map(|name| name.as_bytes().to_vec()),
-                    Some(b"Page".to_vec()),
-                    "{target}"
-                );
-            }
+            assert_eq!(kids.len(), 1, "{target}: the one page the tree holds");
+            let page = document.resolve(&kids[0]);
+            let page = page.as_dict().expect("the kid is a dictionary");
+            assert_eq!(
+                document
+                    .get_key(page, "Type")
+                    .as_name()
+                    .map(|name| name.as_bytes().to_vec()),
+                Some(b"Page".to_vec()),
+                "{target}"
+            );
+            assert_eq!(pdf_model::Pages::new(&document).len(), 1, "{target}");
         }
+    }
+}
+
+#[test]
+fn a_root_naming_a_parent_beside_a_child_the_file_does_not_hold_is_still_rebuilt() {
+    // PDFBOX-6040-nodeloop's shape: the root names itself as /Parent and lists a reference to an
+    // object the cross-reference table places where no object begins. That child is a page the
+    // producer wrote and the file does not hold (ADR 2596), which no restatement of the
+    // producer's tree answers, so the source is declined and, behind the loss, rebuilt; the
+    // rebuilt root names no parent either (ADR 2558, ADR 3905).
+    let catalog = "<< /Type /Catalog /Pages 2 0 R >>";
+    let root = "<< /Type /Pages /Parent 2 0 R /Kids [3 0 R 4 0 R] /Count 1 >>";
+    let source = file(&[catalog, root, PAGE, "(no page)"], "/Root 1 0 R");
+    let refused = attempt(
+        &source,
+        Target::Four(Flavour::Plain),
+        Authorisations::default(),
+    );
+    let declined = match refused {
+        Err(refusal) => refusal.to_string(),
+        Ok((report, output)) => {
+            assert!(output.is_none(), "nothing is written unauthorised");
+            format!("{:?}", report.refused)
+        }
+    };
+    assert!(declined.contains("names no dictionary"), "{declined}");
+    for target in TARGETS {
+        let (report, document, _) = recovered(&source, target);
+        assert!(
+            conversion(&report).recovered_structure.is_some(),
+            "{target}"
+        );
+        let catalog = document.catalog().expect("a catalog");
+        let tree = document.get_key(&catalog, "Pages");
+        let tree = tree.as_dict().expect("the root is a dictionary");
+        assert!(
+            tree.get("Parent").is_none(),
+            "{target}: the root names no parent"
+        );
+        assert_eq!(pdf_model::Pages::new(&document).len(), 1, "{target}");
     }
 }
 
@@ -891,8 +936,9 @@ fn a_page_the_reader_reaches_at_two_indices_is_carried_once_and_a_kid_naming_no_
     // Table 30 makes a node's /Count the number of leaves beneath it. Node 3 states two and holds
     // one page, its other kid a reference to an object the file does not define, which §7.3.10
     // makes a reference to the null object, so the reader skips node 3 by the two it states and
-    // lands on node 5's page again: one object at two indices. The kid naming no dictionary
-    // declines the source (ADR 2558); the rebuild carries page 6 once rather than reserving its
+    // lands on node 5's page again: one object at two indices. Node 5's second kid is an object
+    // the file holds that is no dictionary, which declines the source (ADR 2558, ADR 3905); node
+    // 5's /Count of one did not count it. The rebuild carries page 6 once rather than reserving its
     // object twice, and the root's /Count of three against the two pages written is no page lost,
     // because the third leaf it counted is a kid naming no object, which Table 30's /Kids arrays
     // do not make a page (A727, ADR 2596).
@@ -902,8 +948,9 @@ fn a_page_the_reader_reaches_at_two_indices_is_carried_once_and_a_kid_naming_no_
             "<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 3 >>",
             "<< /Type /Pages /Parent 2 0 R /Kids [9 0 R 4 0 R] /Count 2 >>",
             "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 200 300] >>",
-            "<< /Type /Pages /Parent 2 0 R /Kids [6 0 R] /Count 1 >>",
+            "<< /Type /Pages /Parent 2 0 R /Kids [6 0 R 7 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 200 300] >>",
+            "(no page)",
         ],
         "/Root 1 0 R",
     );

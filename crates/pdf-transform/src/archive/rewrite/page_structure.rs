@@ -110,6 +110,34 @@ impl Rewriter<'_> {
         true
     }
 
+    /// §7.7.3.2's Table 30 at one node: the root's `/Parent` removed, and the `/Kids` entries
+    /// naming no object left out of the array; `super::super::page_tree::restated_nodes` found
+    /// both (`doc/adr/3905`).
+    pub(super) fn restate_page_tree_node(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(nodes) = self
+            .page_nodes
+            .filter(|_| self.wants(Rewrite::PageTreeRestated))
+        else {
+            return false;
+        };
+        let mut changed = false;
+        if nodes.root_parent == Some(id) && out.remove("Parent").is_some() {
+            count(applied, Rewrite::PageTreeRestated);
+            changed = true;
+        }
+        if let Some(kids) = nodes.kids_at(id) {
+            out.insert(Name::new(&b"Kids"[..]), Object::Array(kids.to_vec()));
+            count(applied, Rewrite::PageTreeRestated);
+            changed = true;
+        }
+        changed
+    }
+
     /// The out-of-range optional page boundary entries one page loses.
     ///
     /// ISO 19005-2 section 6.1.13's limit, answered by ISO 32000-2 §7.7.3.3's Table 31 and
