@@ -258,6 +258,7 @@ mod shading;
 mod text;
 mod traces;
 mod type3;
+mod undrawn;
 mod xfa;
 
 use std::collections::{HashMap, HashSet};
@@ -421,6 +422,7 @@ pub(crate) fn run(
                     forms: edit.forms,
                     states: edit.states,
                     names: edit.names,
+                    located_in_place: Vec::new(),
                 });
             }
             Err(skip) => report.refused.push(Declined {
@@ -436,6 +438,10 @@ pub(crate) fn run(
     // images spliced in the content stream — both had their region samples set to the constant.
     let images = cleared_images.saturating_add(inline_images);
 
+    // A copy whose original no page and no appearance still draws takes the original's place,
+    // so the producer's covered marks are not left in the file for pages that only inherit the
+    // name (ADR 3861).
+    undrawn::adopt(document, &mut applied);
     let written = write_document(document, root, &mut applied, plan, sinks, protect)?;
     if written.dangling {
         report.warnings.push(Warning {
@@ -813,6 +819,9 @@ struct AppliedPage {
     removed: Removed,
     /// Each marked-content sequence with an identifier the removal reached.
     reached: Vec<marked::Reached>,
+    /// The shadings and patterns whose located data this page destroyed in their own place,
+    /// because nothing else the output draws names them (ADR 3861).
+    located_in_place: Vec<ObjectId>,
     /// The text the removal took, in runs.
     runs: Vec<String>,
 }
@@ -3207,6 +3216,7 @@ fn write_document(
         replacements,
         private,
         forms: form_slots,
+        located: located_slots,
     } = reserve_slots(&mut assembly, applied)?;
     // The reachable closure, pruned: a replaced page short-circuits the walk, so its old content
     // and its removed annotations are reached from nowhere else and never copied.
@@ -3245,7 +3255,8 @@ fn write_document(
     )?;
     xfa::place_packets(&mut assembly, document, &packet_slots)?;
 
-    let placed_located = place_located(&mut assembly, document, applied, &private)?;
+    let placed_located =
+        place_located(&mut assembly, document, applied, (&private, &located_slots))?;
     for (index, page) in applied.iter().enumerate() {
         let copies = private.get(index).cloned().unwrap_or_default();
         let slots = form_slots.get(index);
@@ -3759,6 +3770,9 @@ struct Slots<'a> {
     private: Vec<HashMap<ObjectId, ObjectId>>,
     /// Per page, the slot each of its form edits was given.
     forms: Vec<Vec<ObjectId>>,
+    /// Per page, the shadings and patterns it destroys data of in their own place, and their
+    /// slots.
+    located: Vec<HashMap<ObjectId, ObjectId>>,
 }
 
 /// Takes a slot for every image and form the removal destroyed or edited, replacing an owned
@@ -3792,8 +3806,18 @@ fn reserve_slots<'a>(
     // The slot each of a page's form edits was given, so a stream naming a placement's own copy
     // of a form can name the slot it went into (ADR 1363).
     let mut form_slots: Vec<Vec<ObjectId>> = Vec::with_capacity(applied.len());
+    let mut located_slots: Vec<HashMap<ObjectId, ObjectId>> = Vec::with_capacity(applied.len());
     for (index, page) in applied.iter().enumerate() {
+        let mut in_place = HashMap::new();
+        for id in &page.located_in_place {
+            let slot = assembly
+                .replace(0, *id)
+                .map_err(|error| Refusal::Assembly(error.to_string()))?;
+            in_place.insert(*id, slot);
+        }
+        located_slots.push(in_place);
         let mut copies = HashMap::new();
+        let mut replaced: Vec<(ObjectId, ObjectId)> = Vec::new();
         let mut slots = Vec::with_capacity(page.forms.len());
         for image in &page.images {
             let slot = if image.private {
@@ -3804,6 +3828,8 @@ fn reserve_slots<'a>(
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
             if image.private {
                 copies.insert(image.id, slot);
+            } else {
+                replaced.push((image.id, slot));
             }
             replacements.push((slot, Owned::Image(image), index));
         }
@@ -3818,9 +3844,20 @@ fn reserve_slots<'a>(
             // that name it draw it, and every other reference keeps reaching the form.
             if form.private && !form.placement_copy {
                 copies.insert(form.id, slot);
+            } else if !form.private {
+                replaced.push((form.id, slot));
             }
             slots.push(slot);
             replacements.push((slot, Owned::Form(form), index));
+        }
+        // An object replaced in place that reaches one of the page's copies — a form the page
+        // owns holding a nested form another page draws — is named by its slot when the page's
+        // resources are carried: `privatise` would otherwise rebuild it from the producer's
+        // object, covered marks included, because it reaches a copy (ADR 3861).
+        if !copies.is_empty() {
+            for (id, slot) in replaced {
+                copies.entry(id).or_insert(slot);
+            }
         }
         private.push(copies);
         form_slots.push(slots);
@@ -3829,6 +3866,7 @@ fn reserve_slots<'a>(
         replacements,
         private,
         forms: form_slots,
+        located: located_slots,
     })
 }
 
@@ -4051,19 +4089,35 @@ fn slotted_masks(
         .collect()
 }
 
+/// A producer's object and the slot the output writes for it, the copy or the object itself.
+type SlotMap = HashMap<ObjectId, ObjectId>;
+
 /// Each page's destructions of located shading data, placed once and named by every resource
 /// dictionary on the page that gives one of its entries the replacement (ADR 1363).
 fn place_located(
     assembly: &mut Assembly<'_>,
     document: &Document,
     applied: &[AppliedPage],
-    private: &[HashMap<ObjectId, ObjectId>],
+    (private, in_place): (&[SlotMap], &[SlotMap]),
 ) -> Result<Vec<HashMap<located::Key, Object>>, Refusal> {
     let mut out = Vec::with_capacity(applied.len());
     for (index, page) in applied.iter().enumerate() {
         let copies = private.get(index).cloned().unwrap_or_default();
+        let own = in_place.get(index);
         let mut placed = HashMap::new();
         for (key, built) in &page.names.located {
+            // A replacement taking the producer's object's own place fills the slot reserved for
+            // it, so every reference to the producer's reaches the destroyed data (ADR 3861).
+            if let (located::Key::Object(id), located::Built::New(inner)) = (key, built)
+                && let Some(slot) = own.and_then(|own| own.get(id))
+            {
+                let object = place_built(assembly, document, inner, &copies)?;
+                assembly
+                    .place(*slot, object)
+                    .map_err(|error| Refusal::Assembly(error.to_string()))?;
+                placed.insert(key.clone(), Object::Reference(*slot));
+                continue;
+            }
             placed.insert(
                 key.clone(),
                 place_built(assembly, document, built, &copies)?,

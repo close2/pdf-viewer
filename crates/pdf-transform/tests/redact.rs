@@ -7482,3 +7482,434 @@ fn a_tagged_form_one_page_draws_is_edited_in_its_own_place() {
     assert_eq!(streams.len(), 1, "{streams:#?}");
     assert_eq!(streams[0].2, Some(1), "the form keeps the producer's key");
 }
+
+/// A two-page file whose `/Pages` node holds the resources both pages inherit (ISO 32000-2
+/// §7.7.3.4, Table 31's `/Resources` "inheritable"): one form `/Fm1` drawing `KEEP` above and
+/// `SECRET` below, and one image `/Im1` of [`distinct_samples`]. Page one draws what
+/// `first_content` names under a redaction over the lower half; page two draws `second_content`.
+fn inherited_fixture(first_content: &str, second_content: &str, shared_by: &str) -> Vec<u8> {
+    inherited_fixture_with(first_content, second_content, shared_by, ("", &[]))
+}
+
+/// [`inherited_fixture`] with entries added to page two's dictionary and objects numbered from
+/// twelve.
+fn inherited_fixture_with(
+    first_content: &str,
+    second_content: &str,
+    shared_by: &str,
+    (second_extra, extra): (&str, &[&str]),
+) -> Vec<u8> {
+    let form = "BT /F1 12 Tf 20 150 Td (KEEP) Tj ET\nBT /F1 12 Tf 20 50 Td (SECRET) Tj ET";
+    let resources = "<< /XObject << /Fm1 5 0 R /Im1 9 0 R >> /Font << /F1 7 0 R >> >>";
+    let (tree_resources, page_resources) = match shared_by {
+        "inherited" => (format!(" /Resources {resources}"), String::new()),
+        _ => (String::new(), " /Resources 10 0 R".to_owned()),
+    };
+    let samples = distinct_samples();
+    let objects: Vec<Vec<u8>> = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        format!("<< /Type /Pages /Kids [3 0 R 8 0 R] /Count 2{tree_resources} >>").into_bytes(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200]{page_resources} /Contents 4 0 \
+             R /Annots [6 0 R] >>"
+        )
+        .into_bytes(),
+        format!(
+            "<< /Length {} >>\nstream\n{first_content}\nendstream",
+            first_content.len() + 1
+        )
+        .into_bytes(),
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /Length {} >>\nstream\n{form}\n\
+             endstream",
+            form.len() + 1
+        )
+        .into_bytes(),
+        b"<< /Type /Annot /Subtype /Redact /Rect [0 0 200 100] /QuadPoints [0 100 200 100 0 0 \
+          200 0] >>"
+            .to_vec(),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200]{page_resources} /Contents 11 \
+             0 R{second_extra} >>"
+        )
+        .into_bytes(),
+        {
+            let mut image = b"<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace \
+                              /DeviceGray /BitsPerComponent 8 /Length 64 >>\nstream\n"
+                .to_vec();
+            image.extend_from_slice(&samples);
+            image.extend_from_slice(b"\nendstream");
+            image
+        },
+        resources.as_bytes().to_vec(),
+        format!(
+            "<< /Length {} >>\nstream\n{second_content}\nendstream",
+            second_content.len() + 1
+        )
+        .into_bytes(),
+    ];
+    let mut objects = objects;
+    objects.extend(extra.iter().map(|object| object.as_bytes().to_vec()));
+    assemble_bytes(&objects)
+}
+
+/// Whether any stream of the output, decoded, holds `needle` — every object number the file
+/// defines, so an object no page names is searched too.
+fn any_stream_holds(bytes: &[u8], needle: &[u8]) -> bool {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    document.xref().object_numbers().any(|number| {
+        let object = document.get(document.defined_id(number));
+        object.as_stream().is_some_and(|stream| {
+            document
+                .decoded_stream_data(stream)
+                .is_some_and(|data| contains(&data, needle))
+        })
+    })
+}
+
+/// The page the redaction is not on draws exactly what it drew: its pixels through the
+/// correctness oracle, before and after, compared whole.
+fn second_page_unchanged(before: &[u8], after: &[u8]) {
+    let before = support::oracle(before, 1);
+    let after = support::oracle(after, 1);
+    assert_eq!((before.width, before.height), (after.width, after.height));
+    assert!(
+        before.data == after.data,
+        "the page without the redaction draws what it drew"
+    );
+}
+
+/// A form both pages inherit from `/Pages` (§7.7.3.4) that only the redacted page draws: the
+/// page's resources are shared by construction, so the form cannot be proved the page's by its
+/// references — but nothing else draws it, so the producer's stream left in the file would be the
+/// covered text kept where no page shows it. The form takes the edit in its own place, and the
+/// other page, which inherits the name and never draws it, draws what it drew (§12.5.6.23,
+/// ADR 3861).
+#[test]
+fn a_form_inherited_by_a_page_that_never_draws_it_keeps_no_covered_marks() {
+    let bytes = inherited_fixture("/Fm1 Do", "0 0 1 rg 20 20 50 50 re f", "inherited");
+    assert!(any_stream_holds(&bytes, b"SECRET"), "the fixture holds it");
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        !any_stream_holds(&out, b"SECRET"),
+        "no stream of the output holds the covered text"
+    );
+    assert!(any_stream_holds(&out, b"KEEP"), "the uncovered text stays");
+    assert_eq!(page_text(&out).trim(), "KEEP");
+    second_page_unchanged(&bytes, &out);
+}
+
+/// The same shape where the two pages name one indirect `/Resources` dictionary (§7.7.3.3)
+/// rather than inheriting it: the other page reaches the form and never draws it.
+#[test]
+fn a_form_in_resources_another_page_names_and_never_draws_keeps_no_covered_marks() {
+    let bytes = inherited_fixture("/Fm1 Do", "0 0 1 rg 20 20 50 50 re f", "named");
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(!any_stream_holds(&out, b"SECRET"));
+    assert_eq!(page_text(&out).trim(), "KEEP");
+    second_page_unchanged(&bytes, &out);
+}
+
+/// Where the other page does draw the inherited form, its placement's marks are content the
+/// annotation did not identify, and the original is kept for it whole (ADR 1196 §2).
+#[test]
+fn an_inherited_form_the_other_page_draws_is_kept_for_it() {
+    let bytes = inherited_fixture("/Fm1 Do", "/Fm1 Do", "inherited");
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert_eq!(page_text(&out).trim(), "KEEP");
+    let document = Document::open_with_limits(out.clone(), Limits::DEFAULT).expect("it opens");
+    let second = pdf_model::Pages::new(&document).get(1).expect("page two");
+    assert!(
+        pdf_model::interpret(&document, &second)
+            .text
+            .contains("SECRET")
+    );
+    second_page_unchanged(&bytes, &out);
+}
+
+/// An image both pages inherit that only the redacted page draws: its samples under the region
+/// are destroyed in the image's own place, so no copy of the producer's samples is left in the
+/// file for a page that never draws them (§12.5.6.23's "that portion of the image data shall be
+/// destroyed", ADR 3861).
+#[test]
+fn an_image_inherited_by_a_page_that_never_draws_it_keeps_no_covered_samples() {
+    let bytes = inherited_fixture(
+        "q 200 0 0 200 0 0 cm /Im1 Do Q",
+        "0 0 1 rg 20 20 50 50 re f",
+        "inherited",
+    );
+    let samples = distinct_samples();
+    assert!(any_stream_holds(&bytes, &samples));
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        !any_stream_holds(&out, &samples[32..]),
+        "no stream holds the rows the region covered (the image's lower half, §8.9.5's rows \
+         from the top)"
+    );
+    second_page_unchanged(&bytes, &out);
+}
+
+/// A form `/Fm1` holding a nested form `/Fm2` that draws `KEEP` above and `SECRET` below; page
+/// one draws `/Fm1`, which also draws `HIDDEN` low on the page itself, under a redaction over the
+/// lower half; page two draws `/Fm2` directly. With
+/// `inherited`, both forms are in resources the pages inherit from `/Pages`; without it, page one
+/// states resources naming `/Fm1` alone and page two resources naming `/Fm2` alone.
+fn nested_fixture(inherited: bool) -> Vec<u8> {
+    let form = "BT /F1 12 Tf 20 150 Td (KEEP) Tj ET\nBT /F1 12 Tf 20 50 Td (SECRET) Tj ET";
+    let outer = "BT /F1 12 Tf 20 30 Td (HIDDEN) Tj ET\n/Fm2 Do";
+    let (pages_resources, first, second) = if inherited {
+        (
+            " /Resources << /XObject << /Fm1 5 0 R /Fm2 9 0 R >> /Font << /F1 7 0 R >> >>",
+            String::new(),
+            String::new(),
+        )
+    } else {
+        (
+            "",
+            " /Resources << /XObject << /Fm1 5 0 R >> >>".to_owned(),
+            " /Resources << /XObject << /Fm2 9 0 R >> >>".to_owned(),
+        )
+    };
+    let objects: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        format!("<< /Type /Pages /Kids [3 0 R 8 0 R] /Count 2{pages_resources} >>"),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200]{first} /Contents 4 0 R \
+             /Annots [6 0 R] >>"
+        ),
+        "<< /Length 8 >>\nstream\n/Fm1 Do\nendstream".to_owned(),
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << /XObject << /Fm2 \
+             9 0 R >> /Font << /F1 7 0 R >> >> /Length {} >>\nstream\n{outer}\nendstream",
+            outer.len() + 1
+        ),
+        "<< /Type /Annot /Subtype /Redact /Rect [0 0 200 100] /QuadPoints [0 100 200 100 0 0 200 \
+         0] >>"
+            .to_owned(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+        format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200]{second} /Contents 10 0 R >>"),
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << /Font << /F1 7 0 \
+             R >> >> /Length {} >>\nstream\n{form}\nendstream",
+            form.len() + 1
+        ),
+        "<< /Length 8 >>\nstream\n/Fm2 Do\nendstream".to_owned(),
+    ];
+    assemble(&objects)
+}
+
+/// The one stream of the output holding `SECRET` is the producer's `/Fm2`, which page two draws,
+/// and none holds the outer form's `HIDDEN`; page one draws `KEEP` alone and page two what it
+/// drew.
+fn only_the_drawn_original_holds_the_secret(bytes: &[u8], out: &[u8]) {
+    let document = Document::open_with_limits(out.to_vec(), Limits::DEFAULT).expect("it opens");
+    let holding: Vec<u32> = document
+        .xref()
+        .object_numbers()
+        .filter(|number| {
+            let object = document.get(document.defined_id(*number));
+            object.as_stream().is_some_and(|stream| {
+                document
+                    .decoded_stream_data(stream)
+                    .is_some_and(|data| contains(&data, b"SECRET"))
+            })
+        })
+        .collect();
+    assert_eq!(holding.len(), 1, "one stream holds the secret: {holding:?}");
+    assert!(
+        !any_stream_holds(out, b"HIDDEN"),
+        "no stream holds what the outer form drew under the region"
+    );
+    assert_eq!(page_text(out).trim(), "KEEP");
+    let second = pdf_model::Pages::new(&document).get(1).expect("page two");
+    assert!(
+        pdf_model::interpret(&document, &second)
+            .text
+            .contains("SECRET")
+    );
+    second_page_unchanged(bytes, out);
+}
+
+/// An inherited form only the redacted page draws, holding a form the other page draws itself:
+/// the outer form takes its edit in its own place and names the inner form's copy, and the inner
+/// form is kept whole for the page that draws it (ADR 1196 §3, ADR 3861).
+#[test]
+fn an_inherited_form_holding_a_form_the_other_page_draws_is_edited_in_place() {
+    let bytes = nested_fixture(true);
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    only_the_drawn_original_holds_the_secret(&bytes, &out);
+}
+
+/// A form the redacted page owns outright holding a form another page draws: the page's own
+/// resources name the owned form's slot, and are not rebuilt from the producer's form because it
+/// reaches the inner form's copy (ADR 3861).
+#[test]
+fn an_owned_form_holding_a_form_another_page_draws_is_not_rebuilt_from_the_producer_s() {
+    let bytes = nested_fixture(false);
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    only_the_drawn_original_holds_the_secret(&bytes, &out);
+}
+
+/// The other page draws the inherited form only from an annotation's appearance, a form that
+/// states no `/Resources` and so resolves `/Fm1` in the page's (ADR 0255): that is a placement,
+/// and the original is kept for it whole (ADR 1196 §2, ADR 3861).
+#[test]
+fn an_inherited_form_an_appearance_on_the_other_page_draws_is_kept_for_it() {
+    let bytes = inherited_fixture_with(
+        "/Fm1 Do",
+        "",
+        "inherited",
+        (
+            " /Annots [12 0 R]",
+            &[
+                "<< /Type /Annot /Subtype /Square /Rect [0 0 200 200] /AP << /N 13 0 R >> >>",
+                "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /Length 8 >>\nstream\n\
+                 /Fm1 Do\nendstream",
+            ],
+        ),
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert_eq!(page_text(&out).trim(), "KEEP");
+    assert!(any_stream_holds(&out, b"SECRET"), "the original is kept");
+    second_page_unchanged(&bytes, &out);
+}
+
+/// [`page_with`]'s page as the first of two that inherit `resources` from `/Pages` (§7.7.3.4);
+/// the second, numbered after `extras`, draws `second` and carries no redaction.
+fn two_pages_inheriting(
+    resources: &str,
+    (first, second): (&str, &str),
+    rect: [f32; 4],
+    extras: &[Vec<u8>],
+) -> Vec<u8> {
+    let second_page = 6 + extras.len();
+    let mut objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        format!(
+            "<< /Type /Pages /Kids [3 0 R {second_page} 0 R] /Count 2 /Resources {resources} >>"
+        )
+        .into_bytes(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Annots [5 0 R] >>"
+            .to_vec(),
+        stream_object("", first.as_bytes()),
+        format!(
+            "<< /Type /Annot /Subtype /Redact /Rect [{} {} {} {}] >>",
+            rect[0], rect[1], rect[2], rect[3]
+        )
+        .into_bytes(),
+    ];
+    objects.extend(extras.iter().cloned());
+    objects.push(
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents {} 0 R >>",
+            second_page + 1
+        )
+        .into_bytes(),
+    );
+    objects.push(stream_object("", second.as_bytes()));
+    assemble_bytes(&objects)
+}
+
+/// A soft mask's group under a graphics state both pages inherit, set only on the redacted page:
+/// the group's covered text is removed and no stream of the output holds it, and the other page
+/// draws what it drew (§11.6.5.1, §12.5.6.23, ADR 3861).
+#[test]
+fn an_inherited_soft_mask_group_only_the_redacted_page_sets_keeps_no_covered_text() {
+    let group = stream_object(
+        "/Type /XObject /Subtype /Form /BBox [0 0 200 200] \
+         /Group << /S /Transparency /CS /DeviceGray >> /Resources << /Font << /F1 6 0 R >> >>",
+        b"1 g 0 0 200 200 re f BT /F1 24 Tf 0 g 60 70 Td (SECRET) Tj ET",
+    );
+    let region = [55.0, 55.0, 160.0, 100.0];
+    let bytes = two_pages_inheriting(
+        "<< /ExtGState << /GS0 << /SMask << /Type /Mask /S /Luminosity /G 7 0 R >> >> >> >>",
+        (
+            "q /GS0 gs 0 0 1 rg 20 20 160 160 re f Q",
+            "0 0 1 rg 20 20 50 50 re f",
+        ),
+        region,
+        &[
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+            group,
+        ],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        !any_stream_holds(&out, b"SECRET"),
+        "no stream holds the mask's text"
+    );
+    held_outside_and_blank_inside(&bytes, &out, region, &[]);
+    second_page_unchanged(&bytes, &out);
+}
+
+/// A sampled shading pattern both pages inherit, painted only on the redacted page: the samples
+/// only the region's circles carry are destroyed and no stream of the output holds the
+/// producer's table, and the other page draws what it drew (§8.7.4.5.4, §12.5.6.23, ADR 3861).
+#[test]
+fn an_inherited_shading_pattern_only_the_redacted_page_paints_keeps_no_covered_samples() {
+    let mut objects = sampled_radial("false false");
+    let shading = objects.remove(0);
+    let mut pattern = b"<< /PatternType 2 /Shading ".to_vec();
+    pattern.extend_from_slice(&shading);
+    pattern.extend_from_slice(b" >>");
+    let region = [80.0, 80.0, 120.0, 120.0];
+    let bytes = two_pages_inheriting(
+        "<< /Pattern << /P0 6 0 R >> >>",
+        (
+            "/Pattern cs /P0 scn 20 20 160 160 re f",
+            "0 0 1 rg 20 20 50 50 re f",
+        ),
+        region,
+        &[pattern, objects.remove(0)],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let original: Vec<u8> = (0..17u8).map(|k| 40 + k * 12).collect();
+    assert!(
+        any_stream_holds(&bytes, &original),
+        "the fixture holds the table"
+    );
+    assert!(
+        !any_stream_holds(&out, &original),
+        "no stream holds the table with the inner circles' samples"
+    );
+    held_outside_and_blank_inside(&bytes, &out, region, &[]);
+    second_page_unchanged(&bytes, &out);
+}
+
+/// An element whose sequence a page's copy of a shared form lost, while the other page still
+/// draws the form whole, is restated without its descriptions all the same: §14.9.3's `/Alt` and
+/// §14.9.4's `/ActualText` describe the element's content as one, and the element still names
+/// the copy, where the text is gone; the other page's placement loses the description and not a
+/// mark (ADR 3862).
+#[test]
+fn an_element_a_copy_lost_is_restated_though_another_page_draws_the_form_whole() {
+    let (report, out) = redact(&a_tagged_form_shared_by_two_pages());
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let document = Document::open_with_limits(out, Limits::DEFAULT).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    let root = document.get_key(&catalog, "StructTreeRoot");
+    let root = root.as_dict().expect("a root");
+    let Object::Array(top) = document.get_key(root, "K") else {
+        panic!("the root's /K is an array");
+    };
+    let cut = document.resolve(&top[0]);
+    let cut = cut.as_dict().expect("cut");
+    assert!(cut.get("ActualText").is_none(), "{cut:?}");
+    let second = pdf_model::Pages::new(&document).get(1).expect("page two");
+    assert!(
+        pdf_model::interpret(&document, &second)
+            .text
+            .contains("AAAA"),
+        "the other page draws the form whole"
+    );
+}
