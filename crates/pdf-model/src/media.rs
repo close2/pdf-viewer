@@ -548,7 +548,10 @@ impl Walk<'_> {
         // §13.2.2's viability is relative to the player: a clip this program plays itself is
         // judged against what that player honours, every other against the hand-off (ADR 3350).
         let here = clip.as_dict().is_some_and(|clip| self.played_here(clip));
-        // Table 291's `/F` fits "a visual media type", so only a clip with pictures is judged by it.
+        // Table 291's `/C` controller is drawn over a clip's pictures, and a window of the host's own
+        // shows pictures, so both are judged by whether the clip has any. `/F` needs no judgement:
+        // every window fits each of its six values, scrolling an overflowing `/F 3` picture (ADR
+        // 3901).
         let pictures = here && clip.as_dict().is_some_and(|clip| self.has_pictures(clip));
         // Table 290's `/PL` takes part in §13.2.7.2.2's algorithm beside the clip's own.
         let play_players = parameters.map(|parameters| document.get_key(parameters, "PL"));
@@ -556,9 +559,6 @@ impl Walk<'_> {
         if let Some(parameters) = parameters {
             if here {
                 let mut read = Playing::of_play_parameters(document, parameters);
-                if pictures && read.playing.fit == Fit::Scroll {
-                    unscrolled(&mut read);
-                }
                 if !pictures && read.playing.controls {
                     uncontrolled(&mut read);
                 }
@@ -1529,26 +1529,6 @@ impl Walk<'_> {
 /// Tables 291 and 294 define what may be asked — volume, controls, fit, duration, a window, a
 /// monitor — and every one of them is something a player would have to be *told*. In `MH` each is
 /// a reason the object is non-viable; in `BE` each is ignored, which §13.2.2 permits.
-/// Table 291's `/F 3` for a clip with pictures: "A scrolling user interface shall be provided if
-/// the media rectangle is wider or taller than the play rectangle", and no window of this program
-/// provides one over a screen annotation. In `MH` the rendition is non-viable — whether the picture
-/// overflows is known only once it is decoded, so the requirement cannot be shown met — and in
-/// `BE` the fit is set aside: the picture is shown unscaled and cut to the rectangle, which is all
-/// of `/F 3` but its interface (ADR 3553).
-fn unscrolled(read: &mut Honoured) {
-    let why = "it provides no scrolling user interface over a screen annotation (/F 3), and its \
-               pictures are shown unscaled and cut to the rectangle instead";
-    if read.fit_must {
-        read.must.push(format!(
-            "it must be played with Table 291's /F honoured, and this program's player cannot: \
-             {why}"
-        ));
-    } else {
-        read.set_aside
-            .push(format!("Table 291's best-effort /F, because {why}"));
-    }
-}
-
 /// Table 291's `/C` true over a clip with no pictures: the controller user interface this player
 /// shows is the bar a window draws over a clip's pictures (ADR 3610), and a sound has none to draw
 /// it over, so an `MH` `/C` makes the rendition non-viable and a `BE` one is set aside and said.

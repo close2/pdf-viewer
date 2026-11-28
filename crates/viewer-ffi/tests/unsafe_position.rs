@@ -148,11 +148,11 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // is on the window, and 3578 three for a clip's picture: the host's word that it draws one,
     // its facts and its copy, and 3595 one for a clip's controller bar, and 3627 one for an
     // outline row's language, and 3633 two for the runs of language an outline row's title and a
-    // panel row's label are in.
-    assert_eq!(no_mangle, 394, "one `#[unsafe(no_mangle)]` per entry point");
+    // panel row's label are in, and 3901 one for the wheel over a clip's picture.
+    assert_eq!(no_mangle, 395, "one `#[unsafe(no_mangle)]` per entry point");
     assert_eq!(
-        signatures, 375,
-        "372 `unsafe` entry points and three helpers"
+        signatures, 376,
+        "373 `unsafe` entry points and three helpers"
     );
 }
 

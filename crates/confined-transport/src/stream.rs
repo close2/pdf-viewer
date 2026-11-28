@@ -66,7 +66,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::frame;
 use crate::host::{Framed, Host, TransportError};
@@ -178,7 +178,11 @@ pub struct Budget {
     pub frames: u32,
     /// Bytes of item bodies, at most, counted before each is allocated.
     pub bytes: u64,
-    /// Time from the open request to the worker's [`END`].
+    /// Time the host waits on the worker, from the open request to the worker's [`END`]. The time
+    /// the host holds an item it was handed, until it reads again, is the host's and is not
+    /// counted: a host that paces its reads — a window drained by a presentation clock, slowed
+    /// by load — withholds the worker's credit, and a worker kept waiting has not stalled (ADR
+    /// 3902).
     pub wall: Duration,
 }
 
@@ -653,32 +657,93 @@ impl Reception {
 /// A thread rather than a deadline checked between reads, because the read it would have to
 /// interrupt is the one a stalled worker never answers. One thread a stream is a few tens of
 /// microseconds against a stream's seconds, and it exits the moment the stream ends.
+///
+/// **The clock stops while the host holds an item** ([`Budget::wall`], ADR 3902): from the item
+/// handed out to the host's next read, the worker is waiting on the host's credit, and charging it
+/// that time would stop a worker for its host's pace.
 #[derive(Debug)]
 struct Watch {
-    disarm: Option<mpsc::Sender<()>>,
+    /// What the stream tells the thread; dropped to disarm it.
+    tell: Option<mpsc::Sender<Watched>>,
+    /// Whether the host holds an item now, so each hold and each read is told once.
+    held: bool,
     fired: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
+/// What a stream tells its watch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Watched {
+    /// The host was handed an item and holds it: the clock stops.
+    Held,
+    /// The host reads again: the clock runs on from where it stopped.
+    Reading,
+}
+
 impl Watch {
     fn arm(canceller: Canceller, wall: Duration) -> Result<Self, std::io::Error> {
-        let (disarm, armed) = mpsc::channel::<()>();
+        let (tell, told) = mpsc::channel::<Watched>();
         let fired = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&fired);
         let thread = std::thread::Builder::new()
             .name("stream-wall-clock".to_owned())
             .spawn(move || {
-                // A disarm is the sender dropped, which `recv_timeout` reports as disconnected.
-                if let Err(mpsc::RecvTimeoutError::Timeout) = armed.recv_timeout(wall) {
-                    flag.store(true, Ordering::SeqCst);
-                    canceller.cancel();
+                let mut left = wall;
+                loop {
+                    let began = Instant::now();
+                    // A disarm is the sender dropped, which both receives report as disconnected.
+                    match told.recv_timeout(left) {
+                        Ok(Watched::Held) => {
+                            left = left.saturating_sub(began.elapsed());
+                            // The host's hold is unbounded here; its next read starts the clock.
+                            loop {
+                                match told.recv() {
+                                    Ok(Watched::Reading) => break,
+                                    Ok(Watched::Held) => {}
+                                    Err(mpsc::RecvError) => return,
+                                }
+                            }
+                        }
+                        Ok(Watched::Reading) => left = left.saturating_sub(began.elapsed()),
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            flag.store(true, Ordering::SeqCst);
+                            canceller.cancel();
+                            return;
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    }
                 }
             })?;
         Ok(Self {
-            disarm: Some(disarm),
+            tell: Some(tell),
+            held: false,
             fired,
             thread: Some(thread),
         })
+    }
+
+    /// The host was handed an item: the clock stops until [`Self::reading`].
+    fn hold(&mut self) {
+        if !self.held {
+            self.held = true;
+            self.tell(Watched::Held);
+        }
+    }
+
+    /// The host reads again: the clock runs.
+    fn reading(&mut self) {
+        if self.held {
+            self.held = false;
+            self.tell(Watched::Reading);
+        }
+    }
+
+    fn tell(&self, watched: Watched) {
+        if let Some(tell) = &self.tell {
+            // A send fails only once the thread has ended — fired or disarmed — which `fired`
+            // already says; there is no clock left to stop or start.
+            let _ = tell.send(watched);
+        }
     }
 
     fn fired(&self) -> bool {
@@ -687,7 +752,7 @@ impl Watch {
 
     /// Stops the watch, and answers whether it had already ended the worker.
     fn disarm(&mut self) -> bool {
-        drop(self.disarm.take());
+        drop(self.tell.take());
         if let Some(thread) = self.thread.take() {
             // The thread's body cannot panic: it receives, stores and kills, and `kill` already
             // treats a failure as the outcome asked for. A join error would carry nothing to act on.
@@ -758,7 +823,10 @@ impl<'h> Stream<'h> {
                 return Ok(None);
             }
             match self.step()? {
-                Step::Item(body) => return Ok(Some(body)),
+                Step::Item(body) => {
+                    self.watch.hold();
+                    return Ok(Some(body));
+                }
                 Step::Ended(reason, closing) => {
                     self.closing = Some(closing);
                     return match (self.reception.stopping(), reason) {
@@ -812,6 +880,7 @@ impl<'h> Stream<'h> {
     }
 
     fn step(&mut self) -> Result<Step, StreamError> {
+        self.watch.reading();
         let result = self.step_inner();
         if result.is_err() {
             // Whatever failed, the worker is somewhere inside a stream the host can no longer

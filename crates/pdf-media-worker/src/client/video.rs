@@ -733,7 +733,10 @@ fn cut(file: &[u8], offset: u64, size: u32) -> Option<&[u8]> {
 
 /// A run's wall clock: the processor budget every request has, and the run's own media time
 /// besides, so a decoder that falls behind real time by more than the budget is stopped and the
-/// clip handed off (RFC 0015 section 4.1's deadline, ADR 3527).
+/// clip handed off (RFC 0015 section 4.1's deadline, ADR 3527). It counts the time the caller
+/// waits on the worker and not the time the caller holds a picture (ADR 3902): a window drained
+/// by its presentation clock keeps the worker waiting for credit, and under load that wait alone
+/// passed this bound.
 fn wall(media: u64, time_scale: u32) -> Duration {
     let scale = u64::from(time_scale.max(1));
     let seconds = media.checked_div(scale).unwrap_or(0);

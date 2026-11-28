@@ -461,7 +461,16 @@ impl App {
             drop(layers);
             self.redraw();
         } else {
-            self.dispatch(Command::Scroll { dx: across, dy: by });
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a pointer position in window pixels, which is thousands"
+            )]
+            let at = (self.cursor.0 as f32, self.cursor.1 as f32);
+            // Over an `/F 3` picture that overflows its rectangle the wheel is the picture's
+            // scrolling interface (ADR 3901).
+            if !self.scroll_the_picture(at, (across, by)) {
+                self.dispatch(Command::Scroll { dx: across, dy: by });
+            }
         }
     }
 

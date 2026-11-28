@@ -487,3 +487,53 @@ fn a_rich_media_snapshot_stands_while_the_clip_plays_in_a_window_driven_from_c()
     );
     let _ = std::fs::remove_file(&document);
 }
+
+/// **Table 291's `/F 3` scrolls in a window driven from C** (ADR 3901): a clip whose `MH` must
+/// honour `/F 3` plays here, and its sixteen-sample picture, unscaled over a rectangle two points
+/// square, overflows it; `quorra_window_wheel` with the pointer over the rectangle moves the part
+/// that `quorra_window_picture` describes, says it was the picture's, and leaves the page where it
+/// was, while a travel off the rectangle is the page's. The wrong answers excluded: the
+/// clip handed off as non-viable, and the wheel over the picture scrolling the page under it.
+#[test]
+fn an_overflowing_scroll_clip_is_scrolled_by_the_wheel_in_a_window_driven_from_c() {
+    let document = temporary("scrolls.pdf");
+    let (mut window, _) = a_window_over(&document, 200, showing::a_scrolling_video_document);
+    let mut host = Host::default();
+    window.dispatch(Command::Activate(showing::SCREEN));
+    timer_until(
+        &mut window,
+        &mut host,
+        "put the clip's picture up",
+        |window, _| held_up(window).is_some(),
+    );
+    let screen = |window: &Window| {
+        let Answer::Screen(quad) = window.state.viewer.query(Query::Screen(showing::SCREEN)) else {
+            panic!("the screen annotation is on the page placed");
+        };
+        quad
+    };
+    let quad = screen(&window);
+    let before = window.picture().expect("a picture");
+    assert!(before.width < 16 && before.height < 16, "unscaled and cut");
+    let centre = (
+        f32::midpoint(quad[0], quad[4]),
+        f32::midpoint(quad[1], quad[5]),
+    );
+    assert!(
+        window.wheel((3.0, 2.0), centre),
+        "the travel is the picture's"
+    );
+    let placed = window.state.pictures.placed(quad).expect("placed");
+    assert!(
+        placed.left > 0 && placed.top > 0,
+        "the part moved: {placed:?}"
+    );
+    assert_eq!(screen(&window), quad, "the page did not scroll");
+    let after = window.picture().expect("a picture");
+    assert_eq!((after.width, after.height), (before.width, before.height));
+    assert!(
+        !window.wheel((0.0, 30.0), (390.0, 390.0)),
+        "off the rectangle, the page's"
+    );
+    let _ = std::fs::remove_file(&document);
+}

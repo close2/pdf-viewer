@@ -513,6 +513,39 @@ pub unsafe extern "C" fn quorra_window_scroll(window: *mut Window, dx: f32, dy: 
     Status::Ok.code()
 }
 
+/// The wheel moved by (`dx`, `dy`) device pixels with the pointer at (`x`, `y`), device pixels of
+/// the viewport: over a clip's picture that Table 291's `/F 3` lets overflow its rectangle it
+/// scrolls the part shown, its scrolling interface (ISO 32000-2 §13.2.5, ADR 3901), and anywhere
+/// else it moves the view as [`quorra_window_scroll`] does. `*picture`, where not null, says
+/// whether it was the picture's.
+///
+/// `QUORRA_NUMBER_OUT_OF_RANGE` for a number that is not finite, and nothing moves.
+///
+/// # Safety
+///
+/// See the module documentation. `picture` is writable, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_window_wheel(
+    window: *mut Window,
+    dx: f32,
+    dy: f32,
+    x: f32,
+    y: f32,
+    picture: *mut bool,
+) -> c_int {
+    let Some(window) = window.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    if ![dx, dy, x, y].iter().all(|number| number.is_finite()) {
+        return Status::OutOfRange64.code();
+    }
+    let scrolled = window.wheel((dx, dy), (x, y));
+    if let Some(picture) = picture.as_mut() {
+        *picture = scrolled;
+    }
+    Status::Ok.code()
+}
+
 /// Control and the wheel: whole zoom steps about (`x`, `y`), the pointer in device pixels of the
 /// viewport, which stays where it is on the page. `travel` is the wheel turned away from the
 /// person in `unit`, a `QUORRA_WHEEL_*`; the fraction of a step a high-resolution wheel leaves is

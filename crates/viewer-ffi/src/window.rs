@@ -444,6 +444,22 @@ impl Window {
         self.settle();
     }
 
+    /// The wheel moved `by`, in device pixels, with the pointer at `at` in device pixels of the
+    /// viewport: over an `/F 3` picture that overflows its rectangle the travel scrolls the part
+    /// shown (ADR 3901), and otherwise it is [`Self::scroll`]. Answers whether it was the
+    /// picture's.
+    pub fn wheel(&mut self, by: (f32, f32), at: (f32, f32)) -> bool {
+        if self.state.held().is_some() {
+            return false;
+        }
+        if self.scroll_the_picture(at, by) {
+            self.settle();
+            return true;
+        }
+        self.scroll(by.0, by.1);
+        false
+    }
+
     /// Control and the wheel: whole zoom steps about `at`, the pointer in device pixels of the
     /// viewport, which is the point of the page that stays still, as it is in the three toolkit
     /// windows. Answers the steps taken, positive in.

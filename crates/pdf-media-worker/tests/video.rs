@@ -640,3 +640,27 @@ fn the_worker_s_address_space_over_a_backward_1080_line_group() {
         assert_eq!(decoded, skipped as usize + 1);
     }
 }
+
+/// **The wall clock is the worker's, not the caller's**: a caller that holds each picture for twice
+/// its interval — a window drained by its presentation clock and slowed by load, which keeps the
+/// worker waiting for credit — takes every picture, though the time it held them passes the run's
+/// wall-clock budget of one second beyond its media time (ADR 3902). The wrong answer excluded: the
+/// worker stopped as stalled, and distrusted, for time it spent waiting on its caller.
+#[test]
+fn a_caller_that_holds_its_pictures_does_not_spend_the_worker_s_wall_clock() {
+    let (sets, units, _) = stream(40, 16, 16, Coding::Progressive);
+    let file = mp4(&sets, &units, 16, 16);
+    let mut worker = MediaWorker::with_program(WORKER.into());
+    let began = std::time::Instant::now();
+    let streamed = worker
+        .decode_mp4_video(&file, &mut |_| {
+            std::thread::sleep(std::time::Duration::from_millis(80));
+            ControlFlow::Continue(())
+        })
+        .expect("a caller's holds are not the worker's stall");
+    assert_eq!(streamed.pictures, 40);
+    // Forty pictures of 40 ms are 1.6 s of media, a wall-clock budget of 2.6 s, and the caller held
+    // them for 3.2 s: the case is the one the fix is for only if the holds passed the budget.
+    assert!(began.elapsed() > std::time::Duration::from_millis(2600));
+    assert_eq!(worker.starts(), 1);
+}

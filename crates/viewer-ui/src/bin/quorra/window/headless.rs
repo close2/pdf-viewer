@@ -757,3 +757,42 @@ fn a_rich_media_snapshot_stands_while_the_clip_plays() {
     assert!(!snapshot_drawn(&app), "the appearance after Escape's stop");
     let _ = std::fs::remove_file(&document);
 }
+
+/// **Table 291's `/F 3` scrolls in this window** (ADR 3901): a clip whose `MH` must honour `/F 3`
+/// plays here, and its sixteen-sample picture, unscaled over a rectangle two points square,
+/// overflows it; the wheel with the pointer over the rectangle moves the part shown — the part the
+/// device layer and the processor's overlay are both handed — and leaves the page where it was.
+/// The wrong answers excluded: the clip handed off as non-viable, and the wheel scrolling the page
+/// under the picture.
+#[test]
+fn an_overflowing_scroll_clip_is_scrolled_by_the_wheel() {
+    let (sets, units, _) = pcm_stream::stream(200, 16, 16, pcm_stream::Coding::Progressive);
+    let clip = pcm_stream::mp4(&sets, &units, 16, 16);
+    let document = temporary("scrolls.pdf");
+    std::fs::write(&document, showing::a_scrolling_video_document(&clip))
+        .expect("write the document");
+    let mut app = window_on(&document, viewer_host::ReaderWords::default());
+    app.restrictions = app.restrictions.with(viewer_host::ActLevel::MediaFiles(
+        viewer_host::MediaFiles::Open,
+    ));
+    app.dispatch(Command::Activate(showing::SCREEN));
+    show_until(&mut app, "played the clip", |app| app.picture.is_some());
+    let quad = app.picture_quad().expect("the clip's rectangle");
+    let before = app.picture_placed().expect("placed");
+    assert_eq!((before.left, before.top), (0, 0));
+    assert!(
+        before.right < 16 && before.bottom < 16,
+        "unscaled and cut: {before:?}"
+    );
+    app.cursor = (
+        f64::from(f32::midpoint(quad[0], quad[4])),
+        f64::from(f32::midpoint(quad[1], quad[5])),
+    );
+    app.wheel(winit::event::MouseScrollDelta::PixelDelta(
+        winit::dpi::PhysicalPosition::new(-3.0, -2.0),
+    ));
+    let after = app.picture_placed().expect("placed");
+    assert!(after.left > 0 && after.top > 0, "the part moved: {after:?}");
+    assert_eq!(app.picture_quad(), Some(quad), "the page did not scroll");
+    let _ = std::fs::remove_file(&document);
+}

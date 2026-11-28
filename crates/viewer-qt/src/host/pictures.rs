@@ -129,6 +129,27 @@ impl Host {
         pressed
     }
 
+    /// The wheel's travel `by` at `at`, device pixels of the viewport, over the clip whose picture
+    /// is shown: where it is Table 291's `/F 3` and overflows its rectangle, the travel scrolls the
+    /// part shown and is the picture's, not the page's (ADR 3901). Answers whether it was.
+    pub(super) fn scroll_the_picture(&mut self, at: (f32, f32), by: (f32, f32)) -> bool {
+        let Some((_, document, screen)) = self.state.pictures.picture() else {
+            return false;
+        };
+        if document != self.state.documents.focused() {
+            return false;
+        }
+        let Answer::Screen(quad) = self.state.viewer.query(Query::Screen(screen)) else {
+            return false;
+        };
+        let scrolled = self.state.pictures.scroll_over(quad, at, by);
+        if scrolled {
+            // A paused clip has no next picture to paint the new part with.
+            self.update.frame = true;
+        }
+        scrolled
+    }
+
     /// Table 306's posters retrieved from their movie files, each placed over its movie annotation
     /// — where its document is the one in front and the annotation is on a page now placed — as the
     /// picture is, and asked at each paint for its reason (ADR 3609).

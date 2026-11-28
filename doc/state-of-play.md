@@ -207,7 +207,9 @@ its AAC decoded by `rusty_aac`'s scalar build in the worker with the track's edi
 checked by the host, an interlaced track handed off by name (ADRs 3526 to 3528), each picture
 carrying its sequence's VUI signal and converted to RGB by that signal's matrix, range and chroma
 siting on the device (`render-raster`) and on the processor as the oracle (`render-cpu`, ADR 3529)
-— no window draws them yet,
+— drawn over the screen annotation in `quorra`, GTK, Qt and the C ABI's window and fitted by
+Table 291's `/F`, an `/F 3` picture that overflows its rectangle scrolled by the wheel (ADRs 3545,
+3553, 3901),
 while a rich media annotation's `Sound` or `Video` configuration is played on Table 335's
 conditions, its first instance of its kind whose asset the players take presented `Embedded` in its
 rectangle or `Windowed` in a window held within the document window (ADRs 3854, 3855, 3865 to 3867),

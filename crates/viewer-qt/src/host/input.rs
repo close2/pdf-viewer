@@ -232,6 +232,13 @@ impl Host {
                 if pixels { "pixels" } else { "notches" },
             );
         }
+        // Over an `/F 3` picture that overflows its rectangle the wheel is the picture's
+        // scrolling interface (ADR 3901).
+        if let Some(at) = self.pointer_at
+            && self.scroll_the_picture(at, (dx, dy))
+        {
+            return;
+        }
         if dx != 0.0 || dy != 0.0 {
             self.dispatch(Command::Scroll { dx, dy });
         }
@@ -297,6 +304,7 @@ impl Host {
 
     /// The pointer moved or a button changed.
     pub(crate) fn pointer(&mut self, x: f32, y: f32, action: u8) {
+        self.pointer_at = Some((x, y));
         let action = match action {
             0 => PointerAction::Moved,
             1 => PointerAction::Pressed,

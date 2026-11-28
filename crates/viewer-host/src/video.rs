@@ -62,11 +62,13 @@ use crate::sound::{Listening, SoundTime, Wake};
 pub mod controller;
 pub mod poster;
 pub mod screens;
+mod scroll;
 mod timeline;
 mod window;
 
 pub use controller::{BAR_HEIGHT, Controller, Pressed};
 pub use poster::Posters;
+pub use scroll::placed_scrolled;
 pub use window::{Looked, Pictures};
 
 /// How many decoded pictures may wait for their time: enough that a picture is always in hand
@@ -533,9 +535,9 @@ pub fn placed_turned(
 /// - **1, slice**: scaled by one factor, the smallest at which the rectangle is covered, and the
 ///   part past the rectangle not shown;
 /// - **2, fill**: each side scaled to the rectangle's;
-/// - **4, hidden**, and **3, scroll**, whose interface no window provides (the rendition judged it):
-///   not scaled — one sample a window pixel, the reading of "not scaled" this player takes, since
-///   the table names no unit — and cut to the rectangle.
+/// - **4, hidden**, and **3, scroll**: not scaled — one sample a window pixel, the reading of "not
+///   scaled" this player takes, since the table names no unit — and cut to the rectangle; scroll's
+///   part shown is moved by its interface ([`placed_scrolled`], ADR 3901).
 ///
 /// Where the picture does not fill the rectangle, or is cut by it, it stands at the rectangle's
 /// top-left corner (`pdf_model::media::Fit`'s choice). The rectangle's sides are measured along
@@ -673,6 +675,8 @@ struct InHand {
     timeline: timeline::Timeline,
     /// The last picture's size in samples, which [`VideoPlayer::placed`] fits.
     size: Option<(u32, u32)>,
+    /// Where an `/F 3` picture that overflows its rectangle is scrolled to (ADR 3901).
+    scrolled: scroll::Scrolled,
     /// The first picture not yet due, kept from the queue.
     next: Option<(Duration, pdf_media_worker::video::Picture)>,
     /// The newest picture's time in the pass, and the interval before it: the pass's pictures end
@@ -779,6 +783,7 @@ impl VideoPlayer {
             sound,
             time: Duration::ZERO,
             size: None,
+            scrolled: scroll::Scrolled::default(),
             running: auto_play,
             generation: 0,
             pass_start: Duration::ZERO,
@@ -1224,12 +1229,58 @@ impl VideoPlayer {
 
     /// Where the clip's picture goes inside `quad`, the screen annotation in window pixels: the
     /// part of the picture shown and the quadrilateral it covers, by the clip's Table 291 `/F`
-    /// turned by Table 306's `/Rotate` ([`placed_turned`]); `None` before the first picture or
-    /// where nothing of it is shown.
+    /// turned by Table 306's `/Rotate` ([`placed_turned`]), and an `/F 3` picture's part where
+    /// the reader scrolled it ([`Self::scroll_over`]); `None` before the first picture or where
+    /// nothing of it is shown.
     #[must_use]
     pub fn placed(&self, quad: [f32; 8]) -> Option<Placed> {
         let hand = self.in_hand.as_ref()?;
-        placed_turned(hand.shown.fit, hand.size?, quad, hand.shown.quarter_turns)
+        placed_scrolled(
+            hand.shown.fit,
+            hand.size?,
+            quad,
+            hand.shown.quarter_turns,
+            hand.scrolled.whole(),
+        )
+    }
+
+    /// Whether the clip in hand offers Table 291's scrolling interface over `quad`, its rectangle
+    /// in window pixels: its fit is `/F 3` and its picture "is wider or taller than the play
+    /// rectangle" (ADR 3901). A picture that fits has none, and neither has any other fit.
+    #[must_use]
+    pub fn scrolls(&self, quad: [f32; 8]) -> bool {
+        let Some(hand) = self.in_hand.as_ref() else {
+            return false;
+        };
+        hand.shown.fit == pdf_model::media::Fit::Scroll
+            && hand
+                .size
+                .zip(self.placed(quad))
+                .is_some_and(|(size, placed)| placed.overflow(size) != (0, 0))
+    }
+
+    /// The wheel's travel `by`, in window pixels — positive to the right and down, the way the
+    /// view moves over the content — at `point` in the same pixels, where the clip in hand plays in
+    /// `quad`: answers whether the travel was the picture's, which it is where [`Self::scrolls`]
+    /// and the point is on the rectangle, and then the part shown moves by it, one sample a pixel
+    /// and held inside the picture (ADR 3901). A travel that is the picture's is not the page's,
+    /// even at an edge it cannot pass: what the wheel does over the picture does not change as it
+    /// reaches the end.
+    pub fn scroll_over(&mut self, quad: [f32; 8], point: (f32, f32), by: (f32, f32)) -> bool {
+        if !self.scrolls(quad) || !Placed::within(quad, point) {
+            return false;
+        }
+        let Some(placed) = self.placed(quad) else {
+            return false;
+        };
+        let Some(hand) = self.in_hand.as_mut() else {
+            return false;
+        };
+        let (Some(size), Some(in_samples)) = (hand.size, placed.in_samples(by)) else {
+            return false;
+        };
+        hand.scrolled = hand.scrolled.moved(in_samples, placed.overflow(size));
+        true
     }
 
     /// What the controller bar shows at `now`, for a clip in hand that asks for one — Table 307's

@@ -167,6 +167,28 @@ impl Window {
         pressed
     }
 
+    /// The wheel's travel `by` at `at`, device pixels of the viewport, over the clip whose picture
+    /// is shown: where it is Table 291's `/F 3` and overflows its rectangle, the travel scrolls the
+    /// part shown and is the picture's, not the page's (ADR 3901). Answers whether it was. A host
+    /// reaches it through `quorra_window_wheel`.
+    pub(super) fn scroll_the_picture(&mut self, at: (f32, f32), by: (f32, f32)) -> bool {
+        let Some((_, document, screen)) = self.state.pictures.picture() else {
+            return false;
+        };
+        if document != self.state.documents.focused() {
+            return false;
+        }
+        let Answer::Screen(quad) = self.state.viewer.query(Query::Screen(screen)) else {
+            return false;
+        };
+        let scrolled = self.state.pictures.scroll_over(quad, at, by);
+        if scrolled {
+            // The part shown moved, which a paused clip's next picture will not say.
+            self.owe_picture_repaint();
+        }
+        scrolled
+    }
+
     /// The controller bar's three facts for the clip whose picture is shown, where it asks for one:
     /// `quorra_window_controller` (Table 307's `/ShowControls`, ADR 3595).
     ///

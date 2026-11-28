@@ -258,6 +258,19 @@ internal sealed unsafe partial class QuorraWindow : IDisposable
         Library.Check("quorra_window_scroll", Native.quorra_window_scroll(handle, dx, dy));
 
     /// <summary>
+    /// The wheel, in device pixels, with the pointer at (<paramref name="x"/>, <paramref name="y"/>)
+    /// in device pixels of the viewport: over a clip's picture that Table 291's /F 3 lets overflow
+    /// its rectangle it scrolls the part shown, and elsewhere it moves the view as
+    /// <see cref="Scroll"/> does (ADR 3901). Whether it was the picture's.
+    /// </summary>
+    internal bool Wheel(float dx, float dy, float x, float y)
+    {
+        byte picture = 0;
+        Library.Check("quorra_window_wheel", Native.quorra_window_wheel(handle, dx, dy, x, y, &picture));
+        return picture != 0;
+    }
+
+    /// <summary>
     /// Control and the wheel: <paramref name="travel"/> turned away from the person, in the
     /// QUORRA_WHEEL_* <paramref name="unit"/>, about the pointer in device pixels of the viewport;
     /// the steps taken, positive in (ADR 2152).

@@ -66,6 +66,7 @@ fn holding(shown: Shown) -> (VideoPlayer, SyncSender<Decoded>, Instant) {
         sound: None,
         time: Duration::ZERO,
         size: None,
+        scrolled: scroll::Scrolled::default(),
         running: true,
         generation: 1,
         pass_start: Duration::ZERO,
@@ -234,7 +235,7 @@ fn each_fit_places_the_picture_as_table_291_says() {
     assert_eq!(
         at(Fit::Scroll),
         hidden,
-        "scroll's picture is hidden's, less its interface"
+        "scroll's picture, unscrolled, is hidden's"
     );
     // A picture larger than the rectangle, unscaled, is cut to it.
     let cut = placed(Fit::Hidden, (300, 30), quad).expect("placed");
@@ -627,4 +628,121 @@ fn the_core_is_told_when_an_associated_clip_is_taken_and_when_it_leaves() {
         ..shown(1.0)
     });
     assert!(told(&mut player).is_empty(), "no annotation to tell of");
+}
+
+/// Table 291's `/F 3` over a 100 by 50 pixel rectangle at (10, 20), for a picture of 300 by 80
+/// samples, which "is wider or taller than the play rectangle" (ADR 3901): unscaled, 100 by 50 of
+/// it is shown, over the whole rectangle, from the place it is scrolled to — at the top-left, part
+/// way, and held at the far edges, never past them, and at every place the affine puts the part's
+/// corners on the rectangle's. A fit other than 3 ignores the place.
+#[test]
+fn an_overflowing_scroll_picture_shows_the_part_it_is_scrolled_to() {
+    use pdf_model::media::Fit;
+    let quad = [10.0, 20.0, 110.0, 20.0, 110.0, 70.0, 10.0, 70.0];
+    let at = |scrolled| placed_scrolled(Fit::Scroll, (300, 80), quad, 0, scrolled).expect("placed");
+    for (scrolled, (left, top)) in [
+        ((0, 0), (0, 0)),
+        ((120, 10), (120, 10)),
+        ((200, 30), (200, 30)),
+        ((900, 900), (200, 30)),
+    ] {
+        let placed = at(scrolled);
+        assert_eq!(
+            (placed.left, placed.top, placed.right, placed.bottom),
+            (left, top, left + 100, top + 50),
+            "scrolled to {scrolled:?}"
+        );
+        assert_eq!(placed.quad, quad, "the part covers the rectangle");
+        assert_eq!(placed.overflow((300, 80)), (200, 30));
+        let affine = placed.affine();
+        #[expect(clippy::cast_precision_loss, reason = "a sample index, a few hundred")]
+        let (x, y) = (left as f32, top as f32);
+        let map = |x: f32, y: f32| {
+            (
+                affine[0] * x + affine[2] * y + affine[4],
+                affine[1] * x + affine[3] * y + affine[5],
+            )
+        };
+        assert_eq!(map(x, y), (10.0, 20.0));
+        assert_eq!(map(x + 100.0, y + 50.0), (110.0, 70.0));
+    }
+    let hidden = placed_scrolled(Fit::Hidden, (300, 80), quad, 0, (120, 10)).expect("placed");
+    assert_eq!((hidden.left, hidden.top), (0, 0), "only /F 3 scrolls");
+    // A picture that fits has nothing to scroll.
+    let fits = placed_scrolled(Fit::Scroll, (40, 40), quad, 0, (5, 5)).expect("placed");
+    assert_eq!(
+        (fits.left, fits.top, fits.overflow((40, 40))),
+        (0, 0, (0, 0))
+    );
+}
+
+/// A turned picture scrolls along its own rows and columns: a rectangle whose first edge runs down
+/// the window (a quarter turn), and the wheel's travel down the window, is a travel across the
+/// picture's rows.
+#[test]
+fn a_turned_picture_scrolls_along_its_own_rows() {
+    use pdf_model::media::Fit;
+    let quad = [0.0, 0.0, 0.0, 50.0, -100.0, 50.0, -100.0, 0.0];
+    let placed = placed_scrolled(Fit::Scroll, (300, 300), quad, 0, (0, 0)).expect("placed");
+    let (across, down) = placed.in_samples((0.0, 10.0)).expect("an extent");
+    assert!(
+        (across - 10.0).abs() < 1e-9 && down.abs() < 1e-9,
+        "{across}, {down}"
+    );
+}
+
+/// The wheel over a playing `/F 3` clip whose picture overflows its rectangle is the picture's
+/// scrolling interface (ADR 3901): a travel over the rectangle moves the part shown and is taken,
+/// held at the picture's edges and still taken there; a travel off the rectangle, over a picture
+/// that fits, or over a clip of another fit, is not taken, so it is the page's.
+#[test]
+fn the_wheel_over_an_overflowing_scroll_picture_scrolls_it() {
+    use pdf_model::media::Fit;
+    let quad = [10.0, 20.0, 110.0, 20.0, 110.0, 70.0, 10.0, 70.0];
+    let over = (50.0, 40.0);
+    let mut asked = shown(1.0);
+    asked.fit = Fit::Scroll;
+    let (mut player, _outbox, _) = holding(asked);
+    assert!(
+        !player.scroll_over(quad, over, (0.0, 10.0)),
+        "no picture yet"
+    );
+    if let Some(hand) = player.in_hand.as_mut() {
+        hand.size = Some((300, 80));
+    }
+    assert!(player.scrolls(quad));
+    assert!(player.scroll_over(quad, over, (30.0, 10.0)));
+    let placed = player.placed(quad).expect("placed");
+    assert_eq!((placed.left, placed.top), (30, 10));
+    assert!(player.scroll_over(quad, over, (0.4, 0.4)));
+    assert!(player.scroll_over(quad, over, (0.4, 0.4)));
+    let placed = player.placed(quad).expect("placed");
+    assert_eq!(
+        (placed.left, placed.top),
+        (31, 11),
+        "fractions of a pixel are kept"
+    );
+    assert!(
+        player.scroll_over(quad, over, (-500.0, 500.0)),
+        "held, and still the picture's"
+    );
+    let placed = player.placed(quad).expect("placed");
+    assert_eq!((placed.left, placed.top), (0, 30));
+    assert!(
+        !player.scroll_over(quad, (5.0, 40.0), (10.0, 0.0)),
+        "off the rectangle"
+    );
+    // The same clip whose picture fits, and a clip of another fit, offer no interface.
+    if let Some(hand) = player.in_hand.as_mut() {
+        hand.size = Some((40, 40));
+    }
+    assert!(!player.scrolls(quad));
+    assert!(!player.scroll_over(quad, over, (10.0, 0.0)));
+    let mut hidden = shown(1.0);
+    hidden.fit = Fit::Hidden;
+    let (mut player, _outbox, _) = holding(hidden);
+    if let Some(hand) = player.in_hand.as_mut() {
+        hand.size = Some((300, 80));
+    }
+    assert!(!player.scroll_over(quad, over, (10.0, 0.0)));
 }

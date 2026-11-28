@@ -382,6 +382,35 @@ impl App {
                     self.present_the_media_window();
                 }
             }
+            // Over an `/F 3` picture that overflows the window the wheel scrolls the part shown,
+            // its scrolling interface, as over a rectangle of the page (ADR 3901).
+            WindowEvent::MouseWheel { delta, .. } => {
+                let Some(open) = self.media_window.as_ref() else {
+                    return;
+                };
+                let size = open.window.inner_size();
+                let quad = screens::whole((size.width, size.height));
+                let at = open.cursor;
+                let by = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(columns, lines) => {
+                        (-columns * 16.0, -lines * 16.0)
+                    }
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "a scroll delta in pixels, which is tens"
+                    )]
+                    winit::event::MouseScrollDelta::PixelDelta(position) => {
+                        (-(position.x as f32), -(position.y as f32))
+                    }
+                };
+                let scrolled = self
+                    .video
+                    .as_mut()
+                    .is_some_and(|video| video.scroll_over(quad, at, by));
+                if scrolled {
+                    self.present_the_media_window();
+                }
+            }
             WindowEvent::Resized(_) | WindowEvent::RedrawRequested => {
                 self.present_the_media_window();
             }

@@ -360,7 +360,7 @@ impl Host {
     /// The distance is `viewer_host::WheelTravel::distance`'s, the one `quorra-qt` spends: a notch
     /// the `DISCRETE` controller counted moves `viewer_host::SCROLL_NOTCH`, and a finger's pixel a
     /// pixel (ADRs 2274, 2291). Device pixels out, because that is what `Command::Scroll` speaks.
-    fn scrolled(&mut self, travel: viewer_host::WheelTravel) {
+    pub(super) fn scrolled(&mut self, travel: viewer_host::WheelTravel) {
         // A synchronous sound or movie holds the reader; the title already says so (ADRs 3343,
         // 3853).
         if self.state.held().is_some() {
@@ -372,10 +372,23 @@ impl Host {
             reason = "the window's scale, which is a small number"
         )]
         let scale = self.scale as f32;
-        self.dispatch(Command::Scroll {
-            dx: dx * scale,
-            dy: dy * scale,
-        });
+        let (dx, dy) = (dx * scale, dy * scale);
+        // Over an `/F 3` picture that overflows its rectangle the wheel is the picture's
+        // scrolling interface (ADR 3901); GTK's scroll event has no place, so it is the motion
+        // controller's last.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a pointer position inside a window is far inside f32's exact integer range"
+        )]
+        let at = self
+            .pointer_at
+            .map(|(x, y)| ((x * self.scale) as f32, (y * self.scale) as f32));
+        if let Some(at) = at
+            && self.scroll_the_picture(at, (dx, dy))
+        {
+            return;
+        }
+        self.dispatch(Command::Scroll { dx, dy });
     }
 
     /// Control and the wheel: a step a click and a proportion of one between, about the point

@@ -277,6 +277,27 @@ impl Host {
         pressed
     }
 
+    /// The wheel's travel `by` at `at`, device pixels of the viewport, over the clip whose picture
+    /// is held up: where it is Table 291's `/F 3` and overflows its rectangle, the travel scrolls
+    /// the part shown and is the picture's, not the page's (ADR 3901). Answers whether it was.
+    pub(super) fn scroll_the_picture(&mut self, at: (f32, f32), by: (f32, f32)) -> bool {
+        let Some((_, document, screen)) = self.state.pictures.picture() else {
+            return false;
+        };
+        if document != self.state.documents.focused() {
+            return false;
+        }
+        let Answer::Screen(quad) = self.state.viewer.query(Query::Screen(screen)) else {
+            return false;
+        };
+        let scrolled = self.state.pictures.scroll_over(quad, at, by);
+        if scrolled {
+            // A paused clip has no next picture to carry the new part to the window.
+            self.hold_up_the_picture();
+        }
+        scrolled
+    }
+
     /// Puts each poster over its movie annotation, where its document is the one in front and the
     /// annotation is on a page now placed, and takes the rest down (ADR 3609). A poster's texture
     /// is made when it first goes up and again only where the part of it shown changes.

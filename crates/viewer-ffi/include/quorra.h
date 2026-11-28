@@ -2090,7 +2090,8 @@ int32_t quorra_collection_folder_of(const char *key, uint32_t *id, char *out, si
  *                      and do `act` where it is not QUORRA_ACT_NOTHING;
  *   on the pointer:    quorra_window_keys(window, shift, command, false), then
  *                      quorra_window_pointer(window, x, y, QUORRA_POINTER_*, &over_link);
- *   on the wheel:      quorra_window_scroll(window, dx, dy), and with Control held
+ *   on the wheel:      quorra_window_wheel(window, dx, dy, x, y, NULL) (a scroll bar:
+ *                      quorra_window_scroll(window, dx, dy)), and with Control held
  *                      quorra_window_zoom_wheel(window, travel, QUORRA_WHEEL_*, x, y, &steps);
  *   on the timer:      quorra_window_tick(window);
  *   on hiding, showing: quorra_window_shown(window, shown);
@@ -2288,6 +2289,13 @@ int32_t quorra_window_press(quorra_window *window, uint32_t key, bool shift, boo
                             uint32_t *act, float *by);
 /* The wheel or a scroll bar, in device pixels. QUORRA_NUMBER_OUT_OF_RANGE where not finite. */
 int32_t quorra_window_scroll(quorra_window *window, float dx, float dy);
+/* The wheel moved by (dx, dy) device pixels with the pointer at (x, y), device pixels of the
+ * viewport: over a clip's picture that Table 291's /F 3 lets overflow its rectangle it scrolls
+ * the part shown, the picture's scrolling interface (ISO 32000-2 13.2.5), and anywhere else it
+ * moves the view as quorra_window_scroll does. `*picture`, where not null, says whether it was the
+ * picture's. QUORRA_NUMBER_OUT_OF_RANGE where a number is not finite. */
+int32_t quorra_window_wheel(quorra_window *window, float dx, float dy, float x, float y,
+                            bool *picture);
 /* Control and the wheel, which magnify in every window: whole zoom steps about (x, y), the
  * pointer in device pixels of the viewport, which stays where it is on the page. `travel` is the
  * wheel turned away from the person, in a QUORRA_WHEEL_* unit; the fraction of a step a

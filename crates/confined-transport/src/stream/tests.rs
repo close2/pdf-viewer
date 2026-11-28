@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use super::{
     Accepted, Body, Budget, Control, END, Emitted, Emitter, ITEM, Next, Reason, Reception, STOP,
-    Spent, Stopping, decode_end, decode_open, encode_credit, encode_end, encode_item_header,
+    Spent, Stopping, Watch, decode_end, decode_open, encode_credit, encode_end, encode_item_header,
     encode_open, read_control,
 };
 use crate::frame;
@@ -311,4 +311,29 @@ fn a_slot_item_counts_its_length_against_the_bytes() {
         "128 bytes are past 100"
     );
     assert_eq!(reception.stopping(), Some(Stopping::Spent(Spent::Bytes)));
+}
+
+/// [`Budget::wall`] counts the time the host waits on the worker, not the time it holds an item
+/// (ADR 3902): a watch of 150 ms over 300 ms of holds and three reads of 20 ms has not fired, and
+/// the same watch left reading passes its budget and cancels. The wrong answer excluded: a worker
+/// stopped for the pace of the host that holds its items.
+#[test]
+fn the_wall_clock_stops_while_the_host_holds_an_item() {
+    let canceller = crate::supervision::Canceller::new();
+    let mut watch = Watch::arm(canceller.clone(), Duration::from_millis(150)).expect("armed");
+    for _ in 0..3 {
+        std::thread::sleep(Duration::from_millis(20));
+        watch.hold();
+        std::thread::sleep(Duration::from_millis(100));
+        watch.reading();
+    }
+    assert!(!watch.fired(), "held time is the host's");
+    assert!(!canceller.is_cancelled());
+    std::thread::sleep(Duration::from_millis(250));
+    assert!(
+        watch.fired(),
+        "a read past the budget is the worker's stall"
+    );
+    assert!(canceller.is_cancelled());
+    assert!(watch.disarm());
 }

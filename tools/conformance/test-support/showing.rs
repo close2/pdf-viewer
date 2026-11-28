@@ -36,6 +36,28 @@ pub(super) fn a_video_document(clip: &[u8]) -> Vec<u8> {
 /// the windows that open one (ADR 3587).
 #[must_use]
 pub(super) fn a_video_document_in(clip: &[u8], screen: &str) -> Vec<u8> {
+    video_document(clip, screen, "[20 100 84 164]", "")
+}
+
+/// [`a_video_document`] whose screen annotation is two points square, `[20 100 22 102]`, and
+/// whose rendition's media play parameters must honour Table 291's `/F 3` — "The media shall not
+/// be scaled. A scrolling user interface shall be provided if the media rectangle is wider or
+/// taller than the play rectangle" — so a picture of sixteen samples a side overflows the
+/// rectangle at any magnification up to eight, and the window offers its scrolling interface
+/// (ADR 3901).
+#[must_use]
+pub(super) fn a_scrolling_video_document(clip: &[u8]) -> Vec<u8> {
+    video_document(
+        clip,
+        "/BE << /W 3 >>",
+        "[20 100 22 102]",
+        "/P << /MH << /F 3 >> >>",
+    )
+}
+
+/// The video document with the screen annotation's `rect` and the rendition's further entries
+/// `parameters`.
+fn video_document(clip: &[u8], screen: &str, rect: &str, parameters: &str) -> Vec<u8> {
     let mut hex = String::with_capacity(clip.len().saturating_mul(2).saturating_add(1));
     for byte in clip {
         let _ = write!(hex, "{byte:02x}");
@@ -47,9 +69,9 @@ pub(super) fn a_video_document_in(clip: &[u8], screen: &str) -> Vec<u8> {
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R 10 0 R 11 0 R 12 0 \
          R] >>"
             .to_owned(),
-        "<< /Type /Annot /Subtype /Screen /P 3 0 R /Rect [20 100 84 164] /A 5 0 R >>".to_owned(),
+        format!("<< /Type /Annot /Subtype /Screen /P 3 0 R /Rect {rect} /A 5 0 R >>"),
         "<< /Type /Action /S /Rendition /OP 0 /AN 4 0 R /R 6 0 R >>".to_owned(),
-        format!("<< /Type /Rendition /S /MR /N (clip) /C 7 0 R /SP << {screen} >> >>"),
+        format!("<< /Type /Rendition /S /MR /N (clip) /C 7 0 R /SP << {screen} >> {parameters} >>"),
         "<< /Type /MediaClip /S /MCD /CT (video/mp4) /D 8 0 R /P << /TF (TEMPACCESS) >> >>"
             .to_owned(),
         "<< /Type /Filespec /F (clip.mp4) /UF (clip.mp4) /EF << /F 9 0 R >> >>".to_owned(),

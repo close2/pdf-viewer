@@ -297,9 +297,6 @@ pub struct Honoured {
     /// Each `BE` entry set aside, said (trap 5): "if they cannot be honoured, the containing object
     /// is still considered viable".
     pub set_aside: Vec<String>,
-    /// Whether `/F` was read from `MH`, which decides whether a fit the windows cannot honour
-    /// makes a clip with pictures non-viable or is set aside (ADR 3553).
-    pub fit_must: bool,
     /// Whether `/C` was read from `MH`, which decides whether a controller asked of a clip with no
     /// pictures to draw it over makes the clip non-viable or is set aside (ADR 3610).
     pub controls_must: bool,
@@ -329,7 +326,6 @@ impl Playing {
             playing: Self::default(),
             must: Vec::new(),
             set_aside: Vec::new(),
-            fit_must: false,
             controls_must: false,
         };
         let must = document.get_key(parameters, "MH");
@@ -355,9 +351,6 @@ impl Playing {
                     )),
                     _ => Ok(()),
                 };
-                if is_must && key == "F" && answer.is_ok() {
-                    honoured.fit_must = true;
-                }
                 if is_must && key == "C" && answer.is_ok() {
                     honoured.controls_must = true;
                 }
@@ -405,8 +398,7 @@ impl Playing {
             "F" => match value {
                 // Table 291's six fits, each of "a visual media type": a sound has no rectangle to
                 // fit and honours every one by playing; a clip's pictures are fitted by the window,
-                // and the one fit its windows cannot honour, `/F 3`'s scrolling interface, is
-                // judged where the clip is known to have pictures (`Fit::Scroll`, ADR 3553).
+                // which honours all six — `/F 3`'s scrolling interface included (ADRs 3553, 3901).
                 Object::Integer(stated) => {
                     self.fit = Fit::of_value(*stated).ok_or_else(|| {
                         format!(

@@ -348,3 +348,49 @@ fn a_rich_media_snapshot_stands_while_the_clip_plays_in_the_qt_window() {
     );
     let _ = std::fs::remove_file(&document);
 }
+
+/// **Table 291's `/F 3` scrolls in the Qt window** (ADR 3901): a clip whose `MH` must honour `/F
+/// 3` plays here, and its sixteen-sample picture, unscaled over a rectangle two points square,
+/// overflows it; the wheel with the pointer over the rectangle moves the part shown and leaves the
+/// page where it was, and the picture handed to the frame sink is the part. The wrong answers
+/// excluded: the clip handed off as non-viable, and the wheel scrolling the page under the
+/// picture.
+#[test]
+fn an_overflowing_scroll_clip_is_scrolled_by_the_wheel_in_the_qt_window() {
+    let document = temporary("scrolls.pdf");
+    let (mut host, _) = a_window_of(&document, 200, showing::a_scrolling_video_document);
+    let mut said = Vec::new();
+    host.dispatch(Command::Activate(showing::SCREEN));
+    timer_until(&mut host, &mut said, "handed the clip's picture", |host| {
+        held_up(host).is_some()
+    });
+    let screen = |host: &Host| {
+        let Answer::Screen(quad) = host.state.viewer.query(Query::Screen(showing::SCREEN)) else {
+            panic!("the screen annotation is on the page placed");
+        };
+        quad
+    };
+    let quad = screen(&host);
+    let before = host.state.pictures.placed(quad).expect("placed");
+    assert_eq!((before.left, before.top), (0, 0));
+    assert!(
+        before.right < 16 && before.bottom < 16,
+        "unscaled and cut: {before:?}"
+    );
+    host.pointer(
+        f32::midpoint(quad[0], quad[4]),
+        f32::midpoint(quad[1], quad[5]),
+        0,
+    );
+    // The boundary's travel is turned towards the person: negative is down and to the right.
+    host.scrolled(-3.0, -2.0, true);
+    let after = host.state.pictures.placed(quad).expect("placed");
+    assert!(after.left > 0 && after.top > 0, "the part moved: {after:?}");
+    assert_eq!(screen(&host), quad, "the page did not scroll");
+    let shown = host.shown_picture().expect("a picture is handed");
+    assert_eq!(
+        (shown.raster.width, shown.raster.height),
+        (after.right - after.left, after.bottom - after.top)
+    );
+    let _ = std::fs::remove_file(&document);
+}

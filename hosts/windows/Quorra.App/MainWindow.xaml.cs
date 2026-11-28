@@ -669,18 +669,21 @@ public sealed partial class MainWindow : Window
             return;
         }
         float distance = (float)(wheel.MouseWheelDelta / Notch * ScrollStep * scale);
+        float atX = (float)(point.Position.X * scale);
+        float atY = (float)(point.Position.Y * scale);
         Guard("the wheel", () =>
         {
             // A vertical notch away from the person is a positive delta and shows what is above,
             // which is a negative dy (quorra.h: a positive dy moves the content up); a horizontal
-            // tilt to the right is a positive delta and shows what is to the right.
+            // tilt to the right is a positive delta and shows what is to the right. Over an /F 3
+            // picture that overflows its rectangle the wheel scrolls the picture (ADR 3901).
             if (wheel.IsHorizontalMouseWheel)
             {
-                open.Scroll(distance, 0);
+                open.Wheel(distance, 0, atX, atY);
             }
             else
             {
-                open.Scroll(0, -distance);
+                open.Wheel(0, -distance, atX, atY);
             }
             Settle();
         });

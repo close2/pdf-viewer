@@ -156,6 +156,7 @@ impl Host {
         }
         self.closes_with_the_clip(&toplevel);
         self.presses_reach_the_bar(&picture);
+        self.wheels_reach_the_picture(&picture);
         toplevel.present();
         self.shown.media_window = Some(MediaWindow {
             window: toplevel,
@@ -277,6 +278,57 @@ impl Host {
             }
         });
         picture.add_controller(click);
+    }
+
+    /// The wheel over the window scrolls an `/F 3` picture that overflows it, its scrolling
+    /// interface, as over a rectangle of the page (ADR 3901). The whole window is the play
+    /// rectangle, so the wheel's place in it — which GTK's scroll event does not carry — is any
+    /// point inside, and its middle is taken.
+    fn wheels_reach_the_picture(&self, picture: &gtk4::Picture) {
+        let scrolling = gtk4::EventControllerScroll::new(
+            gtk4::EventControllerScrollFlags::BOTH_AXES
+                | gtk4::EventControllerScrollFlags::DISCRETE,
+        );
+        let me = self.me();
+        let widget = picture.clone();
+        scrolling.connect_scroll(move |_, dx, dy| {
+            let Some(host) = me.upgrade() else {
+                return glib::Propagation::Proceed;
+            };
+            let Ok(mut host) = host.try_borrow_mut() else {
+                return glib::Propagation::Proceed;
+            };
+            let scale = widget.scale_factor().max(1);
+            let pixels = |side: i32| u32::try_from(side.saturating_mul(scale)).unwrap_or(0);
+            let inner = (pixels(widget.width()), pixels(widget.height()));
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "whole notches the controller counted, a handful"
+            )]
+            let (x, y) = viewer_host::WheelTravel::Notches {
+                x: dx as f32,
+                y: dy as f32,
+            }
+            .distance();
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a window's scale and pixels, far inside f32's exact integers"
+            )]
+            let (by, at) = (
+                (x * scale as f32, y * scale as f32),
+                (inner.0 as f32 / 2.0, inner.1 as f32 / 2.0),
+            );
+            if host
+                .state
+                .pictures
+                .scroll_over(screens::whole(inner), at, by)
+            {
+                host.hold_up_in_the_media_window();
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        picture.add_controller(scrolling);
     }
 
     /// Holds up the picture in the window of its own, drawn at the widget's size in pixels.

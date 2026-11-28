@@ -1404,14 +1404,15 @@ fn a_sound_played_in_its_screen_annotations_rectangle_paints_the_background() {
 }
 
 /// Table 291's `/F` for a clip with pictures, read for a host that shows video (ADR 3553): each
-/// of the values 0, 1, 2, 4 and 5 is the clip's fit; 3's "scrolling user interface" is provided by
-/// no window, so it makes an `MH` rendition non-viable and is set aside from `BE`; and an
+/// of the six values is the clip's fit, in `MH` and in `BE` alike — 3's "scrolling user interface"
+/// is provided by every window that shows pictures wherever the picture overflows (ADR 3901), so
+/// it neither makes an `MH` rendition non-viable nor is set aside from `BE`; and an
 /// unrecognised value "shall be treated as the default value if the entry is in a BE dictionary.
 /// If the entry is in an MH dictionary and it has an unrecognised value, the object shall be
 /// considered non-viable." A sound is fitted to nothing, so `MH /F 3` leaves an `audio/` clip
 /// viable.
 #[test]
-fn a_clips_fit_is_read_from_its_play_parameters_and_scrolling_is_not_provided() {
+fn a_clips_fit_is_read_from_its_play_parameters_and_scrolling_is_provided() {
     use pdf_model::media::Fit;
     let shows_video = Processor {
         language: None,
@@ -1429,6 +1430,7 @@ fn a_clips_fit_is_read_from_its_play_parameters_and_scrolling_is_not_provided() 
         (0, Fit::Meet),
         (1, Fit::Slice),
         (2, Fit::Fill),
+        (3, Fit::Scroll),
         (4, Fit::Hidden),
         (5, Fit::PlayersDefault),
     ] {
@@ -1444,11 +1446,6 @@ fn a_clips_fit_is_read_from_its_play_parameters_and_scrolling_is_not_provided() 
         Fit::PlayersDefault,
         "Default value: 5"
     );
-    assert!(with("/MH << /F 3 >>", &video).chosen().is_none());
-    let report = with("/BE << /F 3 >>", &video);
-    let (_, chosen) = report.chosen().expect("viable on a best-effort fit");
-    assert_eq!(chosen.playing.fit, Fit::Scroll);
-    assert!(chosen.unhonoured.iter().any(|note| note.contains("/F 3")));
     assert!(with("/MH << /F 9 >>", &video).chosen().is_none());
     let report = with("/BE << /F 9 >>", &video);
     assert_eq!(

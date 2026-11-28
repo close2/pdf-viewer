@@ -512,3 +512,66 @@ fn a_rich_media_snapshot_stands_while_the_clip_plays_in_the_gtk_window() {
     );
     let _ = std::fs::remove_file(&document);
 }
+
+/// **Table 291's `/F 3` scrolls in the GTK window** (ADR 3901): a clip whose `MH` must honour
+/// `/F 3` plays here — the rendition is viable, its interface provided — and its sixteen-sample
+/// picture, unscaled over a rectangle two points square, overflows it; the wheel over the
+/// rectangle moves the part shown and leaves the page where it was, and the texture held up is the
+/// part's own size. The wrong answers excluded: the clip handed off as non-viable, the wheel
+/// scrolling the page under the picture, and a picture drawn scaled.
+#[gtk4::test]
+fn an_overflowing_scroll_clip_is_scrolled_by_the_wheel_in_the_gtk_window() {
+    let document = temporary("scrolls.pdf");
+    let (host, _) = a_window_of(&document, 200, showing::a_scrolling_video_document);
+    let said = RefCell::new(Vec::new());
+    host.borrow_mut()
+        .dispatch(Command::Activate(showing::SCREEN));
+    turn_until(&host, &said, "held up the clip's picture", |host| {
+        held_up(host).is_some()
+    });
+    let screen = |host: &Host| {
+        let viewer_core::Answer::Screen(quad) = host
+            .state
+            .viewer
+            .query(viewer_core::Query::Screen(showing::SCREEN))
+        else {
+            panic!("the screen annotation is on the page placed");
+        };
+        quad
+    };
+    let quad = screen(&host.borrow());
+    let before = host
+        .borrow()
+        .state
+        .pictures
+        .placed(quad)
+        .expect("the picture is placed");
+    assert_eq!((before.left, before.top), (0, 0));
+    assert!(
+        before.right < 16 && before.bottom < 16,
+        "unscaled and cut: {before:?}"
+    );
+    let scale = host.borrow().scale;
+    let centre = (
+        f64::from(f32::midpoint(quad[0], quad[4])) / scale,
+        f64::from(f32::midpoint(quad[1], quad[5])) / scale,
+    );
+    host.borrow_mut().pointer_at = Some(centre);
+    host.borrow_mut()
+        .scrolled(viewer_host::WheelTravel::Pixels { x: 3.0, y: 2.0 });
+    let after = host
+        .borrow()
+        .state
+        .pictures
+        .placed(quad)
+        .expect("the picture is placed");
+    assert!(after.left > 0 && after.top > 0, "the part moved: {after:?}");
+    assert_eq!(screen(&host.borrow()), quad, "the page did not scroll");
+    let rgba = held_up(&host.borrow()).expect("a picture is up");
+    let part = after
+        .right
+        .saturating_sub(after.left)
+        .saturating_mul(after.bottom.saturating_sub(after.top))
+        .saturating_mul(4);
+    assert_eq!(rgba.len(), usize::try_from(part).expect("small"));
+}

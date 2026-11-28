@@ -180,6 +180,25 @@ impl App {
         pressed
     }
 
+    /// The wheel's travel `by` at `at`, in window pixels, over the clip in hand: where its picture
+    /// is Table 291's `/F 3` and overflows its rectangle, the travel scrolls the part shown and is
+    /// the picture's, not the page's (ADR 3901). Answers whether it was.
+    pub(crate) fn scroll_the_picture(&mut self, at: (f32, f32), by: (f32, f32)) -> bool {
+        let Some(quad) = self.picture_quad() else {
+            return false;
+        };
+        let scrolled = self
+            .video
+            .as_mut()
+            .is_some_and(|video| video.scroll_over(quad, at, by));
+        if scrolled {
+            // A paused clip has no next picture to carry the new part to the window.
+            self.place_the_picture();
+            self.redraw();
+        }
+        scrolled
+    }
+
     /// Table 306's posters as the lowest overlay, each over its movie annotation, but a playing
     /// movie's, whose pictures stand in its place — the overlays' pixels are the window's, `width`
     /// by `height`.

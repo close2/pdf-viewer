@@ -216,6 +216,10 @@ pub struct Host {
     /// Kept so that the cursor is changed when the answer changes rather than on every motion
     /// event, which is the same economy `viewer-gtk` makes for the same reason.
     under: viewer_host::Under,
+    /// Where the pointer last was, device pixels of the viewport: the wheel's event carries no
+    /// place, and over an `/F 3` picture that overflows its rectangle the wheel is the picture's
+    /// (ADR 3901).
+    pointer_at: Option<(f32, f32)>,
     /// The keys the core was last told of (ADR 1771).
     keys_told: pdf_model::view::Keys,
     /// What has changed since the C++ side last asked.
@@ -436,6 +440,7 @@ impl Host {
             typed_paths: viewer_host::TypedPaths::default(),
             popups_shown: Vec::new(),
             under: viewer_host::Under::Nothing,
+            pointer_at: None,
             keys_told: pdf_model::view::Keys::default(),
             update: nothing_changed(),
             accessibility: None,

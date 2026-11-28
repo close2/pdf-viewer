@@ -297,6 +297,15 @@ impl Pictures {
             .is_some_and(|player| player.press_over(quad, point))
     }
 
+    /// The wheel's travel `by` at `point`, both in the pixels `quad` — the clip's rectangle — is
+    /// in: answers whether it was the picture's, an `/F 3` picture overflowing its rectangle, and
+    /// scrolls the part shown there ([`VideoPlayer::scroll_over`], ADR 3901).
+    pub fn scroll_over(&mut self, quad: [f32; 8], point: (f32, f32), by: (f32, f32)) -> bool {
+        self.player
+            .as_mut()
+            .is_some_and(|player| player.scroll_over(quad, point, by))
+    }
+
     /// The picture held up and the document and screen annotation it is drawn over.
     #[must_use]
     pub fn picture(&self) -> Option<(&pdf_render::Raster, DocumentId, ObjectId)> {
