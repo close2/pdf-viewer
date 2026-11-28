@@ -27,8 +27,8 @@ mod transfer;
 
 pub(super) use blending_space::Departure;
 pub(super) use blending_space::page_blending_space;
-pub(super) use blending_space::page_own_space;
 use blending_space::{change_is_visible, group_blending};
+pub(super) use blending_space::{page_own_colour_space, page_own_space};
 pub(super) use commands::command_composites;
 pub(super) use commands::outline_bounds;
 pub(super) use commands::{any_command, command_blends};

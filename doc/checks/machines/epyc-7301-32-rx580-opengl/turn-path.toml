@@ -19,15 +19,12 @@ step_raised_mhz = 1326
 [[page]]
 path = "doc/pdf.js/test/pdfs/personwithdog.pdf"
 page = 1
-# This machine (ADR 2660): 31.84, 36.81, 39.35, 38.68, 34.51, 37.17, 37.37 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-turn_ms = 27.0 .. 47.3
-# This machine (ADR 2660): 32.07, 35.33, 34.23, 39.29, 33.63, 32.5, 34.39 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-seventh_ms = 27.2 .. 47.2
-# This machine (ADR 2660): 38.63, 43.94, 54.26, 41.18, 41.23, 43.65, 42.9 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-step_ms = 32.8 .. 65.2
+# ADR 1969's rule over 2 kept reading(s): 93.57, 92.51
+turn_ms = 78.6 .. 112.3
+# ADR 1969's rule over 2 kept reading(s): 80.59, 86.6
+seventh_ms = 68.5 .. 104.0
+# ADR 1969's rule over 2 kept reading(s): 146.12, 116.4
+step_ms = 98.9 .. 175.4
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/issue12841_reduced.pdf"
@@ -112,15 +109,12 @@ step_raised_mhz = 1239
 [[page]]
 path = "doc/pdf.js/test/pdfs/ContentStreamNoCycleType3insideType3.pdf"
 page = 1
-# This machine (ADR 2660): 24.05, 24.39, 25.14, 25.7, 24.06, 27.2, 25.98 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-turn_ms = 20.4 .. 32.7
-# This machine (ADR 2660): 23.8, 23.45, 24.93, 25.32, 22.89, 27.35, 24.69 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-seventh_ms = 19.4 .. 32.9
-# This machine (ADR 2660): 26.5, 30.43, 30.14, 32.07, 28.42, 34.8, 30.81 ms, every run of the gate
-# under its load ceiling on 2026-11-03, each in a `--clock` hold; this file's rule.
-step_ms = 22.5 .. 41.8
+# ADR 1969's rule over 2 kept reading(s): 2294.54, 2222.08
+turn_ms = 1888.7 .. 2753.5
+# ADR 1969's rule over 2 kept reading(s): 2259.74, 2193.18
+seventh_ms = 1864.2 .. 2711.7
+# ADR 1969's rule over 2 kept reading(s): 884.5, 785.33
+step_ms = 667.5 .. 1061.4
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/bug1743245.pdf"

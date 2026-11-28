@@ -21,7 +21,10 @@
 //! component on its own. Steps b) to d) are [`resolve`] for the pair and [`matte`] with
 //! [`resolve_over_device`] for the list alone, and every conversion they apply arrives sampled on
 //! the list, so a backend never sees a colour space — [`crate::Color`]'s argument, and the reason
-//! this module holds tables rather than formulas. ADRs 1317 and 1329.
+//! this module holds tables rather than formulas. ADRs 1317 and 1329. The interpreter carries a
+//! list of one or three components onto the press's four inks first
+//! ([`crate::press_conversion`], ADR 3857), and it is then the pair; [`matte`] and
+//! [`resolve_over_device`] are the steps for such a list that states no press to carry it onto.
 //!
 //! # Where the matte goes, and what that does to a pixel's alpha
 //!

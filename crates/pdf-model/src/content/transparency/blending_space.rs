@@ -231,6 +231,25 @@ pub(in crate::content) fn page_own_space(
     own_space_compositing(document, &entry, &page.resources, presses)
 }
 
+/// The colour space a page group states, parsed as [`page_own_space`] parses it — against the
+/// page's resources, so that a default space stands where it stands for the compositing — or
+/// `None` where the page states none that parses.
+///
+/// What §10.8.3's simulated press converts a page compositing in one or three CIE-based
+/// components from (`crate::colour::Press::ink_cube`, ADR 3857).
+pub(in crate::content) fn page_own_colour_space(
+    document: &Document,
+    page: &Page,
+) -> Option<ColourSpace> {
+    let attributes = document.get_key(&page.dict, "Group");
+    let attributes = page_group_attributes(document, &attributes, page)?;
+    ColourSpace::parse(
+        document,
+        &document.get_key(attributes, "CS"),
+        &page.resources,
+    )
+}
+
 /// The blending colour space §11.4.7 gives a page, named where it is one this tree departs from.
 ///
 /// The root of the inheritance §11.6.6 states, and §11.4.7 says where its space comes from:

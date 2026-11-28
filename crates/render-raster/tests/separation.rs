@@ -78,13 +78,15 @@ fn a_separated_page_is_the_oracles_page() {
     same_page_as_the_oracle(logo_green_over_yellow(), [69, 139, 0]);
 }
 
-/// A page whose group is `/DeviceRGB`: the list is its own process separation and the spot plane
-/// is multiplied in after it (`pdf_render::separation::resolve_over_device`).
+/// A page whose group is `/DeviceRGB`: the list's result is carried onto the press's inks
+/// (`pdf_render::press_conversion`, ADR 3857), where RGB yellow is the press's process yellow as
+/// on the page above with no group, and the spot plane is multiplied in after it — the same
+/// (69, 139, 0).
 #[test]
 fn a_separated_rgb_page_is_the_oracles_page() {
     same_page_as_the_oracle(
         logo_green_over("/Group << /S /Transparency /CS /DeviceRGB >>", "1 1 0 rg"),
-        [64, 146, 0],
+        [69, 139, 0],
     );
 }
 

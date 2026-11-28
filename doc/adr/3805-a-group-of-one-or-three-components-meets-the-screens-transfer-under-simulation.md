@@ -1,6 +1,6 @@
 # 3805 — A page group of one or three components still meets the screen's transfer under simulation
 
-Session 2276. Status: accepted, as a departure. Context: ISO 32000-2 §10.5, §10.8.3, §11.7.4.2,
+Session 2276. Status: **superseded by ADR 3857**, which builds the conversion and closes the departure. Context: ISO 32000-2 §10.5, §10.8.3, §11.7.4.2,
 §11.7.5.1; ADRs 1329 (such a page's separation), 3769 (the press's functions on its planes).
 
 ## The reading

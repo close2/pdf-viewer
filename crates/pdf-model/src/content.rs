@@ -1082,10 +1082,9 @@ fn draw_separated(
     // §10.5 on the simulated device: "Transfer functions shall always operate in the native
     // colour space of the output device", and a press's is its process and spot colourants, so a
     // backend applies the functions to the planes before steps b) to d) compose them rather than
-    // to the composed colour (ADR 3769). A page whose group composites in one or three components
-    // has no process plates to apply them on (ADR 1329), and keeps the screen's application, which
-    // is a departure from §11.7.4.2's conversion to the device's colourants (ADR 3805).
-    if list.blending().is_some() {
+    // to the composed colour (ADR 3769) — on a page whose group composites in one or three
+    // components, after its result is converted onto the press (ADR 3857).
+    if list.blending().is_some() || list.press_conversion().is_some() {
         list.set_transfer_device(pdf_render::TransferDevice::SimulatedPress);
     }
     interpretation.display_list = list;
@@ -1111,14 +1110,16 @@ enum ProcessPlanes {
         reason = "the paragraph quotes §11.7.3 verbatim, and a quotation may not gain backticks"
     )]
     /// A page whose group composites in one or three components: the process separation is one
-    /// run in that `compositing`, and the spot planes are drawn on `spot_press`, the simulated
-    /// device's, whose process colourants no mark on this page may name — "\[i]f any other colour
+    /// run in that `compositing`, whose result is converted onto `spot_press`, the simulated
+    /// device's ([`own_onto_press`]), and the spot planes are drawn on that press, whose process
+    /// colourants no mark on this page may name — "\[i]f any other colour
     /// space has been specified for the group, the Separation or DeviceN colour space shall be
     /// converted to its alternate colour space".
     Own {
         /// What the page composites in, as the page that is drawn composited in it.
         compositing: Compositing,
-        /// Step a)'s press, for the spot planes' runs.
+        /// Step a)'s press: the spot planes' runs are drawn on it, and the process run's result is
+        /// converted onto it.
         spot_press: Arc<crate::colour::Press>,
     },
 }
@@ -1164,8 +1165,8 @@ impl ProcessPlanes {
 
 /// Why a page's §10.8.3 separation was not made.
 enum NotSeparated {
-    /// There is nothing to make: the reader did not ask for the simulation, or the page composites
-    /// in one or three components and names no spot colourant.
+    /// There is nothing to make: the reader did not ask for the simulation, or the page is drawn
+    /// in a compositing that is no page's (a mask's).
     Nothing,
     /// The planes could not be made, with the sentence the page's report carries.
     GivenUp(String),
@@ -1326,11 +1327,11 @@ fn separate(
     // Step a)'s device "supports subtractive process colourants and possibly spot colours": a
     // page naming no spot colourant is still separated on a press, into its process plates alone,
     // because those plates are where §8.6.7's overprint and a press's own conversion happen
-    // (ADR 2736). A page compositing in one or three components has no process plate to separate
-    // into, and with no spot plane beside it the simulation is the page it already drew.
+    // (ADR 2736). A page compositing in one or three components is separated too, spot planes or
+    // none, because its result reaches those plates through §11.7.4.2's conversion "to the device
+    // colour space" (`own_onto_press`, ADR 3857).
     let spots = match process {
         ProcessPlanes::Press(press) => named.device(Some(press)),
-        ProcessPlanes::Own { .. } if named.is_empty() => return Err(NotSeparated::Nothing),
         ProcessPlanes::Own { .. } => named.device(None),
     };
     let (runs, process_count) = process.runs(&spots);
@@ -1359,17 +1360,8 @@ fn separate(
             without_a_plane.iter().cloned().collect(),
         )
     };
-    // A press with no spot plane is §11.4.7's pair and nothing beside it: steps b) and c) have
-    // one separation to multiply, which is the pair converted out of the press.
     if spot_planes.is_empty() {
-        let mut lists = lists.into_iter();
-        let (ProcessPlanes::Press(press), Some(mut chromatic), Some(black)) =
-            (process, lists.next(), lists.next())
-        else {
-            return Err(NotSeparated::Nothing);
-        };
-        chromatic.set_blending(press.blending_space(), black);
-        return Ok((record(&spots), chromatic));
+        return process_alone(document, page, process, lists).map(|list| (record(&spots), list));
     }
     for plane in &mut spot_planes {
         plane.substitute_blend_modes(BlendMode::on_spot_colourants);
@@ -1411,15 +1403,92 @@ fn separate(
             chromatic.set_separated(press.blending_space(), black, spot);
             chromatic
         }
-        ProcessPlanes::Own { .. } => {
+        ProcessPlanes::Own {
+            compositing,
+            spot_press,
+        } => {
             let Some(mut own) = lists.next() else {
                 return Err(NotSeparated::Nothing);
             };
+            own.set_press_conversion(own_onto_press(document, page, compositing, spot_press)?);
             own.set_spot_planes(spot);
             own
         }
     };
     Ok((record(&spots), separated))
+}
+
+/// [`separate`]'s answer for a page naming no spot colourant: its process `lists` alone.
+///
+/// A press with no spot plane is §11.4.7's pair and nothing beside it: steps b) and c) have one
+/// separation to multiply, which is the pair converted out of the press. A page compositing in one
+/// or three components with none is its list carried onto the press ([`own_onto_press`]).
+fn process_alone(
+    document: &Document,
+    page: &Page,
+    process: &ProcessPlanes,
+    lists: Vec<DisplayList>,
+) -> Result<DisplayList, NotSeparated> {
+    let mut lists = lists.into_iter();
+    match (process, lists.next(), lists.next()) {
+        (ProcessPlanes::Press(press), Some(mut chromatic), Some(black)) => {
+            chromatic.set_blending(press.blending_space(), black);
+            Ok(chromatic)
+        }
+        (
+            ProcessPlanes::Own {
+                compositing,
+                spot_press,
+            },
+            Some(mut own),
+            None,
+        ) => {
+            own.set_press_conversion(own_onto_press(document, page, compositing, spot_press)?);
+            Ok(own)
+        }
+        _ => Err(NotSeparated::Nothing),
+    }
+}
+
+/// The conversion that carries a page compositing in one or three components onto §10.8.3's
+/// simulated press, `press`: a cube from the page group's components to the press's four inks,
+/// and the press's own conversion out of them.
+///
+/// Step a)'s device is the press, and §10.5 puts its functions "in the native colour space of the
+/// output device", which §11.7.4.2 reaches from a group of another space only "after the group's
+/// results have been converted to the device colour space". So the page's composited result is
+/// converted as a colour in its group's space is converted onto that press
+/// (`crate::colour::Press::ink_cube`) — `DeviceRGB`'s components for a page compositing on the
+/// device's own three, `DeviceGray`'s for one compositing in it, and the space the page group
+/// states, parsed as the compositing parsed it, for the CIE-based ones — under the initial
+/// graphics state's rendering, the page group's (§11.7.5.3). Given up by name where the space no
+/// longer parses or is not of one or three components, which the compositing chosen from it makes
+/// unreachable. ADR 3857, which closes ADR 3805's departure.
+fn own_onto_press(
+    document: &Document,
+    page: &Page,
+    compositing: &Compositing,
+    press: &crate::colour::Press,
+) -> Result<pdf_render::PressConversion, NotSeparated> {
+    let space = match compositing {
+        Compositing::Device => Some(ColourSpace::Rgb),
+        Compositing::Grey => Some(ColourSpace::Gray),
+        Compositing::Calibrated(_) | Compositing::Additive(_) => {
+            transparency::page_own_colour_space(document, page)
+        }
+        Compositing::Luminosity(_) | Compositing::Subtractive(..) => None,
+    };
+    let rendering = GraphicsState::initial(Transform::IDENTITY).rendering();
+    space
+        .and_then(|space| press.ink_cube(&space, rendering))
+        .map(|inks| pdf_render::PressConversion::new(inks, press.blending_space()))
+        .ok_or_else(|| {
+            NotSeparated::GivenUp(
+                "the page group's colour space has no conversion onto the simulated device's \
+                 process colourants"
+                    .to_owned(),
+            )
+        })
 }
 
 /// [`separate`]'s runs, one per plane, each `interpret`ed and checked against the first: the

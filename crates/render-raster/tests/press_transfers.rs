@@ -2,7 +2,8 @@
 //! lane that draws it: the CPU oracle, `rasterize`, and the window's present
 //! (`rasterize_frame`, ADR 3701). `render-gpu` refuses a list with a transfer channel, and a
 //! separated page, by name and hands the frame to the CPU oracle, so it has no picture of its own
-//! to compare; [`agree`] asks it for the refusal. ADR 3769, ADR 3770, ADR 3806 to ADR 3808.
+//! to compare; [`agree`] asks it for the refusal. ADR 3769, ADR 3770, ADR 3806 to ADR 3808, and
+//! ADR 3857 for a page whose group composites in one or three components.
 //!
 //! `pdf-model`'s `rendering_10_5_10_8_spec_audit` asks the oracle alone; a test of one lane is not
 //! a test of the window (review 2248).
@@ -33,12 +34,26 @@ const ZERO: &str = "<< /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [0] /N 1 >>";
 
 /// A one-page classic-xref PDF, 40 points square, with `resources` and the content `data`.
 fn page(resources: &str, data: &str) -> Vec<u8> {
+    page_with("", resources, data)
+}
+
+/// [`page`] whose page group states the blending colour space `space` (§11.4.7).
+fn grouped(space: &str, resources: &str, data: &str) -> Vec<u8> {
+    page_with(
+        &format!("/Group << /S /Transparency /CS {space} >>"),
+        resources,
+        data,
+    )
+}
+
+/// [`page`] with `entries` more in the page dictionary.
+fn page_with(entries: &str, resources: &str, data: &str) -> Vec<u8> {
     let objects = [
         "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
         format!(
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] /Resources << {resources} >> \
-             /Contents 4 0 R >>"
+             {entries} /Contents 4 0 R >>"
         ),
         format!(
             "<< /Length {} >>\nstream\n{data}\nendstream",
@@ -336,5 +351,130 @@ fn every_lane_puts_a_type5_entry_on_the_spot_colourant_it_names() {
         &interpreted(page(&resources, content), true),
         |[red, green, blue]| red > 200 && green < 100 && blue < 100,
         "the press's spot colourant takes the entry that names it",
+    );
+}
+
+/// §11.7.4.2: "If the group colour space is different from the native colour space of the output
+/// device, … the blending computations shall affect the process colour ants only after the
+/// group's results have been converted to the device colour space", and §10.5 puts the functions
+/// in that space. `/TR [identity identity identity zero]` over `0 0 0 0 k` on a page compositing
+/// in `DeviceRGB`: the group's white is no ink on the press, whose black 0 is additive 1, and the
+/// fourth function makes it full black ink. The screen takes the first three and stays white.
+#[test]
+fn every_lane_puts_the_press_functions_on_an_rgb_page_groups_result() {
+    gpu_lock_hook::install();
+    let resources =
+        format!("/ExtGState << /GS << /TR [{IDENTITY} {IDENTITY} {IDENTITY} {ZERO}] >> >>");
+    let content = "/GS gs 0 0 0 0 k 0 0 40 40 re f";
+    agree(
+        &interpreted(grouped("/DeviceRGB", &resources, content), false),
+        |colour| colour.iter().all(|&level| level > 247),
+        "control: the screen is an RGB device",
+    );
+    agree(
+        &interpreted(grouped("/DeviceRGB", &resources, content), true),
+        |colour| colour.iter().all(|&level| level < 100),
+        "the simulated press's black takes the fourth function after the group's conversion",
+    );
+}
+
+/// The same on a page compositing in `DeviceGray`: its white `1 g` is no ink on the press, and the
+/// fourth function makes the black full ink.
+#[test]
+fn every_lane_puts_the_press_functions_on_a_grey_page_groups_result() {
+    gpu_lock_hook::install();
+    let resources =
+        format!("/ExtGState << /GS << /TR [{IDENTITY} {IDENTITY} {IDENTITY} {ZERO}] >> >>");
+    let content = "/GS gs 1 g 0 0 40 40 re f";
+    agree(
+        &interpreted(grouped("/DeviceGray", &resources, content), false),
+        |colour| colour.iter().all(|&level| level > 247),
+        "control: the screen is an RGB device",
+    );
+    agree(
+        &interpreted(grouped("/DeviceGray", &resources, content), true),
+        |colour| colour.iter().all(|&level| level < 100),
+        "the simulated press's black takes the fourth function after the group's conversion",
+    );
+}
+
+/// A `CalRGB` page group, the three-component CIE-based case: its result leaves through the cube
+/// onto the press rather than its own cube to the screen, so the press's fourth function reaches
+/// it as it reaches a `DeviceRGB` group's.
+#[test]
+fn every_lane_puts_the_press_functions_on_a_calrgb_page_groups_result() {
+    gpu_lock_hook::install();
+    let resources =
+        format!("/ExtGState << /GS << /TR [{IDENTITY} {IDENTITY} {IDENTITY} {ZERO}] >> >>");
+    let content = "/GS gs 1 1 1 rg 0 0 40 40 re f";
+    let space = "[/CalRGB << /WhitePoint [0.9505 1 1.089] /Gamma [2.2 2.2 2.2] >>]";
+    agree(
+        &interpreted(grouped(space, &resources, content), false),
+        |colour| colour.iter().all(|&level| level > 230),
+        "control: the screen is an RGB device, and the space's white near the device's",
+    );
+    agree(
+        &interpreted(grouped(space, &resources, content), true),
+        |colour| colour.iter().all(|&level| level < 100),
+        "the simulated press's black takes the fourth function after the group's conversion",
+    );
+}
+
+/// A spot colourant on a page compositing in `DeviceRGB`: the spot plane takes a Type 5
+/// halftone's `/Default` and the process plates, converted onto the press, its four named
+/// entries. Tint 0 is then full red spot ink over an unprinted process separation; the screen,
+/// whose red, green and blue take `/Default`'s zero, is black.
+#[test]
+fn every_lane_puts_the_spot_function_on_an_rgb_page_groups_spot_plane() {
+    gpu_lock_hook::install();
+    let screen = "/HalftoneType 1 /Frequency 60 /Angle 0 /SpotFunction /Round";
+    let halftone = format!(
+        "<< /HalftoneType 5 \
+         /Cyan << {screen} /TransferFunction /Identity >> \
+         /Magenta << {screen} /TransferFunction /Identity >> \
+         /Yellow << {screen} /TransferFunction /Identity >> \
+         /Black << {screen} /TransferFunction /Identity >> \
+         /Default << {screen} /TransferFunction {ZERO} >> >>"
+    );
+    let resources = format!("/ExtGState << /GS << /HT {halftone} >> >> {SPOT}");
+    let content = "/GS gs /CS0 cs 0 scn 0 0 40 40 re f";
+    agree(
+        &interpreted(grouped("/DeviceRGB", &resources, content), false),
+        |colour| colour.iter().all(|&level| level < 8),
+        "control: the screen's red, green and blue take the halftone's default",
+    );
+    agree(
+        &interpreted(grouped("/DeviceRGB", &resources, content), true),
+        |[red, green, blue]| red > 200 && green < 100 && blue < 100,
+        "the spot plane takes the default and the converted process plates the identity",
+    );
+}
+
+/// What the round trip costs a page stating no transfer: a mid grey on a page compositing in
+/// `DeviceRGB` is inside the press's gamut, and the press's conversion in is a right inverse of
+/// its conversion out (`pdf_colour`'s ink search), so it comes back within the cube's
+/// interpolation and the planes' quantisation. The press's picture of an in-gamut colour is that
+/// colour.
+#[test]
+fn every_lane_returns_an_in_gamut_grey_through_the_press() {
+    gpu_lock_hook::install();
+    let content = "0.5 0.5 0.5 rg 0 0 40 40 re f";
+    let list = interpreted(grouped("/DeviceRGB", "", content), true);
+    assert!(
+        list.press_conversion().is_some(),
+        "the page is carried onto the press"
+    );
+    let screen = centre(
+        &render_cpu::CpuRasterizer::new()
+            .rasterize(
+                &interpreted(grouped("/DeviceRGB", "", content), false),
+                TargetSpec::for_page(&list, 1.0, 1 << 20).expect("a 40 by 40 target"),
+            )
+            .expect("the oracle draws the page"),
+    );
+    agree(
+        &list,
+        |colour| colour.iter().zip(screen).all(|(&a, b)| a.abs_diff(b) <= 3),
+        "a mid grey through the press",
     );
 }

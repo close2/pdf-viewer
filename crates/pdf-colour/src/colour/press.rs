@@ -248,6 +248,55 @@ impl Press {
         self.space.clone()
     }
 
+    /// The conversion of a page group's composited result in `space` onto this press's four inks,
+    /// sampled for a backend: §10.8.3's simulated press under a group of one or three components.
+    ///
+    /// §11.7.4.2: "the blending computations shall affect the process colour ants only after the
+    /// group's results have been converted to the device colour space", and the device is this
+    /// press. Each sample is [`ColourSpace::to_cmyk`] — the conversion a colour in `space` takes
+    /// onto this press when it is painted into a group compositing in it — under `rendering`, the
+    /// page group's, which §11.7.5.3 makes the one for converting a transparency group's colour.
+    /// No black generation is stated: §11.7.5.3 gives the graphics state's pair to a colour
+    /// painted directly into a `DeviceCMYK` group, and a group's result is not a painted colour.
+    ///
+    /// `None` where `space` is not of one or three components. ADR 3857.
+    #[must_use]
+    pub fn ink_cube(
+        &self,
+        space: &ColourSpace,
+        rendering: Rendering,
+    ) -> Option<pdf_render::InkCube> {
+        use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
+        let components = space.components();
+        let side = match components {
+            1 => INK_CURVE_SAMPLES,
+            3 => INK_CUBE_SIDE,
+            _ => return None,
+        };
+        let count = side.checked_pow(u32::try_from(components).ok()?)?;
+        let last = side.saturating_sub(1);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a grid side and a sample index, both far below f32's exact range"
+        )]
+        let at = |index: usize| index as f32 / last as f32;
+        // Grid line `axis` of sample `index`, the first axis running fastest.
+        let line = |index: usize, axis: u32| {
+            side.checked_pow(axis)
+                .and_then(|stride| index.checked_div(stride))
+                .and_then(|lines| lines.checked_rem(side))
+                .unwrap_or(0)
+        };
+        let grid: Vec<[f32; 4]> = (0..count)
+            .into_par_iter()
+            .map(|index| {
+                let values = [at(line(index, 0)), at(line(index, 1)), at(line(index, 2))];
+                space.to_cmyk(values.get(..components).unwrap_or(&values), rendering, self)
+            })
+            .collect();
+        pdf_render::InkCube::new(components, side, grid.into())
+    }
+
     /// ISO 32000-2 §11.5.3's `Y` over this press's four components, or `None` where the
     /// press is not a profile's.
     ///
@@ -748,6 +797,15 @@ fn sample_press(
 pub fn device_cmyk_blending_space() -> pdf_render::BlendingSpace {
     assumed_press().blending_space()
 }
+
+/// Samples along each axis of [`Press::ink_cube`]'s grid for a group of three components: the
+/// side [`PRESS_SIDE`] gives a press's own table, so the conversion in is sampled as finely as the
+/// conversion out it is a right inverse of. The price is measured in ADR 3857.
+const INK_CUBE_SIDE: usize = PRESS_SIDE;
+
+/// Samples of [`Press::ink_cube`]'s curve for a group of one component: one per level a channel
+/// of the raster holds, so the curve is exact at every level a backend can hand it.
+const INK_CURVE_SAMPLES: usize = 256;
 
 #[cfg(test)]
 mod tests {

@@ -16,12 +16,12 @@ step_ms = 46.8 .. 70.6
 [[page]]
 path = "doc/pdf.js/test/pdfs/personwithdog.pdf"
 page = 1
-# ADR 1969's rule over 3 kept reading(s): 52.02, 45.03, 50.31
-turn_ms = 38.2 .. 62.5
-# ADR 1969's rule over 3 kept reading(s): 49.47, 47.87, 49.04
-seventh_ms = 40.6 .. 59.4
-# ADR 1969's rule over 3 kept reading(s): 78.18, 71.7, 77.74
-step_ms = 60.9 .. 93.9
+# ADR 1969's rule over 2 kept reading(s): 140.38, 121.68
+turn_ms = 103.4 .. 168.5
+# ADR 1969's rule over 2 kept reading(s): 147.34, 120.55
+seventh_ms = 102.4 .. 176.9
+# ADR 1969's rule over 2 kept reading(s): 181.31, 155.64
+step_ms = 132.2 .. 217.6
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/issue12841_reduced.pdf"
@@ -86,12 +86,12 @@ step_ms = 25.8 .. 37.5
 [[page]]
 path = "doc/pdf.js/test/pdfs/ContentStreamNoCycleType3insideType3.pdf"
 page = 1
-# ADR 1969's rule over 3 kept reading(s): 28.17, 28.89, 29.2
-turn_ms = 23.9 .. 35.1
-# ADR 1969's rule over 3 kept reading(s): 26.94, 29.06, 27.48
-seventh_ms = 22.8 .. 34.9
-# ADR 1969's rule over 3 kept reading(s): 33.77, 33.68, 33.44
-step_ms = 28.4 .. 40.6
+# ADR 1969's rule over 2 kept reading(s): 3098.32, 2992.62
+turn_ms = 2543.7 .. 3718.0
+# ADR 1969's rule over 2 kept reading(s): 3088.87, 3090.82
+seventh_ms = 2625.5 .. 3709.0
+# ADR 1969's rule over 2 kept reading(s): 987.29, 1022.43
+step_ms = 839.1 .. 1227.0
 
 [[page]]
 path = "doc/pdf.js/test/pdfs/bug1743245.pdf"

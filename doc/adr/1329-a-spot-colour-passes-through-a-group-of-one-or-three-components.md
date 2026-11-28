@@ -1,6 +1,6 @@
 # 1329 — A spot colour passes through a group of one or three components, and §10.8.3's row is decided
 
-Status: accepted. Session 1246.
+Status: accepted; section 2's first bullet — the process separation of a page compositing in one or three components, with no stop in the press's colourants — is **superseded by ADR 3857**. Session 1246.
 Context: ISO 32000-2 §10.8.3, §11.3.4, §11.4.7, §11.6.6, §11.7.2, §11.7.3, §11.7.4.2, §11.7.4.3
 (Table 146), §8.6.6.4, §8.6.6.5, §12.11 Table 275; traps 5, 11, 13, 41, 50, 51; ADRs 1228, 1229,
 1281, 1311, 1317; `doc/questions/A100`.

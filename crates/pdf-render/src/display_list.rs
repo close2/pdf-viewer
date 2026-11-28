@@ -752,6 +752,9 @@ pub struct DisplayList {
     /// §10.8.3's spot planes, where a reader asked for the simulation and the page names a spot
     /// colourant. See [`DisplayList::set_separated`].
     separation: Option<Box<crate::separation::SpotSeparation>>,
+    /// §10.8.3's simulated press under a page whose group composites in one or three components.
+    /// See [`DisplayList::set_press_conversion`].
+    press_conversion: Option<Box<crate::press_conversion::PressConversion>>,
     /// Every top-level command's device bound at the magnification last asked for — derived from
     /// the commands, invisible to equality and to `Debug`. See [`DisplayList::mark_bounds`].
     bounds: crate::reach::KeptBounds,
@@ -869,6 +872,9 @@ impl std::fmt::Debug for DisplayList {
         if let Some(separation) = &self.separation {
             fields.field("separation", separation);
         }
+        if let Some(conversion) = &self.press_conversion {
+            fields.field("press_conversion", conversion);
+        }
         fields.finish()
     }
 }
@@ -919,6 +925,7 @@ impl DisplayList {
             transfers: None,
             overprinting: false,
             separation: None,
+            press_conversion: None,
             bounds: crate::reach::KeptBounds::default(),
             taken_back: TakenBack::default(),
         }
@@ -1061,13 +1068,15 @@ impl DisplayList {
             transfers: None,
             overprinting: self.overprinting,
             separation: None,
+            press_conversion: None,
             bounds: crate::reach::KeptBounds::default(),
             taken_back: TakenBack::default(),
         }
     }
 
     /// This list with `commands` in place of its own: its clips, soft masks, page boundary,
-    /// blending curve or cube and overprinting carried over, and no plane drawn beside it.
+    /// blending curve or cube, conversion onto a simulated press and overprinting carried over,
+    /// and no plane drawn beside it.
     ///
     /// What [`crate::Window::copied`] builds a window's own list from. A caller keeps a list that
     /// carries §11.4.7's second raster, §11.7.5.2's channel or §10.8.3's spot planes whole, since
@@ -1088,6 +1097,7 @@ impl DisplayList {
             transfers: None,
             overprinting: self.overprinting,
             separation: None,
+            press_conversion: self.press_conversion.clone(),
             bounds: crate::reach::KeptBounds::default(),
             taken_back: TakenBack::default(),
         }
@@ -1201,6 +1211,30 @@ impl DisplayList {
     #[must_use]
     pub fn separation(&self) -> Option<&crate::separation::SpotSeparation> {
         self.separation.as_deref()
+    }
+
+    /// States that this page, whose group composites in one or three components, is drawn on
+    /// ISO 32000-2 §10.8.3's simulated press: its composited result is converted onto the press's
+    /// four inks through `conversion`'s cube and leaves through the press's own conversion.
+    ///
+    /// §10.5's functions on that device "shall always operate in the native colour space of the
+    /// output device", and §11.7.4.2 converts a group's result "to the device colour space" before
+    /// anything of the device's acts on it. A backend therefore splits the composited raster into
+    /// the press's pair with [`crate::press_conversion::split`] **instead of** the list's curve or
+    /// cube and step b)'s matte, and then composes it exactly as it composes a page carrying
+    /// [`DisplayList::set_blending`]'s pair — the functions on the planes, the spot planes
+    /// [`DisplayList::set_spot_planes`] states multiplied in with
+    /// [`crate::separation::resolve`] — before the medium. One that cannot refuses the list by
+    /// [`DisplayList::press_conversion`]. ADR 3857.
+    pub fn set_press_conversion(&mut self, conversion: crate::press_conversion::PressConversion) {
+        self.press_conversion = Some(Box::new(conversion));
+    }
+
+    /// §10.8.3's simulated press under a page whose group is not a press, where a reader asked for
+    /// the simulation.
+    #[must_use]
+    pub fn press_conversion(&self) -> Option<&crate::press_conversion::PressConversion> {
+        self.press_conversion.as_deref()
     }
 
     /// Substitutes `substitute(mode)` for every command's blend mode, groups and knockout shapes

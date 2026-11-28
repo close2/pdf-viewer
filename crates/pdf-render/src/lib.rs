@@ -39,6 +39,7 @@ pub mod medium;
 pub mod mitre;
 pub mod outline;
 pub mod paint;
+pub mod press_conversion;
 pub mod program;
 pub mod reach;
 pub mod repeat;
@@ -94,6 +95,7 @@ pub use paint::{
     ImageSource, LineCap, LineJoin, Overprint, Paint, Reduction, SampleAlpha, Stroke,
     device_hairline, paint_space, thinnest_line,
 };
+pub use press_conversion::{InkCube, PressConversion, split as split_onto_press};
 pub use program::{ProgramOperator, ProgramRange, ProgramStep, ShadingProgram};
 pub use reach::MarkBounds;
 pub use repeat::{Cell, Mark, Repeats, Tiles, repeated_subpaths, without_subpaths};

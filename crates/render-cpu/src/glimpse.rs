@@ -124,7 +124,10 @@ impl Showing {
 
     /// Whether `list` may be glimpsed at all — see the module's last section.
     pub(crate) fn admits(list: &DisplayList) -> bool {
-        list.blending().is_none() && list.separation().is_none() && list.transfers().is_none()
+        list.blending().is_none()
+            && list.separation().is_none()
+            && list.press_conversion().is_none()
+            && list.transfers().is_none()
     }
 }
 

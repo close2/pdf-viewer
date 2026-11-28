@@ -476,17 +476,10 @@ impl CpuRasterizer {
         list: &DisplayList,
         pixmap: &mut tiny_skia::Pixmap,
         space: &pdf_render::BlendingSpace,
-        black: &DisplayList,
+        mut ink: tiny_skia::Pixmap,
         whole: Surface,
     ) -> Result<(), CpuRasterError> {
         let target = whole.shown.target(whole.page);
-        let mut ink = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
-            CpuRasterError::Allocation {
-                width: target.width,
-                height: target.height,
-            },
-        )?;
-        self.encode_in_strips(&mut ink, black, whole)?;
         // §10.8.3's spot planes, drawn here rather than in the arm below so that §10.5's
         // functions can reach them with the process pair's.
         let mut spots = match list.separation() {
@@ -592,14 +585,42 @@ impl CpuRasterizer {
         // fourth, drawn on the same geometry under the same shapes and opacities, and the two
         // rasters are put back together here — *before* `impose_on_medium`, which is where
         // the clause puts the conversion. See `pdf_render::blending`.
-        if let (Some(space), Some(black)) = (list.blending(), list.black()) {
-            self.resolve_four_components(list, &mut pixmap, space, black, whole)?;
+        //
+        // §10.8.3 on a page whose group composites in one or three components: §11.7.4.2 converts
+        // the group's result "to the device colour space", the simulated press's, and from there
+        // it is the same pair, in place of the curve or the cube below (ADR 3857).
+        let onto_press = list
+            .press_conversion()
+            .filter(|_| list.blending().is_none());
+        let empty_plane = || {
+            tiny_skia::Pixmap::new(target.width, target.height).ok_or(CpuRasterError::Allocation {
+                width: target.width,
+                height: target.height,
+            })
+        };
+        let pair = match (list.blending(), list.black(), onto_press) {
+            (Some(space), Some(black), _) => {
+                let mut ink = empty_plane()?;
+                self.encode_in_strips(&mut ink, black, whole)?;
+                Some((space, ink))
+            }
+            (_, _, Some(conversion)) => {
+                let mut ink = empty_plane()?;
+                let split = pdf_render::split_onto_press(pixmap.data_mut(), conversion.inks());
+                ink.data_mut().copy_from_slice(&split);
+                Some((conversion.space(), ink))
+            }
+            _ => None,
+        };
+        if let Some((space, ink)) = pair {
+            self.resolve_four_components(list, &mut pixmap, space, ink, whole)?;
         }
-        // §10.8.3 on a page whose group composites in one or three components: the list is its
-        // own process separation, so step b)'s matte goes under it in its own components here,
-        // before the curve or the cube below takes it out of them (`pdf_render::separation`,
-        // ADR 1329).
-        let beside = list.separation().filter(|_| list.blending().is_none());
+        // Without a press, such a page's list is its own process separation, so step b)'s matte
+        // goes under it in its own components here, before the curve or the cube below takes it
+        // out of them (`pdf_render::separation`, ADR 1329).
+        let beside = list
+            .separation()
+            .filter(|_| list.blending().is_none() && onto_press.is_none());
         if beside.is_some() {
             pdf_render::separation_matte(pixmap.data_mut());
         }
@@ -607,13 +628,13 @@ impl CpuRasterizer {
         // curve (`CalGray`, an `ICCBased` 'GRAY' profile): the page composited its component
         // in every channel, and the curve is applied here, at the same point — before the
         // medium. See `pdf_render::blending::GreyCurve`.
-        if let Some(curve) = list.grey_curve() {
+        if let Some(curve) = list.grey_curve().filter(|_| onto_press.is_none()) {
             pdf_render::resolve_grey(pixmap.data_mut(), curve);
         }
         // And for a space of three CIE-based components (`CalRGB`, an `ICCBased` 'RGB '
         // profile): the page composited the space's components, and the cube they leave by
         // is applied at the same point. See `pdf_render::blending::ColourCube`.
-        if let Some(cube) = list.colour_cube() {
+        if let Some(cube) = list.colour_cube().filter(|_| onto_press.is_none()) {
             pdf_render::resolve_cube(pixmap.data_mut(), cube);
         }
         // And the spot planes multiplied into the device colour the process separation became —

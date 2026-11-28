@@ -876,6 +876,17 @@ impl Rasterizer for GpuRasterizer {
                     .to_owned(),
             ));
         }
+        // And the same press under a page whose group composites in one or three components: its
+        // result is converted onto the press's four inks at every pixel and leaves through the
+        // press's own conversion (`pdf_render::press_conversion`, ADR 3857), a pass over the
+        // scene's result this backend has no place for.
+        if list.press_conversion().is_some() {
+            return Err(GpuRasterError::UnsupportedCommand(
+                "a page drawn on §10.8.3's simulated press from a page group of one or three \
+                 components"
+                    .to_owned(),
+            ));
+        }
         // §11.4.7's page group in a four-component blending space is drawn twice and the two
         // rasters put back together (`pdf_render::blending`); a Vello scene renders one, and
         // this backend has no place to hold the second. Refused by name, which sends the frame

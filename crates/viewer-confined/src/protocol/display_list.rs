@@ -69,10 +69,11 @@ use std::sync::Arc;
 
 use pdf_render::{
     BlackHalf, BlendMode, BlendingSpace, Clip, ClipId, Color, ColourCube, Command, Corners,
-    DisplayList, FillRule, GreyCurve, GroupBlending, Image, ImageSource, LineCap, LineJoin,
-    Luminance, MAX_GROUP_DEPTH, Paint, PatchCorners, PatchGrid, PatchMesh, Path, PathCommand,
-    Point, Ramp, Rect, SampleAlpha, Shading, ShadingKind, Size, SoftMask, SoftMaskId, SoftMaskKind,
-    SpotColourant, SpotSeparation, Stop, Stroke, SurfacePatch, Transfer, Transform, Triangle,
+    DisplayList, FillRule, GreyCurve, GroupBlending, Image, ImageSource, InkCube, LineCap,
+    LineJoin, Luminance, MAX_GROUP_DEPTH, Paint, PatchCorners, PatchGrid, PatchMesh, Path,
+    PathCommand, Point, PressConversion, Ramp, Rect, SampleAlpha, Shading, ShadingKind, Size,
+    SoftMask, SoftMaskId, SoftMaskKind, SpotColourant, SpotSeparation, Stop, Stroke, SurfacePatch,
+    Transfer, Transform, Triangle,
 };
 
 use super::{ProtocolError, Reader, Writer};
@@ -532,6 +533,12 @@ fn write_list(
         _ => {
             writer.u8(0);
         }
+    }
+    // §10.8.3's simulated press under a page whose group composites in one or three components:
+    // the cube onto the press's inks and the press's conversion out (`DisplayList::
+    // set_press_conversion`, ADR 3857). A page's alone, as every shape above is.
+    if page {
+        write_press_conversion(writer, list.press_conversion());
     }
     Ok(())
 }
@@ -1074,6 +1081,25 @@ fn write_separation(
     Ok(())
 }
 
+/// A page's conversion onto §10.8.3's simulated press, or a zero byte where it has none.
+fn write_press_conversion(writer: &mut Writer, conversion: Option<&PressConversion>) {
+    let Some(conversion) = conversion else {
+        writer.u8(0);
+        return;
+    };
+    writer.u8(1);
+    let inks = conversion.inks();
+    writer.usize(inks.components());
+    writer.usize(inks.side());
+    writer.usize(inks.grid().len());
+    for sample in inks.grid() {
+        for ink in sample {
+            writer.f32(*ink);
+        }
+    }
+    write_blending_space(writer, conversion.space());
+}
+
 fn write_grey_curve(writer: &mut Writer, curve: &GreyCurve) {
     writer.usize(curve.samples().len());
     for sample in curve.samples() {
@@ -1271,6 +1297,8 @@ mod least {
     pub(super) const DASH: usize = 4;
     /// A blending grid sample: three components.
     pub(super) const SAMPLE: usize = 12;
+    /// An ink cube's sample: four inks.
+    pub(super) const INKS: usize = 16;
 }
 
 /// Everything one table-and-body pair decodes to. `page` mirrors [`write_list`]'s.
@@ -1405,7 +1433,46 @@ fn read_blending(
             });
         }
     }
+    if page && let Some(conversion) = read_press_conversion(reader)? {
+        list.set_press_conversion(conversion);
+    }
     Ok(())
+}
+
+/// [`write_press_conversion`]'s statement, read back: `None` where the page states none.
+fn read_press_conversion(
+    reader: &mut Reader<'_>,
+) -> Result<Option<PressConversion>, ProtocolError> {
+    match reader.u8("a page's conversion onto a simulated press")? {
+        0 => Ok(None),
+        1 => {
+            let components = reader.usize("an ink cube's components")?;
+            let side = reader.usize("an ink cube's side")?;
+            let grid = table(reader, "an ink cube's grid", least::INKS, |reader| {
+                let mut sample = [0.0_f32; 4];
+                for ink in &mut sample {
+                    *ink = reader.f32("an ink cube's sample")?;
+                }
+                Ok(sample)
+            })?;
+            // `InkCube::new` owns the conditions — one or three components, two samples an axis
+            // and `sideⁿ` of them — so the refusal is its answer, as the cube's is.
+            let inks = InkCube::new(components, side, Arc::from(grid)).ok_or(
+                ProtocolError::Unbuildable {
+                    what: "an ink cube",
+                    why: "its stated components, side and sample count are not a grid",
+                },
+            )?;
+            Ok(Some(PressConversion::new(
+                inks,
+                read_blending_space(reader)?,
+            )))
+        }
+        value => Err(ProtocolError::Unrecognised {
+            what: "a page's conversion onto a simulated press",
+            value: u32::from(value),
+        }),
+    }
 }
 
 /// The clip table, rebuilt in the message's own order.
@@ -2754,6 +2821,29 @@ mod tests {
             let back = decode(&bytes).expect("what this encoder wrote");
             assert_eq!(back, own, "way out {way_out}");
             assert_eq!(back.separation(), Some(&separation));
+        }
+
+        // And the same page carried onto the simulated press (ADR 3857): a cube of three
+        // components or a curve of one onto the press's four inks, and the press's conversion
+        // out, with the spot planes and without.
+        for (components, samples) in [(1usize, 2usize), (3, 8)] {
+            let side = 2usize;
+            let grid: Vec<[f32; 4]> = (0..samples)
+                .map(|index| [index as f32 / 8.0, 0.25, 0.5, 0.75])
+                .collect();
+            let inks = InkCube::new(components, side, Arc::from(grid)).expect("a grid of side two");
+            let conversion = PressConversion::new(inks, a_blending_space());
+            for spots in [false, true] {
+                let mut own = plane(0.5);
+                own.set_press_conversion(conversion.clone());
+                if spots {
+                    own.set_spot_planes(separation.clone());
+                }
+                let bytes = encode(&own).expect("a list with no deferred producer");
+                let back = decode(&bytes).expect("what this encoder wrote");
+                assert_eq!(back, own, "{components} component(s), spots {spots}");
+                assert_eq!(back.press_conversion(), Some(&conversion));
+            }
         }
 
         // A spot plane that itself states a separation is refused on the way in: `write_list`

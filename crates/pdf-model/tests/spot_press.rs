@@ -319,11 +319,14 @@ fn linear_srgb_profile() -> Vec<u8> {
 /// process separation is the page in its own three components, where LogoGreen painted
 /// "an additive value of 1.0", white, so LogoGreen at 0.5 alone is (134, 198, 183) as on a page with
 /// no group. And over an RGB yellow under overprint, Table 146's "Separation or DeviceN" row keeps
-/// the process components — 𝐶𝑏 under `OP true` — so step c) multiplies the two: RGB yellow is linear
-/// (1, 1, 0), whose flat XYZ over D50 is (0.8516, 0.9394, 0.1346); times LogoGreen's (0.1612,
-/// 0.2309, 0.2429) and D50 it is XYZ (0.1324, 0.2169, 0.0270), which step d) takes to linear sRGB
-/// (0.0509, 0.2870, −0.0022) and to eight bits (64, 146, 0). Drawn one operation at a time, as the
-/// page was before, the last mark is LogoGreen's alternate over the yellow, (33, 148, 134).
+/// the process components — 𝐶𝑏 under `OP true` — so step c) multiplies the two. §11.7.4.2 converts
+/// the group's result "to the device colour space" first (ADR 3857): sRGB yellow is outside the
+/// assumed press's gamut, and the inks nearest it are process yellow alone, which the press prints
+/// as (255, 242, 0) — linear (1, 0.8879, 0), whose flat XYZ over D50 is (0.8069, 0.8591, 0.1214).
+/// Times LogoGreen's (0.1612, 0.2309, 0.2429) and D50 it is XYZ (0.1254, 0.1984, 0.0243), which
+/// step d) takes to linear sRGB (0.0604, 0.2581, −0.0022) and to eight bits (70, 139, 0) — the
+/// product a page stating no group draws for the same marks. Drawn one operation at a time, the
+/// last mark is LogoGreen's alternate over the yellow, (33, 148, 134).
 #[test]
 fn a_device_rgb_page_group_is_separated() {
     assert_near(
@@ -337,15 +340,16 @@ fn a_device_rgb_page_group_is_separated() {
             &[],
             "1 1 0 rg 0 0 40 40 re f /OP gs /LG cs 1 scn 0 0 40 40 re f",
         )),
-        [64, 146, 0],
+        [70, 139, 0],
         "RGB yellow times LogoGreen",
     );
 }
 
 /// A process mark over LogoGreen on a `/DeviceRGB` page group: without overprint it erases the
 /// spot — §11.7.4.2's "additive value of 1.0 … shall have the effect of erasing those components" —
-/// and the page is RGB yellow alone, (255, 255, 0); under overprint Table 146's "Any process colour
-/// space" row keeps the spot colourant, 𝐶𝑏, and the page is the product (64, 146, 0) again.
+/// and the page is RGB yellow alone as the press prints it, process yellow's (255, 242, 0); under
+/// overprint Table 146's "Any process colour space" row keeps the spot colourant, 𝐶𝑏, and the page
+/// is the product (70, 139, 0) again.
 #[test]
 fn a_process_mark_on_an_rgb_page_keeps_the_spot_only_where_it_overprints() {
     assert_near(
@@ -354,7 +358,7 @@ fn a_process_mark_on_an_rgb_page_keeps_the_spot_only_where_it_overprints() {
             &[],
             "/LG cs 1 scn 0 0 40 40 re f 1 1 0 rg 0 0 40 40 re f",
         )),
-        [255, 255, 0],
+        [255, 242, 0],
         "no overprint: yellow erases LogoGreen",
     );
     assert_near(
@@ -363,7 +367,7 @@ fn a_process_mark_on_an_rgb_page_keeps_the_spot_only_where_it_overprints() {
             &[],
             "/LG cs 1 scn 0 0 40 40 re f /OP gs 1 1 0 rg 0 0 40 40 re f",
         )),
-        [64, 146, 0],
+        [70, 139, 0],
         "overprint: LogoGreen kept under the yellow",
     );
 }

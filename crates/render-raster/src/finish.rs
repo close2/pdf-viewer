@@ -41,6 +41,7 @@ pub(crate) fn converts(list: &DisplayList) -> bool {
         || list.grey_curve().is_some()
         || list.colour_cube().is_some()
         || list.separation().is_some()
+        || list.press_conversion().is_some()
 }
 
 /// Whether a picture of the page the device composited is not yet the page: [`converts`], or
@@ -83,12 +84,19 @@ pub(crate) fn finish(
     // The one-component form of the same clause — a `CalGray` or `ICCBased` 'GRAY' page group,
     // whose composited component leaves through a curve (`pdf_render::blending::GreyCurve`) — and
     // the three-component form, through a cube (`pdf_render::blending::ColourCube`).
-    let one_component = list.grey_curve();
-    let three_components = list.colour_cube();
-    // §10.8.3 on a page whose group composites in one or three components: the list is its own
-    // process separation and the spot planes are multiplied into it after the curve or the cube
-    // (ADR 1329).
-    let beside = list.separation().filter(|_| four_components.is_none());
+    // §10.8.3 on a page whose group composites in one or three components: the list's result is
+    // converted onto the simulated press's four inks in place of its curve or cube, and is from
+    // then on the pair a four-component page is drawn as (ADR 3857).
+    let onto_press = list
+        .press_conversion()
+        .filter(|_| four_components.is_none());
+    let one_component = list.grey_curve().filter(|_| onto_press.is_none());
+    let three_components = list.colour_cube().filter(|_| onto_press.is_none());
+    // Without a press, such a page's list is its own process separation and the spot planes are
+    // multiplied into it after the curve or the cube (ADR 1329).
+    let beside = list
+        .separation()
+        .filter(|_| four_components.is_none() && onto_press.is_none());
     // §14.11.2.1's clip, which belongs to the page rather than to the medium. `None` for a
     // page-sized target, where the raster's own edge is already the boundary.
     let crop = pdf_render::crop_area(list, target);
@@ -100,9 +108,21 @@ pub(crate) fn finish(
     // transparent pixel.
     if !imposed && (converts(list) || medium.marks_anything() || crop.is_some()) {
         premultiply(data);
-        if let Some((space, black)) = four_components {
-            let mut ink = draw(black, Plane::Ink)?;
-            premultiply(&mut ink);
+        let pair = match (four_components, onto_press) {
+            (Some((space, black)), _) => {
+                let mut ink = draw(black, Plane::Ink)?;
+                premultiply(&mut ink);
+                Some((space, ink))
+            }
+            // §11.7.4.2: the group's result "converted to the device colour space", which is
+            // the press's pair from here on (`pdf_render::press_conversion::split`).
+            (None, Some(conversion)) => Some((
+                conversion.space(),
+                pdf_render::split_onto_press(data, conversion.inks()),
+            )),
+            (None, None) => None,
+        };
+        if let Some((space, mut ink)) = pair {
             // §10.8.3's spot planes: every one is one more whole render against the same device.
             let mut spots = match list.separation() {
                 Some(separation) => spot_planes(separation, &mut draw)?,
