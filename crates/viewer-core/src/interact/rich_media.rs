@@ -19,7 +19,8 @@
 //! **What is not played** — the `3D` configuration, whose rendering is excluded, and a
 //! configuration the players do not take — keeps ADR 3819's answer on a press: said by name, the
 //! annotation in §13.7.2.1's inactive state, and the assets handed over as files to save (ADR
-//! 2399). A page's condition activates nothing such, and says nothing either: no person asked.
+//! 2399), with the view it would have invoked said as `pdf_model` reads it (ADR 3881). A page's
+//! condition activates nothing such, and says nothing either: no person asked.
 
 use pdf_model::action::Trigger;
 use pdf_model::media::rich_media::{self, Activation, Deactivation};
@@ -62,11 +63,20 @@ pub(super) fn pressed(open: &Open, annotation: ObjectId, dict: &Dictionary, outc
             &format!("{subject} is activated"),
             outcome,
         ),
-        Err(why) => outcome.notes.push(format!(
-            "{subject}'s content is not shown — {why} (ISO 32000-2 §13.7), so the annotation keeps \
-             its normal appearance, §13.7.2.1's inactive state; the press hands its assets over as \
-             files to save (ADR 2399)"
-        )),
+        Err(why) => {
+            outcome.notes.push(format!(
+                "{subject}'s content is not shown — {why} (ISO 32000-2 §13.7), so the annotation \
+                 keeps its normal appearance, §13.7.2.1's inactive state; the press hands its \
+                 assets over as files to save (ADR 2399)"
+            ));
+            // The view the activation would have invoked is still read, so that a snapshot or
+            // state data the file states is said rather than passed over (ADR 3881).
+            if let Some(view) = rich_media::invoked_view(&open.document, dict) {
+                outcome
+                    .notes
+                    .extend(view.notes.iter().map(|note| format!("{subject} — {note}")));
+            }
+        }
     }
 }
 

@@ -188,6 +188,9 @@ published pairs (`doc/questions/A308`, ADR 1916).
 - §13.2.5 — Table 291's /F 3, "A scrolling user interface shall be provided": no window provides
   one over a screen annotation, so it is non-viable in MH and set aside in BE; the other values fit
   the picture (ADR 3553).
+- §13.7.2.3.5 — Table 344's /Snapshot, "shall be displayed in place of the current artwork": read
+  and said, not displayed, until the players tell the core when a clip associated with an
+  annotation leaves their hands, Table 336's `XD` (ADR 3881, `doc/todo/80` section 1 step 4).
 
 §13.4 is `implemented`: a negative `/Rate` and `Palindrome` play backward (ADRs 3837, 3841 to
 3843), and Table 307's `/Synchronous` holds the window until the movie is completed or dismissed
@@ -308,6 +311,8 @@ exactly the rows `Ledger::is_aggregate` names and the frontier gate fails on any
 §12.10 — over the projected coordinate system row, the projection methods past the thirteen (ADR 3823).
 
 §13.2 — over the media play parameters row, Table 291's /F 3's scrolling interface (ADR 3553).
+
+§13.7, §13.7.2 and §13.7.2.3 — over the view dictionary row, Table 344's snapshot (ADR 3881).
 
 The three before it, §12.6, §12.6.4 and §12.6.4.14, are `implemented`, the window holding the
 association a rendition's stop, pause and resume act through (ADR 3433).

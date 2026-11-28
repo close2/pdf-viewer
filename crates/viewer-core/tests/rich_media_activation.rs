@@ -298,3 +298,21 @@ fn the_presentation_style_decides_the_rectangle_or_a_window_of_its_own() {
         "{notes:?}"
     );
 }
+
+/// A press on a `3D` configuration, which is refused, still says the view its activation would
+/// have invoked: here Table 344's `/Params`, whose state data the rich media run time would pass
+/// and this program does not run (ISO 32000-2 §13.7.2.3.6.3, ADR 3881).
+#[test]
+fn a_refused_configuration_says_the_view_its_activation_would_invoke() {
+    let settings = "<< /Activation << /View << /XN (v) /Params [<< /Instance 6 0 R /Data (s) >>] \
+                    >> >> >>";
+    let (mut viewer, _, _) = opened(document(0, settings, "3D", "model#2Fu3d"));
+    let events = pressed(&mut viewer).expect("the page has a geometry");
+    assert!(played(&events).is_empty(), "{events:?}");
+    assert!(
+        said(&events)
+            .iter()
+            .any(|sentence| sentence.contains("/Params' 1 state data")),
+        "{events:?}"
+    );
+}

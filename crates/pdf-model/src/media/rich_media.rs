@@ -1,8 +1,8 @@
 //! A rich media annotation's settings, presentation and configuration, as far as this program's
 //! sound and video players present them: ISO 32000-2 §13.7.2.2's activation and deactivation
 //! conditions (Tables 334 to 336), its presentation (Tables 338 to 340) and §13.7.2.3.3's
-//! configuration and instances (Tables 341 to 343), read for `doc/todo/80` section 1's first three
-//! steps (ADRs 3854, 3855, 3865 to 3867).
+//! configuration and instances (Tables 341 to 343), its view (Tables 344 and 345) and its animation
+//! (Table 337), read for `doc/todo/80` section 1 (ADRs 3854, 3855, 3865 to 3867, 3881, 3882).
 //!
 //! **What is read.** Table 335's `/Condition` — `XA`, `PO`, `PV` — says when the annotation is
 //! activated, and Table 336's — `XD`, `PC`, `PI` — when it is deactivated; [`settings`] answers both.
@@ -19,8 +19,10 @@
 //! [`activated`]'s `Err`, a sentence a person is told. Table 335's `/Scripts`, which "shall be
 //! executed … by the rich media run time ECMAScript interpreter", is that run time's, ISO
 //! 21757-1's, which the JavaScript exclusion keeps out; a configuration that plays says so in
-//! [`Clip::unhonoured`]. Table 335's `/Animation` and `/View` are later steps of `doc/todo/80`
-//! section 1 and are said the same way where an activation states them.
+//! [`Clip::unhonoured`]. Table 335's `/View` and `/Animation` are read in `views`: the view's
+//! 3D scene, its snapshot and its state data said as the players read them ([`invoked_view`], ADR
+//! 3881), and Table 337's animation, which drives keyframe animations a clip does not carry, set
+//! aside by name ([`animation`], ADR 3882).
 //!
 //! **The asset's type is Table 44's `/Subtype`, else its file name's extension.** §13.7 names no
 //! format for either configuration (RFC 0015 section 10.1), and Table 343's "the subtype shall
@@ -30,6 +32,10 @@
 //! played, and that is said.
 
 use pdf_syntax::{Dictionary, Document, Object};
+
+mod views;
+
+pub use views::{Animation, AnimationStyle, View, animation};
 
 use super::container;
 use super::deprecated::{content_type, file};
@@ -213,11 +219,17 @@ pub fn activated(
                     .to_owned(),
             );
         }
-        for key in ["Animation", "View"] {
-            if !matches!(document.get_key(activation, key), Object::Null) {
-                unhonoured.push(format!("Table 335's /{key}"));
-            }
+        // Table 337 drives keyframe animations, which a sound or video clip does not carry
+        // (ADR 3882).
+        if let Some(animation) = animation(document, activation) {
+            notes.extend(animation.notes.iter().cloned());
+            unhonoured.extend(animation.set_aside());
         }
+    }
+    // The view activation invokes: Table 315's scene, Table 344's snapshot and its state data,
+    // each said as this program's players read it (ADR 3881).
+    if let Some(view) = invoked_view(document, annotation) {
+        notes.extend(view.notes);
     }
     let shown = presentation(document, activation.as_ref());
     notes.extend(shown.notes.iter().cloned());
@@ -880,6 +892,22 @@ fn asset_type(data: &Data, video: bool) -> Option<(String, bool)> {
 }
 
 /// Whether `annotation` is Table 333's `RichMedia` annotation.
+/// The view a rich media annotation's activation invokes — Table 335's `/View`, else the first of
+/// Table 341's `/Views` — read for the configuration activation loads (ADR 3881);
+/// `None` for an annotation of another subtype, with no content, or stating no view.
+#[must_use]
+pub fn invoked_view(document: &Document, annotation: &Dictionary) -> Option<View> {
+    // not a repair: an annotation whose activation loads no configuration invokes no view, and
+    //   `activated` says why it loads none.
+    let (activation, configuration) = configuration(document, annotation).ok()?;
+    let content = document.get_key(annotation, "RichMediaContent");
+    let three_d = document
+        .get_key(&configuration, "Subtype")
+        .as_name()
+        .is_some_and(|kind| kind.as_bytes() == b"3D");
+    views::view(document, activation.as_ref(), content.as_dict()?, three_d)
+}
+
 fn is_rich_media(document: &Document, annotation: &Dictionary) -> bool {
     document
         .get_key(annotation, "Subtype")
@@ -1211,5 +1239,44 @@ mod tests {
         let doc = rich_media("<< >>", "Sound", "video#2Fmp4");
         let refused = activated(&doc, &annotation(&doc), windowing()).expect_err("a mismatch");
         assert!(refused.contains("shall match"), "{refused}");
+    }
+
+    /// Table 335's `/Animation` and `/View` reach the clip played: a `Linear` animation is set
+    /// aside by name, since a clip carries no keyframe animation (ADR 3882), and the view's
+    /// reading — here a direct view whose snapshot is no image — is said beside it (ADR 3881).
+    #[test]
+    fn the_activations_animation_and_view_are_said_beside_the_clip() {
+        let doc = rich_media(
+            "<< /Activation << /Animation << /Subtype /Linear /PlayCount 2 >> /View << /XN (v) \
+             /Snapshot 5 0 R >> >> >>",
+            "Video",
+            "video#2Fmp4",
+        );
+        let played = activated(&doc, &annotation(&doc), players(Players::AlsoVideoHere))
+            .expect("a video the host shows");
+        assert!(
+            played.clip.unhonoured.iter().any(|entry| entry
+                .starts_with("Table 337's /Subtype Linear, played 2 time(s) at speed 1")),
+            "{:?}",
+            played.clip.unhonoured
+        );
+        assert!(
+            played
+                .notes
+                .iter()
+                .any(|note| note.contains("/View is a direct object")),
+            "{:?}",
+            played.notes
+        );
+        assert!(
+            played
+                .notes
+                .iter()
+                .any(|note| note.contains("not a stream holding an image XObject")),
+            "{:?}",
+            played.notes
+        );
+        let view = super::invoked_view(&doc, &annotation(&doc)).expect("a view is stated");
+        assert_eq!((view.snapshot, view.params), (None, 0));
     }
 }
