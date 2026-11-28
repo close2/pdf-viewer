@@ -69,12 +69,6 @@ fn every_reference_in_the_table_resolves() {
             Err(Refusal::EpsgMethod { method_code, .. }) => {
                 assert!(method(u32::try_from(method_code).expect("a code")).is_none());
             }
-            // The one record the generator's source cannot carry: PROJ's conversion table holds
-            // seven parameters, and Krovak Modified's polynomial is twelve more (ADR 3875).
-            Err(Refusal::MissingParameter {
-                method: "Krovak Modified" | "Krovak Modified (North Orientated)",
-                parameter: "ordinate 1 of evaluation point",
-            }) => {}
             Err(refusal) => panic!("EPSG {code}: {refusal}"),
         }
     }
@@ -405,9 +399,8 @@ fn modified_krovak(method: ProjectionMethod) -> Projection {
 #[test]
 fn krovak_modified_reproduces_the_s_jtsk_05_examples() {
     // Sections 3.1.2.3 and 3.1.2.4's examples, for the same point: the southing 6050538.71 m and
-    // westing 5568990.91 m, and negated for the north-orientated grid. The carried table states
-    // the polynomial of neither system (its conversions hold seven parameters), so the examples are
-    // built from the section's parameters, and the codes are refused by the parameter they lack.
+    // westing 5568990.91 m, and negated for the north-orientated grid, from the section's printed
+    // parameters; `krovak_modified_reproduces_the_examples_through_its_codes` reads the table's.
     let point = LatLon {
         latitude: dms(50.0, 12.0, 32.442).to_radians(),
         longitude: dms(34.0, 30.0, 59.179).to_radians(),
@@ -433,17 +426,27 @@ fn krovak_modified_reproduces_the_s_jtsk_05_examples() {
             "{method:?}: {back:?}"
         );
     }
-    for code in [5224, 5225] {
-        assert!(
-            matches!(
-                system(code),
-                Err(Refusal::MissingParameter {
-                    parameter: "ordinate 1 of evaluation point",
-                    ..
-                })
-            ),
-            "EPSG {code}: {:?}",
-            system(code)
+}
+
+#[test]
+fn krovak_modified_reproduces_the_examples_through_its_codes() {
+    // The same examples through the table, whose evaluation point and C1 to C10 are the registry's
+    // (ADR 3897): S-JTSK/05 (Ferro) / Modified Krovak (EPSG 5224) and its East North form (5225),
+    // carried westing first. The Greenwich forms (5515, 5516) take the same point 17°40′ west of
+    // Ferro, the Dataset's Ferro meridian (EPSG 8909), and so the same grid point:
+    // 34°30′59.179″ − 17°40′ = 16°50′59.179″.
+    let latitude = dms(50.0, 12.0, 32.442);
+    for (code, longitude, sign) in [
+        (5224, dms(34.0, 30.0, 59.179), 1.0),
+        (5225, dms(34.0, 30.0, 59.179), -1.0),
+        (5515, dms(16.0, 50.0, 59.179), 1.0),
+        (5516, dms(16.0, 50.0, 59.179), -1.0),
+    ] {
+        worked_example(
+            code,
+            [latitude, longitude],
+            [sign * 5_568_990.91, sign * 6_050_538.71],
+            0.01,
         );
     }
 }

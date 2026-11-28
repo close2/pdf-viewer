@@ -26,11 +26,23 @@ engineering systems are not taken: section 12.10.3's `/GCS` is a geographic or a
 states it, so a parameter stated in sexagesimal DMS stays a sexagesimal DMS number and is converted
 where it is read, never here. Only a whole number gains `.0`, the spelling a Rust `f64` literal
 needs.
+
+**Parameters past the seventh.** PROJ's `conversion` table has seven parameter slots, and Krovak
+Modified and its North Orientated form (methods 1042 and 1043, Guidance Note 7-2 sections 3.1.2.3
+and 3.1.2.4) state nineteen: the evaluation point (8617, 8618) and C1 to C10 (1026 to 1035) are
+not in PROJ's export at all. Those twelve are read from IOGP's own registry, the EPSG Dataset's
+public API (`REGISTRY_URL`, no account and no form), one record per conversion, which `--fetch`
+saves under `$PDF_VIEWER_SCRATCH/epsg/registry/` (ADR 3897). A record is refused unless the
+SHA-256 of its parameter list (one `code value unit` line each, in the record's order, every
+number as the API's text spells it) is the one `REGISTRY_SHA256` pins, and unless its first
+seven parameters are PROJ's seven, code, value and unit. A used conversion of either method that
+`REGISTRY_SHA256` does not name stops the generator by its code.
 """
 
 import argparse
 import hashlib
 import io
+import json
 import os
 import sys
 import tarfile
@@ -41,6 +53,17 @@ PROJ_TAG = "9.9.0"
 PROJ_URL = f"https://download.osgeo.org/proj/proj-{PROJ_TAG}.tar.gz"
 PROJ_SHA256 = "791a0610547eeabb17006cfd49cdbd2034f3240f47ed5e88a1031811f4e2bcf3"
 EPSG_VERSION = "v13.102"
+
+# The methods whose conversions state parameters past PROJ's seven slots, and the registry
+# records that carry them, each pinned by the digest of its parameter list (see the docstring).
+REGISTRY_METHODS = {1042, 1043}
+REGISTRY_URL = "https://apps.epsg.org/api/v1/Conversion/{code}/"
+REGISTRY_SHA256 = {
+    5219: "fd558013fe2c74d6908ca9b742339a7577b4ccf4411bb3e25d6b724f676477fe",
+    5220: "fd558013fe2c74d6908ca9b742339a7577b4ccf4411bb3e25d6b724f676477fe",
+    5511: "e9c27eac1b3bd97e5de6156e9a7730812106133ec92f4c379460f56b889d7f44",
+    5512: "e9c27eac1b3bd97e5de6156e9a7730812106133ec92f4c379460f56b889d7f44",
+}
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "crates/pdf-model/src/geospatial/epsg/dataset.rs"
@@ -55,8 +78,29 @@ def default_source() -> Path:
     return cache_dir() / f"proj-{PROJ_TAG}" / "data" / "sql"
 
 
+def registry_dir() -> Path:
+    return cache_dir() / "registry"
+
+
+def registry_parameters(directory: Path, conversion: int) -> list:
+    """One conversion's parameters from its saved registry record, as `(code, value text, unit)`
+    in the record's order, refused unless their digest is the pinned one."""
+    path = directory / f"conversion-{conversion}.json"
+    record = json.loads(path.read_text(encoding="utf-8"), parse_float=str, parse_int=str)
+    found = [
+        (int(p["ParameterCode"]), p["ParameterValue"], int(p["Unit"]["Code"]))
+        for p in sorted(record["ParameterValues"], key=lambda p: int(p["SortOrder"]))
+    ]
+    canonical = "".join(f"{c} {v} {u}\n" for c, v, u in found)
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    if digest != REGISTRY_SHA256[conversion]:
+        sys.exit(f"{path}: parameter list SHA-256 {digest}, not the pinned {REGISTRY_SHA256[conversion]}")
+    return found
+
+
 def fetch() -> None:
-    """Downloads the pinned archive, checks its digest, and unpacks `data/sql/` only."""
+    """Downloads the pinned archive, checks its digest, and unpacks `data/sql/` only; then saves
+    the registry records `REGISTRY_SHA256` names and checks theirs."""
     target = cache_dir()
     target.mkdir(parents=True, exist_ok=True)
     archive = target / f"proj-{PROJ_TAG}.tar.gz"
@@ -74,6 +118,17 @@ def fetch() -> None:
             and "/" not in m.name[len(prefix):]
         ]
         tar.extractall(target, members=members, filter="data")
+    registry = registry_dir()
+    registry.mkdir(parents=True, exist_ok=True)
+    for conversion in sorted(REGISTRY_SHA256):
+        path = registry / f"conversion-{conversion}.json"
+        if not path.exists():
+            request = urllib.request.Request(
+                REGISTRY_URL.format(code=conversion), headers={"User-Agent": "epsg-table.py"}
+            )
+            with urllib.request.urlopen(request) as response:
+                path.write_bytes(response.read())
+        registry_parameters(registry, conversion)
     print(default_source())
 
 
@@ -142,7 +197,7 @@ def rust_str(text: str) -> str:
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def generate(source: Path) -> str:
+def generate(source: Path, registry: Path) -> str:
     metadata = {r[0]: r[1] for r in rows(source, "metadata.sql", "metadata", 2)}
     if metadata.get("EPSG.VERSION") != EPSG_VERSION:
         sys.exit(f"{source}: EPSG {metadata.get('EPSG.VERSION')}, not the pinned {EPSG_VERSION}")
@@ -201,12 +256,31 @@ def generate(source: Path) -> str:
     used_units |= {p[3] for p in projected.values()}
     used_units |= {code(ellipsoids[e][8]) for e in used_ellipsoids}
     used_units |= {code(meridians[m][5]) for m in used_meridians}
-    for c in used_conversions:
+    def parameters(c: int) -> list:
+        """A conversion's parameters as `(code, Rust literal, unit)`: PROJ's seven slots, and
+        for the methods past them the registry's record from the eighth on."""
         r = conversions[c]
+        found = []
         for k in range(7):
             base = 7 + 6 * k
-            if r[base + 1] is not None and r[base + 3] is not None:
-                used_units.add(code(r[base + 5]))
+            if r[base + 1] is None or r[base + 3] is None:
+                continue
+            found.append((code(r[base + 1]), number(r[base + 3]), code(r[base + 5])))
+        if code(r[5]) not in REGISTRY_METHODS:
+            return found
+        if c not in REGISTRY_SHA256:
+            sys.exit(
+                f"conversion {c}: method {code(r[5])} states parameters past PROJ's seven, "
+                "and no registry record is pinned"
+            )
+        stated = registry_parameters(registry, c)
+        head = [(p, float(v), u) for p, v, u in stated[: len(found)]]
+        if head != [(p, float(v), u) for p, v, u in found]:
+            sys.exit(f"conversion {c}: the registry's first parameters {head} are not PROJ's {found}")
+        return found + [(p, number(("#", v)), u) for p, v, u in stated[len(found):]]
+
+    for c in used_conversions:
+        used_units |= {u for _, _, u in parameters(c)}
 
     out = io.StringIO()
     w = out.write
@@ -268,14 +342,8 @@ def generate(source: Path) -> str:
     w("/// Conversions, by code: the method and each parameter's code, value and unit.\n")
     w("pub(super) static CONVERSIONS: &[Conversion] = &[\n")
     for c in sorted(used_conversions):
-        r = conversions[c]
-        params = []
-        for k in range(7):
-            base = 7 + 6 * k
-            if r[base + 1] is None or r[base + 3] is None:
-                continue
-            params.append(f"Parameter({code(r[base + 1])}, {number(r[base + 3])}, {code(r[base + 5])})")
-        w(f"    Conversion({c}, {code(r[5])}, &[{', '.join(params)}]),\n")
+        params = [f"Parameter({p}, {v}, {u})" for p, v, u in parameters(c)]
+        w(f"    Conversion({c}, {code(conversions[c][5])}, &[{', '.join(params)}]),\n")
     w("];\n\n")
 
     w("/// Projected systems over a geographic one, by code: the base, the conversion, the unit of\n")
@@ -298,13 +366,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--fetch", action="store_true", help="download and unpack the pinned archive")
     parser.add_argument("--source", type=Path, default=None, help="PROJ's data/sql directory")
+    parser.add_argument("--registry", type=Path, default=None, help="the saved registry records")
     parser.add_argument("--out", type=Path, default=OUT)
     parser.add_argument("--check", action="store_true", help="compare with --out, write nothing")
     args = parser.parse_args()
     if args.fetch:
         fetch()
         return
-    text = generate(args.source or default_source())
+    text = generate(args.source or default_source(), args.registry or registry_dir())
     if args.check:
         if not args.out.exists() or args.out.read_text(encoding="utf-8") != text:
             sys.exit(f"{args.out} is not what PROJ {PROJ_TAG}'s data/sql generates")

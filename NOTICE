@@ -374,7 +374,8 @@ copy. No Reserved Font Name is declared, so the faces keep the family's name.
 
 `crates/pdf-model/src/geospatial/epsg/dataset.rs` is a subset of the EPSG Geodetic Parameter
 Dataset, version v13.102, written by tools/epsg-table.py from PROJ 9.9.0's export of it (ADR
-3821). ISO 32000-2 §12.10.3 lets a file name its coordinate system "as a numeric EPSG reference
+3821) and, for the parameters past that export's seven a conversion, from IOGP's own registry
+records (ADR 3897). ISO 32000-2 §12.10.3 lets a file name its coordinate system "as a numeric EPSG reference
 code", and this table is what such a code is read through. Its values are the Dataset's, unchanged.
 It is carried under IOGP's terms of use, not under the Apache License: LICENSE-EPSG holds them,
 and whoever provides this program to another person is obliged by them to pass them on.

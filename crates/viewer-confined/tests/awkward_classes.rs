@@ -113,6 +113,8 @@ struct Swept {
     /// draw is `safedocs::survey::Outcome::Incomplete` rather than a refusal — and neither is a
     /// death, which is the only thing that fails this run.
     notes: Vec<String>,
+    /// How long its sweep took, start to frame, in seconds.
+    seconds: f64,
 }
 
 /// One error, read as a death or as a refusal.
@@ -152,12 +154,21 @@ fn notes_in(events: &[Event]) -> Vec<String> {
 
 /// Opens one document behind the filter and turns [`PAGES_TURNED`] pages of it.
 fn sweep_one(chosen: &Chosen) -> Swept {
+    let started = Instant::now();
+    let mut swept = sweep_questions(chosen);
+    swept.seconds = started.elapsed().as_secs_f64();
+    swept
+}
+
+/// [`sweep_one`]'s questions, in the order a host asks them.
+fn sweep_questions(chosen: &Chosen) -> Swept {
     let mut swept = Swept {
         name: chosen.display.clone(),
         classes: chosen.classes.clone(),
         cells: Vec::new(),
         frames: 0,
         notes: Vec::new(),
+        seconds: 0.0,
     };
     let bytes = match pdf_syntax::FileBytes::on_disk(&chosen.path) {
         Ok(bytes) => bytes,
@@ -337,6 +348,113 @@ fn report(swept: &[Swept]) -> Vec<String> {
     kills
 }
 
+/// How many threads read a root's sample into the page cache before it is classified.
+///
+/// Sixteen, and the figure is the disk's rather than the processor's: these threads wait on reads
+/// and compute nothing. The sample of `safedocs` and `tika-issue-tracker`, 2 400 files and
+/// 3 000 MiB on the rotating disk, read whole from a cold cache in 104 s with sixteen readers,
+/// 171 s with four and more than 260 s with one (ADR 3898).
+const READERS: usize = 16;
+
+/// What [`read_ahead`] did with one root's sample.
+struct ReadAhead {
+    /// How many files it was given.
+    files: usize,
+    /// How many bytes it read.
+    bytes: u64,
+    /// How many could not be read; the classifier meets the same file and says what it found.
+    unreadable: usize,
+    /// How long it took.
+    seconds: f64,
+}
+
+/// Reads every file of a sample once, whole and in parallel, so that the classifier's reads
+/// find the page cache warm.
+///
+/// This decides nothing. `corpus_classes::population` classifies the same files whether this
+/// ran or not, and the cache changes only how long its reads wait. What it buys: the classifier
+/// opens each file and reads it object by object, four kibibytes at a time at the offsets the
+/// cross-reference table names, on rayon's four threads. On a cold cache those small scattered
+/// reads were 442 s of a 462 s walk, and the same population classified in 10 s warm. One
+/// sequential read of each file by [`READERS`] threads is cheaper than the scattered ones: from a
+/// cache emptied of the sample, the population was chosen in 118 s with it and in 449 s without,
+/// and the walk took 134 s against 467 s. The bytes it reads that the classifier does not, image
+/// data above all, are its cost (ADR 3898).
+fn read_ahead(paths: &[std::path::PathBuf]) -> ReadAhead {
+    use std::io::Read as _;
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+    let started = Instant::now();
+    let next = AtomicUsize::new(0);
+    let bytes = AtomicU64::new(0);
+    let unreadable = AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..READERS {
+            scope.spawn(|| {
+                let mut buffer = vec![0_u8; 1 << 20];
+                while let Some(path) = paths.get(next.fetch_add(1, Ordering::Relaxed)) {
+                    let read = std::fs::File::open(path).and_then(|mut file| {
+                        let mut total = 0_u64;
+                        loop {
+                            match file.read(&mut buffer)? {
+                                0 => return Ok(total),
+                                n => total = total.saturating_add(n as u64),
+                            }
+                        }
+                    });
+                    match read {
+                        Ok(total) => {
+                            bytes.fetch_add(total, Ordering::Relaxed);
+                        }
+                        Err(_) => {
+                            unreadable.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                }
+            });
+        }
+    });
+    ReadAhead {
+        files: paths.len(),
+        bytes: bytes.into_inner(),
+        unreadable: unreadable.into_inner(),
+        seconds: started.elapsed().as_secs_f64(),
+    }
+}
+
+/// How many of the slowest documents the time report names.
+const SLOWEST_PRINTED: usize = 12;
+
+/// Where the walk's time went: choosing the population, then each document's sweep, the slowest
+/// by name and every class's sum, so that a walk that grows long says which part grew (ADR 3898).
+fn print_times(swept: &[Swept], chosen_after: f64, total: f64) {
+    let documents: f64 = swept.iter().map(|one| one.seconds).sum();
+    println!(
+        "view-awkward: time: population chosen in {chosen_after:.1}s, {} sweep(s) {documents:.1}s \
+         summed and {:.1}s of wall",
+        swept.len(),
+        total - chosen_after
+    );
+    let mut slowest: Vec<&Swept> = swept.iter().collect();
+    slowest.sort_by(|left, right| right.seconds.total_cmp(&left.seconds));
+    for one in slowest.iter().take(SLOWEST_PRINTED) {
+        println!("view-awkward: time:   {:.1}s {}", one.seconds, one.name);
+    }
+    for class in Class::ALL {
+        let mine: Vec<f64> = swept
+            .iter()
+            .filter(|one| one.classes.contains(class))
+            .map(|one| one.seconds)
+            .collect();
+        println!(
+            "view-awkward: time:   class {}: {} document(s), {:.1}s summed",
+            class.name(),
+            mine.len(),
+            mine.iter().sum::<f64>()
+        );
+    }
+}
+
 /// The sweep.
 #[test]
 #[ignore = "corpus-scale: a document of each class from every corpus on the disk, opened and drawn through the confined viewer; run it as doc/todo/02 section 2's line says"]
@@ -349,7 +467,24 @@ fn no_awkward_class_of_document_kills_the_confined_viewer() {
         sample_per_root: SAMPLE_PER_ROOT,
         per_class: PER_CLASS,
     };
-    let (chosen, contributions) = corpus_classes::population(&roots, &choice, &|_| String::new());
+    // One root at a time, so that each root's classifying is timed: `population` draws every
+    // root's share apart from the others', so the concatenation is the population of all of them.
+    let mut chosen = Vec::new();
+    let mut contributions = Vec::new();
+    let mut root_seconds = Vec::new();
+    for root in &roots {
+        let ahead = read_ahead(&corpus_classes::sampled(
+            corpus_classes::documents_under(&root.1),
+            SAMPLE_PER_ROOT,
+        ));
+        let root_started = Instant::now();
+        let (mine, contribution) =
+            corpus_classes::population(std::slice::from_ref(root), &choice, &|_| String::new());
+        root_seconds.push((ahead, root_started.elapsed().as_secs_f64()));
+        chosen.extend(mine);
+        contributions.extend(contribution);
+    }
+    let chosen_after = started.elapsed().as_secs_f64();
     assert!(
         !chosen.is_empty(),
         "every corpus root on this disk is empty"
@@ -375,12 +510,22 @@ fn no_awkward_class_of_document_kills_the_confined_viewer() {
         chosen.len(),
         rayon::current_num_threads()
     );
-    for contribution in &contributions {
+    for (contribution, (ahead, seconds)) in contributions.iter().zip(&root_seconds) {
         println!(
             "view-awkward:   {}: {} classified, {} swept",
             contribution.root, contribution.classified, contribution.chosen
         );
+        println!(
+            "view-awkward: time:   {}: {} file(s) of {} MiB read ahead in {:.1}s ({} unreadable), \
+             classified in {seconds:.1}s",
+            contribution.root,
+            ahead.files,
+            ahead.bytes >> 20,
+            ahead.seconds,
+            ahead.unreadable
+        );
     }
+    print_times(&swept, chosen_after, started.elapsed().as_secs_f64());
     let kills = report(&swept);
     println!(
         "view-awkward: killed: {}, in {:.1}s",

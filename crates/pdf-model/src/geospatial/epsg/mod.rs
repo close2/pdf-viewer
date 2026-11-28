@@ -26,7 +26,11 @@
 //! v13.102 as SQL in its `data/sql/`. `python3 -I -B tools/epsg-table.py --fetch` downloads and
 //! checks it, and `python3 -I -B tools/epsg-table.py` writes `dataset.rs` from it; neither runs at
 //! build time or at launch. The ignored test `the_table_is_what_the_generator_writes_from_the_pinned_release`
-//! does both and fails where the file in the tree differs by a byte. The Dataset is IOGP's, and
+//! does both and fails where the file in the tree differs by a byte. PROJ's export holds seven
+//! parameters a conversion, so Krovak Modified's evaluation point and C1 to C10 are read from
+//! the registry's own records of its four conversions
+//! (`https://apps.epsg.org/api/v1/Conversion/<code>/`), which `--fetch` saves and the generator
+//! holds to pinned digests (ADR 3897). The Dataset is IOGP's, and
 //! `LICENSE-EPSG` and `NOTICE` at the repository root carry its terms and the acknowledgement they
 //! require.
 //!

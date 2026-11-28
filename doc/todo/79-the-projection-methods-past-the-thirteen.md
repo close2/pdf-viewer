@@ -34,9 +34,10 @@ NSIDC EASE-Grid North, EPSG 3408 and 3973), American Polyconic (3.1.5, which pri
 same paper's ellipsoid example, and SIRGAS 2000 / Brazil Polyconic, EPSG 5880, by round trip),
 Lambert Conic Conformal 2SP Michigan (3.1.1.5, NAD27 / Michigan Central, EPSG 6201), and Krovak in
 its four forms (3.1.2.1 to 3.1.2.4, S-JTSK (Ferro) / Krovak, EPSG 2065, and its East North form,
-5221). The modified forms are tested on their section's printed parameters. Their systems (5224,
-5225 and the two Greenwich forms) are refused by the polynomial's first parameter, because the
-generator's source, PROJ's SQL, holds seven parameters a conversion.
+5221). The modified forms are tested on their section's printed parameters and through their
+systems (5224, 5225 and the Greenwich forms 5515 and 5516), whose evaluation point and C1 to C10
+the generator reads from IOGP's registry, PROJ's SQL holding seven parameters a conversion (ADR
+3897).
 
 And rows 12 to 16 and 18 (ADRs 3877 to 3880): Equal Earth (3.4.4, WGS 84 / Equal Earth Americas,
 EPSG 8858), Lambert Cylindrical Equal Area and its spherical form (3.2.6, which prints no formulas and
