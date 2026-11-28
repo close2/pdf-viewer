@@ -34,13 +34,18 @@ use super::Refusal;
 use super::ellipsoid::Ellipsoid;
 
 mod azimuthal;
+mod bonne;
 mod cassini;
+mod cylindrical;
+mod equal_earth;
 mod krovak;
+mod laborde;
 mod oblique;
 mod polar;
 mod polyconic;
 mod spherical;
 mod urban;
+mod zoned;
 
 /// How many times an iterated latitude is refined before the answer is refused.
 ///
@@ -135,6 +140,28 @@ pub enum Method {
     KrovakModified,
     /// Krovak Modified (North Orientated), EPSG method 1043, section 3.1.2.4.
     KrovakModifiedNorthOrientated,
+    /// Equal Earth, EPSG method 1078, section 3.4.4.
+    EqualEarth,
+    /// Lambert Cylindrical Equal Area, EPSG method 9835, section 3.2.6: the ellipsoidal form, by
+    /// the formulas of the work the section names (USGS Professional Paper 1395).
+    LambertCylindricalEqualArea,
+    /// Lambert Cylindrical Equal Area (Spherical), EPSG method 9834, section 3.2.6.1.
+    LambertCylindricalEqualAreaSpherical,
+    /// Equidistant Cylindrical, EPSG method 1028 (and 9842, the code it replaced), section 3.2.5.
+    EquidistantCylindrical,
+    /// Equidistant Cylindrical (Spherical), EPSG method 1029 (and 9823, the code it replaced),
+    /// section 3.2.5.1.
+    EquidistantCylindricalSpherical,
+    /// Bonne, EPSG method 9827, section 3.1.4.
+    Bonne,
+    /// Bonne (South Orientated), EPSG method 9828, section 3.1.4.1: axes increasing to the west
+    /// and the south.
+    BonneSouthOrientated,
+    /// Laborde Oblique Mercator, EPSG method 9813, section 3.2.4.2.
+    LabordeObliqueMercator,
+    /// Transverse Mercator Zoned Grid System, EPSG method 9824, section 3.2.3.2: the Transverse
+    /// Mercator of the zone a longitude falls in, the zone's number prefixed to the easting.
+    TransverseMercatorZonedGridSystem,
 }
 
 impl Method {
@@ -169,6 +196,17 @@ impl Method {
             Self::KrovakNorthOrientated => "Krovak (North Orientated)",
             Self::KrovakModified => "Krovak Modified",
             Self::KrovakModifiedNorthOrientated => "Krovak Modified (North Orientated)",
+            Self::EqualEarth => "Equal Earth",
+            Self::LambertCylindricalEqualArea => "Lambert Cylindrical Equal Area",
+            Self::LambertCylindricalEqualAreaSpherical => {
+                "Lambert Cylindrical Equal Area (Spherical)"
+            }
+            Self::EquidistantCylindrical => "Equidistant Cylindrical",
+            Self::EquidistantCylindricalSpherical => "Equidistant Cylindrical (Spherical)",
+            Self::Bonne => "Bonne",
+            Self::BonneSouthOrientated => "Bonne (South Orientated)",
+            Self::LabordeObliqueMercator => "Laborde Oblique Mercator",
+            Self::TransverseMercatorZonedGridSystem => "Transverse Mercator Zoned Grid System",
         }
     }
 }
@@ -214,6 +252,11 @@ pub struct Parameters {
     /// Krovak Modified's polynomial coefficients C1 to C10 (section 3.1.2.3), each in the unit
     /// its term needs to be a length in metres.
     pub coefficients: [Option<f64>; 10],
+    /// The zoned Transverse Mercator's initial longitude λI, the western limit of zone 1
+    /// (section 3.2.3.2).
+    pub initial_longitude: Option<f64>,
+    /// The zoned Transverse Mercator's zone width W (section 3.2.3.2).
+    pub zone_width: Option<f64>,
 }
 
 /// A projection ready to evaluate: a method, its ellipsoid and its parameters.
@@ -304,6 +347,64 @@ fn required_krovak(p: &Parameters, method: Method) -> Result<(), Refusal> {
     Ok(())
 }
 
+/// The parameters of an Equidistant Cylindrical system stated under a code the Dataset replaced:
+/// 9842 by 1028 and 9823 by 1029, which state the standard parallel ϕ1 as a latitude of natural
+/// origin. The parallel takes that value, and the origin keeps none (ADR 3880).
+pub(crate) fn parallel_from_natural_origin(parameters: &mut Parameters) {
+    if let Some(latitude) = parameters.origin_latitude.take() {
+        parameters.parallel_1 = Some(latitude);
+    }
+}
+
+/// The oblique Mercators' required parameters (sections 3.2.4.1 and 3.2.4.2). Laborde's rotation
+/// to north is made on the intermediate sphere, so it has no angle from the rectified grid.
+fn required_oblique(p: &Parameters, method: Method) -> Result<(), Refusal> {
+    required(p.origin_latitude, method, "latitude of projection centre")?;
+    required(p.origin_longitude, method, "longitude of projection centre")?;
+    required(p.azimuth, method, "azimuth of initial line")?;
+    if method != Method::LabordeObliqueMercator {
+        required(
+            p.rectified_grid_angle,
+            method,
+            "angle from rectified to skew grid",
+        )?;
+    }
+    required(p.scale, method, "scale factor on initial line")?;
+    Ok(())
+}
+
+/// Bonne's required parameters (section 3.1.4), refused on the equator: the section's
+/// `a mO / sin ϕO` divides by zero there, where the method's cone has become a cylinder the section
+/// gives no formulas for.
+fn required_bonne(p: &Parameters, method: Method) -> Result<(), Refusal> {
+    let origin = required(p.origin_latitude, method, "latitude of natural origin")?;
+    required(p.origin_longitude, method, "longitude of natural origin")?;
+    if origin == 0.0 {
+        return Err(Refusal::Unsupported {
+            method: method.name(),
+            reason: "a latitude of natural origin on the equator",
+        });
+    }
+    Ok(())
+}
+
+/// The zoned Transverse Mercator's required parameters (section 3.2.3.2), and a width that gives
+/// the section's `1 ≤ Z ≤ 360/W` a whole number of zones round the earth.
+fn required_zoned(p: &Parameters, method: Method) -> Result<(), Refusal> {
+    required(p.origin_latitude, method, "latitude of natural origin")?;
+    required(p.initial_longitude, method, "initial longitude")?;
+    let width = required(p.zone_width, method, "zone width")?;
+    required(p.scale, method, "scale factor at natural origin")?;
+    let zones = std::f64::consts::TAU / width;
+    if !(width > 0.0 && (zones - zones.round()).abs() < 1e-9) {
+        return Err(Refusal::Unsupported {
+            method: method.name(),
+            reason: "a zone width that does not divide 360 degrees",
+        });
+    }
+    Ok(())
+}
+
 /// A required parameter, or a refusal naming it.
 fn required(value: Option<f64>, method: Method, parameter: &'static str) -> Result<f64, Refusal> {
     value.ok_or(Refusal::MissingParameter {
@@ -367,11 +468,15 @@ impl Projection {
                 required(p.origin_longitude, method, "longitude of natural origin")?;
                 required(p.scale, method, "scale factor at natural origin")?;
             }
-            Method::MercatorVariantB => {
+            Method::MercatorVariantB
+            | Method::LambertCylindricalEqualArea
+            | Method::LambertCylindricalEqualAreaSpherical
+            | Method::EquidistantCylindrical
+            | Method::EquidistantCylindricalSpherical => {
                 required(p.origin_longitude, method, "longitude of natural origin")?;
                 required(p.parallel_1, method, "latitude of 1st standard parallel")?;
             }
-            Method::PseudoMercator => {
+            Method::PseudoMercator | Method::EqualEarth => {
                 required(p.origin_longitude, method, "longitude of natural origin")?;
             }
             Method::CassiniSoldner
@@ -394,17 +499,9 @@ impl Projection {
                     });
                 }
             }
-            Method::HotineObliqueMercatorA | Method::HotineObliqueMercatorB => {
-                required(p.origin_latitude, method, "latitude of projection centre")?;
-                required(p.origin_longitude, method, "longitude of projection centre")?;
-                required(p.azimuth, method, "azimuth of initial line")?;
-                required(
-                    p.rectified_grid_angle,
-                    method,
-                    "angle from rectified to skew grid",
-                )?;
-                required(p.scale, method, "scale factor on initial line")?;
-            }
+            Method::HotineObliqueMercatorA
+            | Method::HotineObliqueMercatorB
+            | Method::LabordeObliqueMercator => required_oblique(p, method)?,
             Method::ColombiaUrban => {
                 required(p.origin_latitude, method, "latitude of natural origin")?;
                 required(p.origin_longitude, method, "longitude of natural origin")?;
@@ -421,6 +518,8 @@ impl Projection {
             | Method::KrovakNorthOrientated
             | Method::KrovakModified
             | Method::KrovakModifiedNorthOrientated => required_krovak(p, method)?,
+            Method::Bonne | Method::BonneSouthOrientated => required_bonne(p, method)?,
+            Method::TransverseMercatorZonedGridSystem => required_zoned(p, method)?,
             Method::PolarStereographicB | Method::PolarStereographicC => {
                 let parallel = required(p.parallel_1, method, "latitude of standard parallel")?;
                 required(p.origin_longitude, method, "longitude of origin")?;
@@ -478,6 +577,9 @@ impl Projection {
         // not a file value.
         let latitude = latitude.clamp(-FRAC_PI_2, FRAC_PI_2);
         let p = &self.parameters;
+        if self.method == Method::TransverseMercatorZonedGridSystem {
+            return self.zoned_forward(latitude, longitude);
+        }
         let delta = wrap(longitude - Self::get(p.origin_longitude));
         if let Some(north) = self.krovak_orientation() {
             // Krovak's false easting and northing are added before the north-orientated variants
@@ -540,11 +642,32 @@ impl Projection {
                 self.spherical_azimuthal_forward(latitude, delta)
             }
             Method::AmericanPolyconic => self.polyconic_forward(latitude, delta),
-            // Evaluated above, where `krovak_orientation` answers for every Krovak method.
+            Method::EqualEarth => self.equal_earth_forward(latitude, delta),
+            Method::LambertCylindricalEqualArea => {
+                self.cylindrical_equal_area_forward(latitude, delta)
+            }
+            Method::LambertCylindricalEqualAreaSpherical => {
+                self.spherical_cylindrical_equal_area_forward(latitude, delta)
+            }
+            Method::EquidistantCylindrical => self.equidistant_forward(latitude, delta),
+            Method::EquidistantCylindricalSpherical => {
+                self.spherical_equidistant_forward(latitude, delta)
+            }
+            Method::Bonne => self.bonne_forward(latitude, delta),
+            // Section 3.1.4.1: `W = FE − ρ sin T` and `S = FN − (a mO / sin ϕO − ρ cos T)`, the
+            // general case's terms subtracted from the false easting and northing.
+            Method::BonneSouthOrientated => {
+                let (x, y) = self.bonne_forward(latitude, delta);
+                (-x, -y)
+            }
+            Method::LabordeObliqueMercator => self.laborde_forward(latitude, delta),
+            // Evaluated above, where `krovak_orientation` answers for every Krovak method and the
+            // zoned grid's own branch for its zones.
             Method::Krovak
             | Method::KrovakNorthOrientated
             | Method::KrovakModified
-            | Method::KrovakModifiedNorthOrientated => return Err(self.outside()),
+            | Method::KrovakModifiedNorthOrientated
+            | Method::TransverseMercatorZonedGridSystem => return Err(self.outside()),
         };
         // not a repair: this evaluates a reading logged where the string is read; an offset it
         // does not state is `super::system`'s WKT_FALSE_ORIGIN_ABSENT.
@@ -592,6 +715,9 @@ impl Projection {
                 Err(self.outside())
             };
         }
+        if self.method == Method::TransverseMercatorZonedGridSystem {
+            return self.zoned_inverse(easting, northing);
+        }
         // not a repair: this evaluates a reading logged where the string is read, as in `forward`.
         let x = easting - p.false_easting.unwrap_or(0.0);
         let y = northing - p.false_northing.unwrap_or(0.0);
@@ -622,11 +748,24 @@ impl Projection {
             Method::ColombiaUrban => self.urban_inverse(x, y),
             Method::LambertAzimuthalEqualAreaSpherical => self.spherical_azimuthal(x, y),
             Method::AmericanPolyconic => self.polyconic(x, y)?,
-            // Evaluated above, where `krovak_orientation` answers for every Krovak method.
+            Method::EqualEarth => self.equal_earth(x, y)?,
+            Method::LambertCylindricalEqualArea => self.cylindrical_equal_area(x, y),
+            Method::LambertCylindricalEqualAreaSpherical => {
+                self.spherical_cylindrical_equal_area(x, y)
+            }
+            Method::EquidistantCylindrical => self.equidistant(x, y),
+            Method::EquidistantCylindricalSpherical => self.spherical_equidistant(x, y),
+            Method::Bonne => self.bonne(x, y),
+            // Section 3.1.4.1's reverse: `X = FE − W` and `Y = FN − S`.
+            Method::BonneSouthOrientated => self.bonne(-x, -y),
+            Method::LabordeObliqueMercator => self.laborde(x, y)?,
+            // Evaluated above, where `krovak_orientation` answers for every Krovak method and the
+            // zoned grid's own branch for its zones.
             Method::Krovak
             | Method::KrovakNorthOrientated
             | Method::KrovakModified
-            | Method::KrovakModifiedNorthOrientated => return Err(self.outside()),
+            | Method::KrovakModifiedNorthOrientated
+            | Method::TransverseMercatorZonedGridSystem => return Err(self.outside()),
         };
         let within_method =
             self.method != Method::PseudoMercator || answer.latitude.abs() <= PSEUDO_MERCATOR_LIMIT;

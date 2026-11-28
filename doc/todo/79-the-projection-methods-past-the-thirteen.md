@@ -11,7 +11,7 @@ command that prints it is in ADR 3823. The method sections are IOGP Guidance Not
 
 ## What is built
 
-Twenty-five method codes, 5741 of the table's 5780 projected systems (99.3 %), four of them refused by
+Thirty-six method codes, 5758 of the table's 5780 projected systems (99.6 %), four of them refused by
 the parameters the table cannot carry (below): the census's eight (ADRs 1586,
 1587, 1672) — Transverse Mercator, Lambert Conic Conformal 1SP and 2SP, Mercator A and B,
 Pseudo-Mercator, Albers, oblique stereographic — and ADR 3822's five, each tested on its section's
@@ -38,9 +38,22 @@ its four forms (3.1.2.1 to 3.1.2.4, S-JTSK (Ferro) / Krovak, EPSG 2065, and its 
 5225 and the two Greenwich forms) are refused by the polynomial's first parameter, because the
 generator's source, PROJ's SQL, holds seven parameters a conversion.
 
-Rows 6 and 10, Azimuthal Equidistant (1125) and Lambert Conic Conformal 1SP variant B (1102), are
-not in the September 2019 revision. The revision that has them sits behind a download form asking
-for personal details (`doc/questions/Q1114`), and both stay refused by name.
+And rows 12 to 16 and 18 (ADRs 3877 to 3880): Equal Earth (3.4.4, WGS 84 / Equal Earth Americas,
+EPSG 8858), Lambert Cylindrical Equal Area and its spherical form (3.2.6, which prints no formulas and
+names Professional Paper 1395: its two normal-aspect examples, and EPSG 6933, 3410 and 3975),
+Equidistant Cylindrical and its spherical form (3.2.5, WGS 84 / World Equidistant Cylindrical, EPSG
+4087; 3.2.5.1 prints no example and is tested on its formulas through 4088, 3786 and 32662), with the
+two codes those replaced, 9842 and 9823, read as their latitude of natural origin being the parallel
+(ADR 3880), Bonne in both orientations (3.1.4 and 3.1.4.1, which print no example: the paper's
+ellipsoid example, and EPSG 2963 and 5017), Laborde Oblique Mercator (3.2.4.2, Tananarive (Paris) /
+Laborde Grid, EPSG 29701, and its Greenwich form 8441; four printed lines read in ADR 3878), and the
+Transverse Mercator Zoned Grid System (3.2.3.2, which prints no example: WGS 84 / UTM grid system,
+EPSG 32600 and 32700, against each zone's own system; ADR 3879).
+
+Rows 6, 10 and 17, Azimuthal Equidistant (1125), Lambert Conic Conformal 1SP variant B (1102) and
+Local Orthographic (1130), are not in the September 2019 revision (its 3.3.5 is the Orthographic,
+9840). The revision that has them sits behind a download form asking for personal details
+(`doc/questions/Q1114`), and all three stay refused by name.
 
 ## The order
 
@@ -63,13 +76,13 @@ the table holds it. Each built moves §12.10.4's note; the last moves the row to
 | 9 | Lambert Conic Conformal (2SP Michigan), built | 1051 | 4 | 3.1.1.5 |
 | 10 | Lambert Conic Conformal (1SP variant B), waits on Q1114 | 1102 | 4 | 3.1.1.2 |
 | 11 | Krovak, North Orientated, Modified, Modified (North Orientated), built | 9819, 1041, 1042, 1043 | 10 | 3.1.2.1 to 3.1.2.4 |
-| 12 | Equal Earth | 1078 | 3 | 3.4.4 |
-| 13 | Lambert Cylindrical Equal Area, and its spherical form | 9835, 9834 | 3 | 3.2.6, 3.2.6.1 |
-| 14 | Equidistant Cylindrical, and its spherical forms | 1028, 1029, 9823, 9842 | 5 | 3.2.5, 3.2.5.1 |
-| 15 | Bonne (South Orientated) | 9828 | 2 | 3.1.4.1 |
-| 16 | Laborde Oblique Mercator | 9813 | 2 | 3.2.4.2 |
-| 17 | Local Orthographic | 1130 | 2 | 3.3.5 |
-| 18 | Transverse Mercator Zoned Grid System | 9824 | 2 | 3.2.3.2 |
+| 12 | Equal Earth, built | 1078 | 3 | 3.4.4 |
+| 13 | Lambert Cylindrical Equal Area, and its spherical form, built | 9835, 9834 | 3 | 3.2.6, 3.2.6.1 |
+| 14 | Equidistant Cylindrical, and its spherical forms, built | 1028, 1029, 9823, 9842 | 5 | 3.2.5, 3.2.5.1 |
+| 15 | Bonne (South Orientated), built (and Bonne, 9827) | 9828 | 2 | 3.1.4.1 |
+| 16 | Laborde Oblique Mercator, built | 9813 | 2 | 3.2.4.2 |
+| 17 | Local Orthographic, waits on Q1114 | 1130 | 2 | not in the September 2019 revision |
+| 18 | Transverse Mercator Zoned Grid System, built | 9824 | 2 | 3.2.3.2 |
 | 19 | Hyperbolic Cassini-Soldner | 9833 | 1 | 3.2.2.1 |
 | 20 | Modified Azimuthal Equidistant | 9832 | 1 | 3.3.3.1 |
 | 21 | Guam Projection | 9831 | 1 | 3.3.3.2 |

@@ -52,7 +52,7 @@ impl Projection {
     }
 
     /// The series section 3.3.2 gives from an authalic latitude `β'` back to a geodetic one.
-    fn geodetic_of_authalic(&self, beta: f64) -> f64 {
+    pub(super) fn geodetic_of_authalic(&self, beta: f64) -> f64 {
         let e2 = self.ellipsoid.eccentricity_squared();
         let (e4, e6) = (e2 * e2, e2 * e2 * e2);
         beta + (e2 / 3.0 + 31.0 * e4 / 180.0 + 517.0 * e6 / 5040.0) * (2.0 * beta).sin()

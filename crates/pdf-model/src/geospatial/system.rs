@@ -35,7 +35,7 @@ use pdf_syntax::RepairClass;
 use super::Refusal;
 use super::datum::{ARC_SECOND, DatumShift, Helmert};
 use super::ellipsoid::Ellipsoid;
-use super::projection::{Method, Parameters, Projection};
+use super::projection::{Method, Parameters, Projection, parallel_from_natural_origin};
 use super::wkt::{self, Attribute, Node};
 use crate::repair::{
     WKT_AUXILIARY_SPHERE_TYPE_ABSENT, WKT_FALSE_ORIGIN_ABSENT, WKT_IDENTIFIER_UNUSABLE,
@@ -491,6 +491,10 @@ enum Role {
     EvaluationPoint(usize),
     /// Krovak Modified's coefficient C1 (0) to C10 (9).
     PolynomialCoefficient(usize),
+    /// The zoned Transverse Mercator's initial longitude.
+    InitialLongitude,
+    /// The zoned Transverse Mercator's zone width.
+    ZoneWidth,
 }
 
 /// The EPSG codes of Krovak Modified's coefficients C1 to C10 (Guidance Note 7-2 section 3.1.2.3).
@@ -517,6 +521,8 @@ fn role(name: &str, code: Option<i64>) -> Option<Role> {
             1038 => Some(Role::EllipsoidScale),
             8617 => Some(Role::EvaluationPoint(0)),
             8618 => Some(Role::EvaluationPoint(1)),
+            8830 => Some(Role::InitialLongitude),
+            8831 => Some(Role::ZoneWidth),
             1026..=1035 => COEFFICIENT_CODES
                 .iter()
                 .position(|known| *known == code)
@@ -558,6 +564,8 @@ fn role(name: &str, code: Option<i64>) -> Option<Role> {
         | "latitudeofpseudostandardparallel" => Some(Role::Parallel1),
         "standardparallel2" | "latitudeof2ndstandardparallel" => Some(Role::Parallel2),
         "auxiliaryspheretype" => Some(Role::AuxiliarySphere),
+        "initiallongitude" => Some(Role::InitialLongitude),
+        "zonewidth" => Some(Role::ZoneWidth),
         other => COEFFICIENT_NAMES
             .iter()
             .position(|known| *known == other)
@@ -576,39 +584,60 @@ enum Named {
     MercatorFamily,
     /// ESRI's `Mercator_Auxiliary_Sphere`.
     AuxiliarySphere,
+    /// An Equidistant Cylindrical method by a code the Dataset replaced, 9842 or 9823, whose
+    /// latitude of natural origin is the standard parallel.
+    ReplacedEquidistant(Method),
+}
+
+/// The method an EPSG method code names, the codes Guidance Note 7-2 prints beside each section.
+fn named_by_code(code: i64) -> Option<Named> {
+    match code {
+        9807 => Some(Named::Exact(Method::TransverseMercator)),
+        9802 => Some(Named::Exact(Method::LambertConicConformal2Sp)),
+        9801 => Some(Named::Exact(Method::LambertConicConformal1Sp)),
+        9804 => Some(Named::Exact(Method::MercatorVariantA)),
+        9805 => Some(Named::Exact(Method::MercatorVariantB)),
+        1024 => Some(Named::Exact(Method::PseudoMercator)),
+        9822 => Some(Named::Exact(Method::AlbersEqualArea)),
+        9809 => Some(Named::Exact(Method::ObliqueStereographic)),
+        9806 => Some(Named::Exact(Method::CassiniSoldner)),
+        9820 => Some(Named::Exact(Method::LambertAzimuthalEqualArea)),
+        9810 => Some(Named::Exact(Method::PolarStereographicA)),
+        9829 => Some(Named::Exact(Method::PolarStereographicB)),
+        9830 => Some(Named::Exact(Method::PolarStereographicC)),
+        9808 => Some(Named::Exact(Method::TransverseMercatorSouthOrientated)),
+        9826 => Some(Named::Exact(Method::LambertConicConformalWestOrientated)),
+        9812 => Some(Named::Exact(Method::HotineObliqueMercatorA)),
+        9815 => Some(Named::Exact(Method::HotineObliqueMercatorB)),
+        1052 => Some(Named::Exact(Method::ColombiaUrban)),
+        1027 => Some(Named::Exact(Method::LambertAzimuthalEqualAreaSpherical)),
+        9818 => Some(Named::Exact(Method::AmericanPolyconic)),
+        1051 => Some(Named::Exact(Method::LambertConicConformal2SpMichigan)),
+        9819 => Some(Named::Exact(Method::Krovak)),
+        1041 => Some(Named::Exact(Method::KrovakNorthOrientated)),
+        1042 => Some(Named::Exact(Method::KrovakModified)),
+        1043 => Some(Named::Exact(Method::KrovakModifiedNorthOrientated)),
+        1078 => Some(Named::Exact(Method::EqualEarth)),
+        9835 => Some(Named::Exact(Method::LambertCylindricalEqualArea)),
+        9834 => Some(Named::Exact(Method::LambertCylindricalEqualAreaSpherical)),
+        1028 => Some(Named::Exact(Method::EquidistantCylindrical)),
+        1029 => Some(Named::Exact(Method::EquidistantCylindricalSpherical)),
+        9842 => Some(Named::ReplacedEquidistant(Method::EquidistantCylindrical)),
+        9823 => Some(Named::ReplacedEquidistant(
+            Method::EquidistantCylindricalSpherical,
+        )),
+        9827 => Some(Named::Exact(Method::Bonne)),
+        9828 => Some(Named::Exact(Method::BonneSouthOrientated)),
+        9813 => Some(Named::Exact(Method::LabordeObliqueMercator)),
+        9824 => Some(Named::Exact(Method::TransverseMercatorZonedGridSystem)),
+        _ => None,
+    }
 }
 
 /// The method a name or an EPSG method code names.
 fn named(name: &str, code: Option<i64>) -> Option<Named> {
     if let Some(code) = code {
-        return match code {
-            9807 => Some(Named::Exact(Method::TransverseMercator)),
-            9802 => Some(Named::Exact(Method::LambertConicConformal2Sp)),
-            9801 => Some(Named::Exact(Method::LambertConicConformal1Sp)),
-            9804 => Some(Named::Exact(Method::MercatorVariantA)),
-            9805 => Some(Named::Exact(Method::MercatorVariantB)),
-            1024 => Some(Named::Exact(Method::PseudoMercator)),
-            9822 => Some(Named::Exact(Method::AlbersEqualArea)),
-            9809 => Some(Named::Exact(Method::ObliqueStereographic)),
-            9806 => Some(Named::Exact(Method::CassiniSoldner)),
-            9820 => Some(Named::Exact(Method::LambertAzimuthalEqualArea)),
-            9810 => Some(Named::Exact(Method::PolarStereographicA)),
-            9829 => Some(Named::Exact(Method::PolarStereographicB)),
-            9830 => Some(Named::Exact(Method::PolarStereographicC)),
-            9808 => Some(Named::Exact(Method::TransverseMercatorSouthOrientated)),
-            9826 => Some(Named::Exact(Method::LambertConicConformalWestOrientated)),
-            9812 => Some(Named::Exact(Method::HotineObliqueMercatorA)),
-            9815 => Some(Named::Exact(Method::HotineObliqueMercatorB)),
-            1052 => Some(Named::Exact(Method::ColombiaUrban)),
-            1027 => Some(Named::Exact(Method::LambertAzimuthalEqualAreaSpherical)),
-            9818 => Some(Named::Exact(Method::AmericanPolyconic)),
-            1051 => Some(Named::Exact(Method::LambertConicConformal2SpMichigan)),
-            9819 => Some(Named::Exact(Method::Krovak)),
-            1041 => Some(Named::Exact(Method::KrovakNorthOrientated)),
-            1042 => Some(Named::Exact(Method::KrovakModified)),
-            1043 => Some(Named::Exact(Method::KrovakModifiedNorthOrientated)),
-            _ => None,
-        };
+        return named_by_code(code);
     }
     Some(match normalised(name).as_str() {
         "transversemercator" | "gausskruger" | "gausskrueger" => {
@@ -660,6 +689,19 @@ fn named(name: &str, code: Option<i64>) -> Option<Named> {
         "krovaknorthorientated" => Named::Exact(Method::KrovakNorthOrientated),
         "krovakmodified" => Named::Exact(Method::KrovakModified),
         "krovakmodifiednorthorientated" => Named::Exact(Method::KrovakModifiedNorthOrientated),
+        "equalearth" => Named::Exact(Method::EqualEarth),
+        "lambertcylindricalequalarea" => Named::Exact(Method::LambertCylindricalEqualArea),
+        "lambertcylindricalequalareaspherical" => {
+            Named::Exact(Method::LambertCylindricalEqualAreaSpherical)
+        }
+        "equidistantcylindrical" => Named::Exact(Method::EquidistantCylindrical),
+        "equidistantcylindricalspherical" => Named::Exact(Method::EquidistantCylindricalSpherical),
+        "bonne" => Named::Exact(Method::Bonne),
+        "bonnesouthorientated" => Named::Exact(Method::BonneSouthOrientated),
+        "labordeobliquemercator" => Named::Exact(Method::LabordeObliqueMercator),
+        "transversemercatorzonedgridsystem" => {
+            Named::Exact(Method::TransverseMercatorZonedGridSystem)
+        }
         _ => return None,
     })
 }
@@ -745,6 +787,8 @@ fn assign(
                 *slot = Some(value);
             }
         }
+        Role::InitialLongitude => parameters.initial_longitude = Some(angle(value)?),
+        Role::ZoneWidth => parameters.zone_width = Some(angle(value)?),
     }
     Ok(())
 }
@@ -898,6 +942,10 @@ fn resolve(
     }
     Ok(match family {
         Named::Exact(method) => method,
+        Named::ReplacedEquidistant(method) => {
+            parallel_from_natural_origin(parameters);
+            method
+        }
         Named::LambertFamily => match (parameters.parallel_1, parameters.parallel_2) {
             (Some(first), Some(second)) if first != second => {
                 if parameters.scale.is_some_and(|scale| scale != 1.0) {

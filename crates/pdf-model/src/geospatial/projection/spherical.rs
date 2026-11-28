@@ -19,7 +19,7 @@ use super::{LatLon, Projection};
 impl Projection {
     /// `R`: the sphere's radius, or the authalic sphere's of an ellipsoid (Guidance Note 7-2's
     /// `RA = a [(1 − ((1 − e²) / 2e) ln((1 − e) / (1 + e))) / 2]^½`).
-    fn spherical_radius(&self) -> f64 {
+    pub(super) fn spherical_radius(&self) -> f64 {
         let a = self.ellipsoid.semi_major_axis;
         let e = self.ellipsoid.eccentricity();
         if e == 0.0 {

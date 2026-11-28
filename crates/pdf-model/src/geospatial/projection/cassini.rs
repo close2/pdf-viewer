@@ -7,13 +7,27 @@
 use super::{LatLon, Projection};
 
 /// Section 3.2.2's meridian distance `M` from the equator to a latitude, the series to its sixth
-/// power of `e` as the section prints it.
-fn meridian_distance(a: f64, e2: f64, latitude: f64) -> f64 {
+/// power of `e` as the section prints it, and section 3.1.4's for Bonne.
+pub(super) fn meridian_distance(a: f64, e2: f64, latitude: f64) -> f64 {
     let (e4, e6) = (e2 * e2, e2 * e2 * e2);
     a * ((1.0 - e2 / 4.0 - 3.0 * e4 / 64.0 - 5.0 * e6 / 256.0) * latitude
         - (3.0 * e2 / 8.0 + 3.0 * e4 / 32.0 + 45.0 * e6 / 1024.0) * (2.0 * latitude).sin()
         + (15.0 * e4 / 256.0 + 45.0 * e6 / 1024.0) * (4.0 * latitude).sin()
         - (35.0 * e6 / 3072.0) * (6.0 * latitude).sin())
+}
+
+/// The latitude whose [`meridian_distance`] is `m`: section 3.2.2's footpoint `φ1` from
+/// `µ1 = M1 / [a (1 − e²/4 − 3e⁴/64 − 5e⁶/256)]` and `e1 = [1 − (1 − e²)^0.5] / [1 + (1 − e²)^0.5]`,
+/// which section 3.1.4 prints for Bonne too.
+pub(super) fn footpoint_latitude(a: f64, e2: f64, m: f64) -> f64 {
+    let (e4, e6) = (e2 * e2, e2 * e2 * e2);
+    let mu1 = m / (a * (1.0 - e2 / 4.0 - 3.0 * e4 / 64.0 - 5.0 * e6 / 256.0));
+    let root = (1.0 - e2).sqrt();
+    let e1 = (1.0 - root) / (1.0 + root);
+    mu1 + (3.0 * e1 / 2.0 - 27.0 * e1.powi(3) / 32.0) * (2.0 * mu1).sin()
+        + (21.0 * e1.powi(2) / 16.0 - 55.0 * e1.powi(4) / 32.0) * (4.0 * mu1).sin()
+        + (151.0 * e1.powi(3) / 96.0) * (6.0 * mu1).sin()
+        + (1097.0 * e1.powi(4) / 512.0) * (8.0 * mu1).sin()
 }
 
 impl Projection {
@@ -48,16 +62,7 @@ impl Projection {
     pub(super) fn cassini(&self, x: f64, y: f64) -> LatLon {
         let a = self.ellipsoid.semi_major_axis;
         let e2 = self.ellipsoid.eccentricity_squared();
-        let (e4, e6) = (e2 * e2, e2 * e2 * e2);
-        let m1 = self.cassini_m0() + y;
-        let mu1 = m1 / (a * (1.0 - e2 / 4.0 - 3.0 * e4 / 64.0 - 5.0 * e6 / 256.0));
-        let root = (1.0 - e2).sqrt();
-        let e1 = (1.0 - root) / (1.0 + root);
-        let phi1 = mu1
-            + (3.0 * e1 / 2.0 - 27.0 * e1.powi(3) / 32.0) * (2.0 * mu1).sin()
-            + (21.0 * e1.powi(2) / 16.0 - 55.0 * e1.powi(4) / 32.0) * (4.0 * mu1).sin()
-            + (151.0 * e1.powi(3) / 96.0) * (6.0 * mu1).sin()
-            + (1097.0 * e1.powi(4) / 512.0) * (8.0 * mu1).sin();
+        let phi1 = footpoint_latitude(a, e2, self.cassini_m0() + y);
         let sin1 = phi1.sin();
         let w = 1.0 - e2 * sin1 * sin1;
         let nu1 = a / w.sqrt();

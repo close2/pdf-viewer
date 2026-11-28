@@ -34,7 +34,9 @@
 //! projected system whose method this tree does not evaluate by its number and the method's name
 //! ([`Refusal::EpsgMethod`]) — never by guessing a neighbouring system.
 
-use super::projection::{Method as ProjectionMethod, Parameters, Projection};
+use super::projection::{
+    Method as ProjectionMethod, Parameters, Projection, parallel_from_natural_origin,
+};
 use super::system::{GeographicSystem, ProjectedSystem, ReferenceSystem};
 use super::{Ellipsoid, Refusal};
 
@@ -253,6 +255,17 @@ fn method(code: u32) -> Option<ProjectionMethod> {
         1041 => ProjectionMethod::KrovakNorthOrientated,
         1042 => ProjectionMethod::KrovakModified,
         1043 => ProjectionMethod::KrovakModifiedNorthOrientated,
+        1078 => ProjectionMethod::EqualEarth,
+        9835 => ProjectionMethod::LambertCylindricalEqualArea,
+        9834 => ProjectionMethod::LambertCylindricalEqualAreaSpherical,
+        // 9842 and 9823 are the codes 1028 and 1029 replaced; `projected` reads their
+        // parameters as `parallel_from_natural_origin` says.
+        1028 | 9842 => ProjectionMethod::EquidistantCylindrical,
+        1029 | 9823 => ProjectionMethod::EquidistantCylindricalSpherical,
+        9827 => ProjectionMethod::Bonne,
+        9828 => ProjectionMethod::BonneSouthOrientated,
+        9813 => ProjectionMethod::LabordeObliqueMercator,
+        9824 => ProjectionMethod::TransverseMercatorZonedGridSystem,
         _ => return None,
     })
 }
@@ -307,6 +320,8 @@ fn projected(record: &Projected) -> Result<ProjectedSystem, Refusal> {
                 }
             }
             8824 => parameters.parallel_2 = Some(angle()?),
+            8830 => parameters.initial_longitude = Some(angle()?),
+            8831 => parameters.zone_width = Some(angle()?),
             other => {
                 // Every parameter of the methods built is one of the codes above; another is one
                 // these formulas would ignore, and so evaluate a different system than the code's.
@@ -316,6 +331,9 @@ fn projected(record: &Projected) -> Result<ProjectedSystem, Refusal> {
                 });
             }
         }
+    }
+    if matches!(conversion.1, 9823 | 9842) {
+        parallel_from_natural_origin(&mut parameters);
     }
     let unit = referenced(dataset::UNITS, |u| u.0, unit_code, code)?;
     let linear_unit = base_value(1.0, unit_code, UnitKind::Length, code)?;
@@ -331,3 +349,6 @@ fn projected(record: &Projected) -> Result<ProjectedSystem, Refusal> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod method_tests;

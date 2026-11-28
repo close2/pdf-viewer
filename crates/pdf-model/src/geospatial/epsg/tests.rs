@@ -5,16 +5,16 @@ use crate::geospatial::{GeographicPosition, system::from_wkt};
 
 /// Ten micro-degrees of a micro-degree: a position agreeing this closely is the same position to
 /// well under a millimetre, far finer than any coordinate §12.10's registration states.
-const SAME_POSITION: f64 = 1e-9;
+pub(super) const SAME_POSITION: f64 = 1e-9;
 
-fn projected_of(code: i64) -> ProjectedSystem {
+pub(super) fn projected_of(code: i64) -> ProjectedSystem {
     match system(code) {
         Ok(ReferenceSystem::Projected(projected)) => projected,
         other => panic!("EPSG {code} as a projected system, got {other:?}"),
     }
 }
 
-fn projected_wkt(text: &str) -> ProjectedSystem {
+pub(super) fn projected_wkt(text: &str) -> ProjectedSystem {
     match from_wkt(text) {
         Ok(ReferenceSystem::Projected(projected)) => projected,
         other => panic!("a projected system, got {other:?}"),
@@ -22,7 +22,11 @@ fn projected_wkt(text: &str) -> ProjectedSystem {
 }
 
 /// Both systems' latitude and longitude of each grid point, to [`SAME_POSITION`].
-fn same_positions(by_code: &ProjectedSystem, by_wkt: &ProjectedSystem, points: &[[f64; 2]]) {
+pub(super) fn same_positions(
+    by_code: &ProjectedSystem,
+    by_wkt: &ProjectedSystem,
+    points: &[[f64; 2]],
+) {
     for &[easting, northing] in points {
         let a = by_code
             .geographic(easting, northing)
@@ -167,14 +171,14 @@ fn epsg_2278_reads_sexagesimal_parameters_and_us_survey_feet() {
 
 #[test]
 fn a_code_whose_method_is_not_built_is_refused_by_its_number_and_the_methods_name() {
-    // WGS 84 / Equal Earth Greenwich is Equal Earth, EPSG method 1078, `doc/todo/79`'s twelfth
-    // entry.
+    // Vanua Levu 1915 / Vanua Levu Grid is Hyperbolic Cassini-Soldner, EPSG method 9833,
+    // `doc/todo/79`'s nineteenth entry.
     assert_eq!(
-        system(8857),
+        system(3139),
         Err(Refusal::EpsgMethod {
-            code: 8857,
-            method: "Equal Earth",
-            method_code: 1078,
+            code: 3139,
+            method: "Hyperbolic Cassini-Soldner",
+            method_code: 9833,
         })
     );
 }
@@ -189,14 +193,14 @@ fn a_code_the_table_does_not_carry_is_refused_by_its_number() {
 }
 
 /// A latitude or longitude in degrees, minutes and seconds, signed by its hemisphere.
-fn dms(degrees: f64, minutes: f64, seconds: f64) -> f64 {
+pub(super) fn dms(degrees: f64, minutes: f64, seconds: f64) -> f64 {
     degrees.signum() * (degrees.abs() + minutes / 60.0 + seconds / 3600.0)
 }
 
 /// A worked example of Guidance Note 7-2 through the EPSG code of the system it is stated for:
 /// the forward answer within `grid` of the printed easting and northing (in the system's unit),
 /// and the reverse answer within a thousandth of a second, the example's printed precision.
-fn worked_example(
+pub(super) fn worked_example(
     code: i64,
     [latitude, longitude]: [f64; 2],
     [easting, northing]: [f64; 2],
