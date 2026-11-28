@@ -84,6 +84,12 @@ pub struct ProjectedSystem {
 
 /// The system a `/WKT` string states.
 #[derive(Debug, Clone, PartialEq)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "one system is read per measure dictionary and none is stored in bulk; boxing the \
+              projected one would add an allocation to every reading and a dereference to every \
+              match for no memory a document holds"
+)]
 pub enum ReferenceSystem {
     /// Latitudes and longitudes.
     Geographic(GeographicSystem),
@@ -473,6 +479,12 @@ enum Role {
     /// ESRI's auxiliary sphere type, which decides which sphere `Mercator_Auxiliary_Sphere`
     /// projects onto.
     AuxiliarySphere,
+    /// Hotine's azimuth of the initial line.
+    Azimuth,
+    /// Hotine's angle from the rectified to the skew grid.
+    RectifiedGridAngle,
+    /// Colombia Urban's height of the projection origin.
+    OriginHeight,
 }
 
 /// Which [`Role`] a parameter plays, or `None` for a name this reader does not know.
@@ -480,13 +492,16 @@ fn role(name: &str, code: Option<i64>) -> Option<Role> {
     // The EPSG Dataset's parameter codes, which Guidance Note 7-2 prints beside each method.
     if let Some(code) = code {
         return match code {
-            8801 | 8821 => Some(Role::OriginLatitude),
-            8802 | 8822 | 8833 => Some(Role::OriginLongitude),
-            8805 => Some(Role::Scale),
-            8806 | 8826 => Some(Role::FalseEasting),
-            8807 | 8827 => Some(Role::FalseNorthing),
+            8801 | 8811 | 8821 => Some(Role::OriginLatitude),
+            8802 | 8812 | 8822 | 8833 => Some(Role::OriginLongitude),
+            8805 | 8815 => Some(Role::Scale),
+            8806 | 8816 | 8826 => Some(Role::FalseEasting),
+            8807 | 8817 | 8827 => Some(Role::FalseNorthing),
             8823 | 8832 => Some(Role::Parallel1),
             8824 => Some(Role::Parallel2),
+            8813 => Some(Role::Azimuth),
+            8814 => Some(Role::RectifiedGridAngle),
+            1039 => Some(Role::OriginHeight),
             _ => None,
         };
     }
@@ -500,10 +515,20 @@ fn role(name: &str, code: Option<i64>) -> Option<Role> {
         | "longitudeoforigin"
         | "longitudeofnaturalorigin"
         | "longitudeoffalseorigin"
-        | "longitudeofcenter" => Some(Role::OriginLongitude),
-        "scalefactor" | "scalefactoratnaturalorigin" => Some(Role::Scale),
-        "falseeasting" | "eastingatfalseorigin" => Some(Role::FalseEasting),
-        "falsenorthing" | "northingatfalseorigin" => Some(Role::FalseNorthing),
+        | "longitudeofcenter"
+        | "longitudeofprojectioncentre" => Some(Role::OriginLongitude),
+        "scalefactor" | "scalefactoratnaturalorigin" | "scalefactoroninitialline" => {
+            Some(Role::Scale)
+        }
+        "falseeasting" | "eastingatfalseorigin" | "eastingatprojectioncentre" => {
+            Some(Role::FalseEasting)
+        }
+        "falsenorthing" | "northingatfalseorigin" | "northingatprojectioncentre" => {
+            Some(Role::FalseNorthing)
+        }
+        "azimuthofinitialline" => Some(Role::Azimuth),
+        "anglefromrectifiedtoskewgrid" => Some(Role::RectifiedGridAngle),
+        "projectionplaneoriginheight" => Some(Role::OriginHeight),
         "standardparallel1" | "latitudeof1ststandardparallel" | "latitudeofstandardparallel" => {
             Some(Role::Parallel1)
         }
@@ -543,6 +568,11 @@ fn named(name: &str, code: Option<i64>) -> Option<Named> {
             9810 => Some(Named::Exact(Method::PolarStereographicA)),
             9829 => Some(Named::Exact(Method::PolarStereographicB)),
             9830 => Some(Named::Exact(Method::PolarStereographicC)),
+            9808 => Some(Named::Exact(Method::TransverseMercatorSouthOrientated)),
+            9826 => Some(Named::Exact(Method::LambertConicConformalWestOrientated)),
+            9812 => Some(Named::Exact(Method::HotineObliqueMercatorA)),
+            9815 => Some(Named::Exact(Method::HotineObliqueMercatorB)),
+            1052 => Some(Named::Exact(Method::ColombiaUrban)),
             _ => None,
         };
     }
@@ -573,6 +603,18 @@ fn named(name: &str, code: Option<i64>) -> Option<Named> {
         "polarstereographicvarianta" => Named::Exact(Method::PolarStereographicA),
         "polarstereographicvariantb" => Named::Exact(Method::PolarStereographicB),
         "polarstereographicvariantc" => Named::Exact(Method::PolarStereographicC),
+        // The Dataset's own names, which ISO 19162 section 9.3.3 writes in a `METHOD`; the older
+        // form's and ESRI's oblique Mercator names do not say which variant they mean, and stay
+        // refused by name.
+        "transversemercatorsouthorientated" => {
+            Named::Exact(Method::TransverseMercatorSouthOrientated)
+        }
+        "lambertconicconformalwestorientated" => {
+            Named::Exact(Method::LambertConicConformalWestOrientated)
+        }
+        "hotineobliquemercatorvarianta" => Named::Exact(Method::HotineObliqueMercatorA),
+        "hotineobliquemercatorvariantb" => Named::Exact(Method::HotineObliqueMercatorB),
+        "colombiaurban" => Named::Exact(Method::ColombiaUrban),
         _ => return None,
     })
 }
@@ -716,6 +758,9 @@ fn projected(node: &Node, noted: &mut Noted) -> Result<ProjectedSystem, Refusal>
                 parameters.scale = Some(value * unit_factor(stated_unit.filter(|_| newer), 1.0)?);
             }
             Role::AuxiliarySphere => auxiliary_sphere = Some(value),
+            Role::Azimuth => parameters.azimuth = Some(angle(value)?),
+            Role::RectifiedGridAngle => parameters.rectified_grid_angle = Some(angle(value)?),
+            Role::OriginHeight => parameters.origin_height = Some(length(value)?),
         }
     }
     if family == Named::AuxiliarySphere && auxiliary_sphere.is_none() {

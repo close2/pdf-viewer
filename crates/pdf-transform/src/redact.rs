@@ -423,6 +423,7 @@ pub(crate) fn run(
                     states: edit.states,
                     names: edit.names,
                     located_in_place: Vec::new(),
+                    direct_in_place: Vec::new(),
                 });
             }
             Err(skip) => report.refused.push(Declined {
@@ -822,6 +823,10 @@ struct AppliedPage {
     /// The shadings and patterns whose located data this page destroyed in their own place,
     /// because nothing else the output draws names them (ADR 3861).
     located_in_place: Vec<ObjectId>,
+    /// The shadings and patterns written directly in inherited resources whose holders this page
+    /// restates with its replacements, because nothing else the output draws names them
+    /// (ADR 3869).
+    direct_in_place: Vec<undrawn::DirectEntry>,
     /// The text the removal took, in runs.
     runs: Vec<String>,
 }
@@ -3217,6 +3222,7 @@ fn write_document(
         private,
         forms: form_slots,
         located: located_slots,
+        holders,
     } = reserve_slots(&mut assembly, applied)?;
     // The reachable closure, pruned: a replaced page short-circuits the walk, so its old content
     // and its removed annotations are reached from nowhere else and never copied.
@@ -3257,6 +3263,7 @@ fn write_document(
 
     let placed_located =
         place_located(&mut assembly, document, applied, (&private, &located_slots))?;
+    place_holders(&mut assembly, document, applied, &holders, &placed_located)?;
     for (index, page) in applied.iter().enumerate() {
         let copies = private.get(index).cloned().unwrap_or_default();
         let slots = form_slots.get(index);
@@ -3773,6 +3780,8 @@ struct Slots<'a> {
     /// Per page, the shadings and patterns it destroys data of in their own place, and their
     /// slots.
     located: Vec<HashMap<ObjectId, ObjectId>>,
+    /// Each object holding a direct entry a page replaces in its place, and its slot (ADR 3869).
+    holders: HashMap<ObjectId, ObjectId>,
 }
 
 /// Takes a slot for every image and form the removal destroyed or edited, replacing an owned
@@ -3862,11 +3871,24 @@ fn reserve_slots<'a>(
         private.push(copies);
         form_slots.push(slots);
     }
+    // A holder another replacement already took — none of the redaction's own do — keeps its
+    // entries as written, and the page's own resources still name its replacement.
+    let mut holders = HashMap::new();
+    for direct in applied.iter().flat_map(|page| &page.direct_in_place) {
+        if holders.contains_key(&direct.holder) || assembly.copied(0, direct.holder).is_some() {
+            continue;
+        }
+        let slot = assembly
+            .replace(0, direct.holder)
+            .map_err(|error| Refusal::Assembly(error.to_string()))?;
+        holders.insert(direct.holder, slot);
+    }
     Ok(Slots {
         replacements,
         private,
         forms: form_slots,
         located: located_slots,
+        holders,
     })
 }
 
@@ -4126,6 +4148,73 @@ fn place_located(
         out.push(placed);
     }
     Ok(out)
+}
+
+/// Each object holding a direct entry a page replaces in its place, restated: the replacement in
+/// the entry's place and every other entry carried as the producer wrote it, so the producer's
+/// streams the entry named are reached from nowhere (ADR 3869).
+fn place_holders(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    applied: &[AppliedPage],
+    holders: &HashMap<ObjectId, ObjectId>,
+    placed: &[HashMap<located::Key, Object>],
+) -> Result<(), Refusal> {
+    let mut ordered: Vec<(&ObjectId, &ObjectId)> = holders.iter().collect();
+    ordered.sort_unstable_by_key(|(holder, _)| holder.number);
+    for (holder, slot) in ordered {
+        let entries: Vec<(&[Vec<u8>], &Object)> = applied
+            .iter()
+            .zip(placed)
+            .flat_map(|(page, placed)| {
+                page.direct_in_place
+                    .iter()
+                    .filter(|direct| direct.holder == *holder)
+                    .filter_map(|direct| {
+                        placed
+                            .get(&direct.key)
+                            .map(|object| (direct.path.as_slice(), object))
+                    })
+            })
+            .collect();
+        let object = restated_holder(assembly, document, &document.get(*holder), &entries);
+        assembly
+            .place(*slot, object)
+            .map_err(|error| Refusal::Assembly(error.to_string()))?;
+    }
+    Ok(())
+}
+
+/// `value` carried into the output with each entry at one of `entries`' paths written as its
+/// object; the dictionaries along a path are direct, by how [`undrawn::DirectEntry`] is found.
+fn restated_holder(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    value: &Object,
+    entries: &[(&[Vec<u8>], &Object)],
+) -> Object {
+    let Object::Dictionary(dict) = value else {
+        return carry(assembly, document, value, 0);
+    };
+    let mut out = Dictionary::new();
+    for (key, item) in dict.iter() {
+        let below: Vec<(&[Vec<u8>], &Object)> = entries
+            .iter()
+            .filter_map(|(path, object)| match path.split_first() {
+                Some((first, rest)) if first.as_slice() == key.as_bytes() => Some((rest, *object)),
+                _ => None,
+            })
+            .collect();
+        let restated = if let Some((_, object)) = below.iter().find(|(rest, _)| rest.is_empty()) {
+            (*object).clone()
+        } else if below.is_empty() {
+            carry(assembly, document, item, 0)
+        } else {
+            restated_holder(assembly, document, item, &below)
+        };
+        out.insert(key.clone(), restated);
+    }
+    Object::Dictionary(out)
 }
 
 /// A stream's overridden entries paired with the placed replacements.

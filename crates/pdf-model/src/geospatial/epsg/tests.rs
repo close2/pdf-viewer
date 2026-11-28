@@ -160,13 +160,13 @@ fn epsg_2278_reads_sexagesimal_parameters_and_us_survey_feet() {
 
 #[test]
 fn a_code_whose_method_is_not_built_is_refused_by_its_number_and_the_methods_name() {
-    // CH1903+ / LV95 is Hotine Oblique Mercator (variant B), EPSG method 9815.
+    // S-JTSK (Ferro) / Krovak is Krovak, EPSG method 9819, `doc/todo/79`'s eleventh entry.
     assert_eq!(
-        system(2056),
+        system(2065),
         Err(Refusal::EpsgMethod {
-            code: 2056,
-            method: "Hotine Oblique Mercator (variant B)",
-            method_code: 9815,
+            code: 2065,
+            method: "Krovak",
+            method_code: 9819,
         })
     );
 }
@@ -256,6 +256,120 @@ fn polar_stereographic_c_reproduces_the_terre_adelie_example() {
         [303_169.52, 244_055.72],
         0.01,
     );
+}
+
+#[test]
+fn transverse_mercator_south_orientated_reproduces_the_lo29_example() {
+    // Guidance Note 7-2 section 3.2.3.3's example, Hartebeesthoek94 / Lo29 (EPSG 2053), whose
+    // axes are the westing and the southing: 25°43′55.302″S 28°16′57.479″E is a westing of
+    // 71984.49 m and a southing of 2847342.74 m. The point is printed to a thousandth of a
+    // second, about 3 cm on the ground, so the grid is held to ADR 1672's 1.5 cm.
+    worked_example(
+        2053,
+        [-dms(25.0, 43.0, 55.302), dms(28.0, 16.0, 57.479)],
+        [71_984.49, 2_847_342.74],
+        0.015,
+    );
+}
+
+#[test]
+fn hotine_oblique_mercator_b_reproduces_the_borneo_example() {
+    // Section 3.2.4.1's example, Timbalai 1948 / R.S.O. Borneo (m) (EPSG 29873), variant B:
+    // 5°23′14.1129″N 115°48′19.8196″E is (679245.73, 596562.78) m.
+    worked_example(
+        29873,
+        [dms(5.0, 23.0, 14.1129), dms(115.0, 48.0, 19.8196)],
+        [679_245.73, 596_562.78],
+        0.01,
+    );
+}
+
+#[test]
+fn colombia_urban_reproduces_the_bogota_example() {
+    // Section 3.4.3's example, MAGNA-SIRGAS / Bogota urban grid (EPSG 6247): 4°48′N 74°15′W is
+    // (80859.033, 122543.174) m, printed to the millimetre.
+    worked_example(
+        6247,
+        [dms(4.0, 48.0, 0.0), -dms(74.0, 15.0, 0.0)],
+        [80_859.033, 122_543.174],
+        0.001,
+    );
+}
+
+#[test]
+fn lambert_west_orientated_is_the_1sp_projection_with_its_easting_mirrored() {
+    // Section 3.1.1.3 prints no example: its formulas are the 1SP variant's "except for: W = FE
+    // – r * sin θ", so the westing of a point is 2·FE less the 1SP easting and the northing is
+    // the 1SP northing. Qornoq 1927 / Greenland zone 1 east (EPSG 2297) is checked against a 1SP
+    // projection of the same parameters, and its reverse against the point.
+    let west = projected_of(2297);
+    let east = Projection::new(
+        ProjectionMethod::LambertConicConformal1Sp,
+        west.projection.ellipsoid,
+        west.projection.parameters,
+    )
+    .expect("the 1SP parameters");
+    let false_easting = west.projection.parameters.false_easting.unwrap_or(0.0);
+    for [latitude, longitude] in [[82.0, -45.0], [81.0, -30.0], [83.5, -40.0]] {
+        let point = super::super::projection::LatLon {
+            latitude: f64::to_radians(latitude),
+            longitude: f64::to_radians(longitude),
+        };
+        let w = west.projection.forward(point).expect("the westing");
+        let e = east.forward(point).expect("the 1SP easting");
+        assert!(
+            (w.easting - (2.0 * false_easting - e.easting)).abs() < 1e-6
+                && (w.northing - e.northing).abs() < 1e-6,
+            "{w:?} against {e:?}"
+        );
+        let back = west
+            .projection
+            .inverse(w.easting, w.northing)
+            .expect("the reverse");
+        assert!(
+            (back.latitude - point.latitude).abs() < SAME_POSITION
+                && (back.longitude - point.longitude).abs() < SAME_POSITION,
+            "{back:?} against {point:?}"
+        );
+    }
+}
+
+#[test]
+fn hotine_b_at_an_azimuth_of_ninety_degrees_puts_the_centre_at_its_stated_grid_point() {
+    // Section 3.2.4.1 states variant B's (EC, NC) at the projection centre. CH1903 / LV03 (EPSG
+    // 21781) is the section's special case of αC = 90°: its centre, 46°57′08.66″N 7°26′22.50″E,
+    // is (600000, 200000) m, and a point a metre of longitude either side lies within a metre
+    // or so of it — the continuity ADR 3871's reading of the special case keeps.
+    let system = projected_of(21781);
+    let centre = [dms(46.0, 57.0, 8.66), dms(7.0, 26.0, 22.50)];
+    let grid = |longitude: f64| {
+        system
+            .grid(GeographicPosition {
+                latitude: centre[0],
+                longitude,
+            })
+            .expect("the point projects")
+    };
+    let [e, n] = grid(centre[1]);
+    assert!(
+        (e - 600_000.0).abs() < 0.001 && (n - 200_000.0).abs() < 0.001,
+        "({e}, {n})"
+    );
+    // A metre of longitude at 47°N is about 1.3e-5°.
+    for longitude in [centre[1] - 1.3e-5, centre[1] + 1.3e-5] {
+        let [e, n] = grid(longitude);
+        assert!(
+            (e - 600_000.0).abs() < 1.5 && (n - 200_000.0).abs() < 0.01,
+            "({e}, {n}) at {longitude}"
+        );
+        let back = system.geographic(e, n).expect("the reverse");
+        let second = 0.0001 / 3600.0;
+        assert!(
+            (back.latitude - centre[0]).abs() < second
+                && (back.longitude - longitude).abs() < second,
+            "{back:?}"
+        );
+    }
 }
 
 #[test]

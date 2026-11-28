@@ -11,12 +11,21 @@ command that prints it is in ADR 3823. The method sections are IOGP Guidance Not
 
 ## What is built
 
-Thirteen methods, 5595 of the table's 5780 projected systems (96.8 %): the census's eight (ADRs 1586,
+Eighteen methods, 5716 of the table's 5780 projected systems (98.9 %): the census's eight (ADRs 1586,
 1587, 1672) — Transverse Mercator, Lambert Conic Conformal 1SP and 2SP, Mercator A and B,
 Pseudo-Mercator, Albers, oblique stereographic — and ADR 3822's five, each tested on its section's
 worked example through the EPSG code the example is stated for: Cassini-Soldner (3.2.2, Trinidad
 Grid, EPSG 30200), Lambert Azimuthal Equal Area (3.3.2, ETRS-LAEA, EPSG 3035), Polar Stereographic
 A, B and C (3.3.1.2, UPS North 32661, Australian Antarctic 3032, Terre Adelie 2986).
+
+And this list's first five (ADRs 3870, 3871): Colombia Urban (3.4.3, Bogota urban grid, EPSG 6247),
+Transverse Mercator South Orientated (3.2.3.3, Hartebeesthoek94 / Lo29, EPSG 2053), Hotine Oblique
+Mercator variant B (3.2.4.1, Timbalai 1948 / R.S.O. Borneo (m), EPSG 29873) and variant A (the same
+example with its false coordinates at the natural origin, as the section states it, built from the
+example's parameters because no carried system states them with variant A), and Lambert Conic
+Conformal West Orientated (3.1.1.3, which prints no example: tested on Qornoq 1927 / Greenland zone
+1 east, EPSG 2297, against the 1SP formulas the section states it as). Hotine's special case at an
+azimuth of 90° is read as a choice (ADR 3871, tested on CH1903 / LV03, EPSG 21781).
 
 ## The order
 
@@ -28,11 +37,11 @@ the table holds it. Each built moves §12.10.4's note; the last moves the row to
 
 | # | method | EPSG | systems | GN 7-2 section |
 |---|---|---|---|---|
-| 1 | Colombia Urban | 1052 | 32 | 3.4.3 |
-| 2 | Transverse Mercator (South Orientated) | 9808 | 28 | 3.2.3.3 |
-| 3 | Hotine Oblique Mercator (variant A) | 9812 | 23 | 3.2.4.1 |
-| 4 | Hotine Oblique Mercator (variant B) | 9815 | 19 | 3.2.4.1 |
-| 5 | Lambert Conic Conformal (West Orientated) | 9826 | 19 | 3.1.1.3 |
+| 1 | Colombia Urban, built | 1052 | 32 | 3.4.3 |
+| 2 | Transverse Mercator (South Orientated), built | 9808 | 28 | 3.2.3.3 |
+| 3 | Hotine Oblique Mercator (variant A), built | 9812 | 23 | 3.2.4.1 |
+| 4 | Hotine Oblique Mercator (variant B), built | 9815 | 19 | 3.2.4.1 |
+| 5 | Lambert Conic Conformal (West Orientated), built | 9826 | 19 | 3.1.1.3 |
 | 6 | Azimuthal Equidistant | 1125 | 7 | 3.3.3 |
 | 7 | Lambert Azimuthal Equal Area (Spherical) | 1027 | 6 | 3.3.2.1 |
 | 8 | American Polyconic | 9818 | 5 | 3.1.5 |

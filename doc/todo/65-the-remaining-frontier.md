@@ -134,8 +134,8 @@ repository and its source** — none a candidate, and none re-read:
   `capycrypt`, `ciphersuite`, `purecrypto` and `static-dh-ecdh`. None is RustCrypto's and none
   names an audit; the re-check above is what would bring one back.
 
-- §12.10.4 — a projected system whose method is past the thirteen built is refused by its number and
-  the method's name: 185 of the carried EPSG table's 5780 projected systems, over 34 methods, which
+- §12.10.4 — a projected system whose method is past the eighteen built is refused by its number and
+  the method's name: 64 of the carried EPSG table's 5780 projected systems, over 29 methods, which
   `doc/todo/79` orders (ADRs 3821 to 3823, the owner's `doc/questions/A1095`). Each built moves the row.
 
 ### 3. Hard rendering / architecture — a real build across several rounds

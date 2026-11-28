@@ -13,10 +13,11 @@
 //! 269 says "shall be used for the display of position values" — or to be carried back through
 //! `/PCSM` onto the page.
 //!
-//! The method set is the census's, not a catalogue: the methods the documents of the crawl name,
-//! from Transverse Mercator (85 documents) to the oblique stereographic (3). A method the census
-//! found but this module does not carry — Hotine's oblique Mercator, Krovak, the vertical
-//! perspective — is refused by its name, as is every other (ADR 1586).
+//! The method set began as the census's — the methods the documents of the crawl name, from
+//! Transverse Mercator (85 documents) to the oblique stereographic (3) — and grows by
+//! `doc/todo/79`'s list of the methods the carried EPSG table's systems state, in its order. A
+//! method neither carries — Krovak, the vertical perspective — is refused by its name, as is
+//! every other (ADR 1586, ADR 3823).
 //!
 //! Angles in and out are radians and lengths metres; [`super::system`] converts the file's units
 //! on the way in.
@@ -34,7 +35,9 @@ use super::ellipsoid::Ellipsoid;
 
 mod azimuthal;
 mod cassini;
+mod oblique;
 mod polar;
+mod urban;
 
 /// How many times an iterated latitude is refined before the answer is refused.
 ///
@@ -96,6 +99,21 @@ pub enum Method {
     /// stated, in [`Parameters::parallel_1`], and the false grid coordinates where it crosses the
     /// longitude of origin.
     PolarStereographicC,
+    /// Transverse Mercator (South Orientated), EPSG method 9808, section 3.2.3.3: section
+    /// 3.2.3.1's projection with its axes increasing to the west and the south.
+    TransverseMercatorSouthOrientated,
+    /// Lambert Conic Conformal (West Orientated), EPSG method 9826, section 3.1.1.3: section
+    /// 3.1.1.2's projection with its first axis increasing to the west.
+    LambertConicConformalWestOrientated,
+    /// Hotine Oblique Mercator (variant A), EPSG method 9812, section 3.2.4.1: the false easting
+    /// and northing stated at the natural origin.
+    HotineObliqueMercatorA,
+    /// Hotine Oblique Mercator (variant B), EPSG method 9815, section 3.2.4.1: the easting and
+    /// northing stated at the projection centre, in [`Parameters::false_easting`] and
+    /// [`Parameters::false_northing`].
+    HotineObliqueMercatorB,
+    /// Colombia Urban, EPSG method 1052, section 3.4.3: a plane at the height of the origin.
+    ColombiaUrban,
 }
 
 impl Method {
@@ -116,6 +134,13 @@ impl Method {
             Self::PolarStereographicA => "Polar Stereographic (variant A)",
             Self::PolarStereographicB => "Polar Stereographic (variant B)",
             Self::PolarStereographicC => "Polar Stereographic (variant C)",
+            Self::TransverseMercatorSouthOrientated => "Transverse Mercator (South Orientated)",
+            Self::LambertConicConformalWestOrientated => {
+                "Lambert Conic Conformal (West Orientated)"
+            }
+            Self::HotineObliqueMercatorA => "Hotine Oblique Mercator (variant A)",
+            Self::HotineObliqueMercatorB => "Hotine Oblique Mercator (variant B)",
+            Self::ColombiaUrban => "Colombia Urban",
         }
     }
 }
@@ -128,20 +153,28 @@ impl Method {
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Parameters {
     /// The latitude of the natural origin, or of the false origin for the methods defined at
-    /// one (the two-parallel Lambert and Albers).
+    /// one (the two-parallel Lambert and Albers), or of the projection centre for Hotine's.
     pub origin_latitude: Option<f64>,
     /// The longitude of the same origin.
     pub origin_longitude: Option<f64>,
-    /// The scale factor at the natural origin.
+    /// The scale factor at the natural origin, or on the initial line for Hotine's.
     pub scale: Option<f64>,
-    /// The false easting, or the easting at the false origin.
+    /// The false easting, the easting at the false origin, or Hotine variant B's easting at the
+    /// projection centre.
     pub false_easting: Option<f64>,
-    /// The false northing, or the northing at the false origin.
+    /// The false northing, the northing at the false origin, or Hotine variant B's northing at the
+    /// projection centre.
     pub false_northing: Option<f64>,
     /// The latitude of the first standard parallel.
     pub parallel_1: Option<f64>,
     /// The latitude of the second standard parallel.
     pub parallel_2: Option<f64>,
+    /// Hotine's azimuth of the initial line at the projection centre, αC.
+    pub azimuth: Option<f64>,
+    /// Hotine's angle from the rectified to the skew grid, γC.
+    pub rectified_grid_angle: Option<f64>,
+    /// Colombia Urban's height of the projection origin, hO, in metres above the ellipsoid.
+    pub origin_height: Option<f64>,
 }
 
 /// A projection ready to evaluate: a method, its ellipsoid and its parameters.
@@ -245,8 +278,10 @@ impl Projection {
         let p = &parameters;
         match method {
             Method::TransverseMercator
+            | Method::TransverseMercatorSouthOrientated
             | Method::ObliqueStereographic
-            | Method::LambertConicConformal1Sp => {
+            | Method::LambertConicConformal1Sp
+            | Method::LambertConicConformalWestOrientated => {
                 required(p.origin_latitude, method, "latitude of natural origin")?;
                 required(p.origin_longitude, method, "longitude of natural origin")?;
                 required(p.scale, method, "scale factor at natural origin")?;
@@ -284,6 +319,22 @@ impl Projection {
                         reason: "a latitude of natural origin other than a pole",
                     });
                 }
+            }
+            Method::HotineObliqueMercatorA | Method::HotineObliqueMercatorB => {
+                required(p.origin_latitude, method, "latitude of projection centre")?;
+                required(p.origin_longitude, method, "longitude of projection centre")?;
+                required(p.azimuth, method, "azimuth of initial line")?;
+                required(
+                    p.rectified_grid_angle,
+                    method,
+                    "angle from rectified to skew grid",
+                )?;
+                required(p.scale, method, "scale factor on initial line")?;
+            }
+            Method::ColombiaUrban => {
+                required(p.origin_latitude, method, "latitude of natural origin")?;
+                required(p.origin_longitude, method, "longitude of natural origin")?;
+                required(p.origin_height, method, "projection plane origin height")?;
             }
             Method::PolarStereographicB | Method::PolarStereographicC => {
                 let parallel = required(p.parallel_1, method, "latitude of standard parallel")?;
@@ -367,6 +418,24 @@ impl Projection {
             Method::PolarStereographicA
             | Method::PolarStereographicB
             | Method::PolarStereographicC => self.polar_forward(latitude, delta),
+            // Section 3.2.3.3: the westing and the southing are the general case's terms
+            // subtracted from the false easting and northing.
+            Method::TransverseMercatorSouthOrientated => {
+                let (x, y) = self.transverse_mercator_forward(latitude, delta)?;
+                (-x, -y)
+            }
+            // Section 3.1.1.3: `W = FE − r sin θ`, the northing as in the 1SP variant.
+            Method::LambertConicConformalWestOrientated => {
+                let (n, big_f, r0) = self.lambert_1sp_cone();
+                let a = self.ellipsoid.semi_major_axis;
+                let k0 = Self::get(p.scale);
+                let (x, y) = self.cone_forward(latitude, delta, n, a * big_f * k0, r0)?;
+                (-x, y)
+            }
+            Method::HotineObliqueMercatorA | Method::HotineObliqueMercatorB => {
+                self.hotine_forward(latitude, delta)
+            }
+            Method::ColombiaUrban => self.urban_forward(latitude, delta),
         };
         // not a repair: this evaluates a reading logged where the string is read; an offset it
         // does not state is `super::system`'s WKT_FALSE_ORIGIN_ABSENT.
@@ -409,6 +478,16 @@ impl Projection {
             Method::PolarStereographicA
             | Method::PolarStereographicB
             | Method::PolarStereographicC => self.polar(x, y),
+            // Section 3.2.3.3's reverse: `M1 = MO − (S − FN)/kO` and `D = −(W − FE)/(ν1 kO)`,
+            // the general case's with both offsets negated.
+            Method::TransverseMercatorSouthOrientated => self.transverse_mercator(-x, -y)?,
+            // Section 3.1.1.3's reverse: θ′ and r′ from `FE − W`, the 1SP variant's easting
+            // offset negated.
+            Method::LambertConicConformalWestOrientated => self.lambert_1sp(-x, y)?,
+            Method::HotineObliqueMercatorA | Method::HotineObliqueMercatorB => {
+                self.hotine_inverse(x, y)
+            }
+            Method::ColombiaUrban => self.urban_inverse(x, y),
         };
         let within_method =
             self.method != Method::PseudoMercator || answer.latitude.abs() <= PSEUDO_MERCATOR_LIMIT;
@@ -1392,5 +1471,41 @@ mod tests {
         assert!((wrap(-3.5) - (std::f64::consts::TAU - 3.5)).abs() < 1e-15);
         assert!((wrap(std::f64::consts::PI) - std::f64::consts::PI).abs() < 1e-15);
         assert!((wrap(0.25) - 0.25).abs() < 1e-15);
+    }
+
+    /// Guidance Note 7-2 section 3.2.4.1's example as variant A: the section states the same
+    /// projection with a false easting and northing of zero at the natural origin, u = 901334.257
+    /// and every other value as for variant B — so the easting and northing are variant B's
+    /// (679245.73, 596562.78) m. No system of the carried table
+    /// states these parameters with variant A, so the projection is built from the example.
+    #[test]
+    fn hotine_a_reproduces_the_borneo_example_stated_at_the_natural_origin() {
+        let borneo = projection(
+            Method::HotineObliqueMercatorA,
+            Ellipsoid::new(6_377_298.556, 300.8017).expect("Everest 1830 (1967 Definition)"),
+            Parameters {
+                origin_latitude: Some(dms(4.0, 0.0, 0.0)),
+                origin_longitude: Some(dms(115.0, 0.0, 0.0)),
+                azimuth: Some(dms(53.0, 18.0, 56.9537)),
+                rectified_grid_angle: Some(dms(53.0, 7.0, 48.3685)),
+                scale: Some(0.99984),
+                false_easting: Some(0.0),
+                false_northing: Some(0.0),
+                ..Parameters::default()
+            },
+        );
+        let point = LatLon {
+            latitude: dms(5.0, 23.0, 14.1129),
+            longitude: dms(115.0, 48.0, 19.8196),
+        };
+        let grid = borneo.forward(point).expect("the example projects");
+        assert_grid_within(grid, [679_245.73, 596_562.78], 1.0);
+        let back = borneo
+            .inverse(679_245.73, 596_562.78)
+            .expect("the example's grid point");
+        // The grid point is printed to the centimetre, about 0.0003″, so the reverse is held to
+        // the forward's point rather than to the reverse's printed rounding of it.
+        assert_within(back.latitude, point.latitude, 3);
+        assert_within(back.longitude, point.longitude, 3);
     }
 }

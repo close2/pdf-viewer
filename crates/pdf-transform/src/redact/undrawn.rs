@@ -25,10 +25,18 @@
 //! draws, which is why it may replace the object every page's resources name — §7.8.3's names
 //! resolve to the same object as before, and the drawings of every other page are unchanged.
 //!
+//! A shading or pattern written **directly** in resources the page inherits from a `/Pages` node
+//! (§7.7.3.4) has no object of its own to take the edit, and the producer's function or sample
+//! stream stays reachable from that node's entry. Where nothing else draws the entry, the object
+//! holding it — the node, or the resource dictionary or category table it names by reference — is
+//! restated with the page's replacement written in the entry's place and every other entry carried
+//! as it was ([`DirectEntry`], ADR 3869). Every page that inherits it resolves the name to the
+//! replacement, and none of them draws it, so none of their drawings changes.
+//!
 //! The search errs one way only. Whatever it cannot read — a stream that does not decode, a
 //! pattern, a Type 3 glyph, a soft mask's group, a resource it reaches without a `Do` naming it —
-//! counts as drawing everything it reaches; and past [`MAX_TOKENS`] every original counts as
-//! drawn. An original wrongly found drawn keeps today's copy; one wrongly found undrawn would
+//! counts as drawing everything it reaches, and a direct entry counts as drawn wherever an equal
+//! dictionary is reached; and past [`MAX_TOKENS`] every original counts as drawn. An original wrongly found drawn keeps today's copy; one wrongly found undrawn would
 //! change another page, and the search is built so that it cannot be.
 
 use std::collections::{HashMap, HashSet};
@@ -55,14 +63,56 @@ const MAX_TOKENS: usize = 1 << 24;
 /// group, and a shading that names none but is read the same way for safety.
 const OTHER_DRAWING_CATEGORIES: [&str; 4] = ["Pattern", "Font", "ExtGState", "Shading"];
 
+/// A shading or pattern a page's located destruction replaced (ADR 1363) that its resources state
+/// directly, in an object of an ancestor `/Pages` node's rather than the page's own (§7.7.3.4).
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct DirectEntry {
+    /// The object that holds it: the node, or the resource dictionary or category table the
+    /// node's entries name by reference.
+    pub(super) holder: ObjectId,
+    /// The keys from the holder's dictionary down to the entry, the entry's own name last.
+    pub(super) path: Vec<Vec<u8>>,
+    /// The page's key for the replacement, `Key::Direct` with no form.
+    pub(super) key: Key,
+    /// The entry as the producer wrote it.
+    entry: Object,
+}
+
+/// What one root of the search draws in place of the producer's: the objects its page copied, and
+/// the direct entries its page replaced (by index into the search's list).
+#[derive(Default)]
+struct Own {
+    objects: HashSet<ObjectId>,
+    direct: HashSet<usize>,
+}
+
 /// Lets each form or image a page copied take its original's place where nothing the output
-/// still draws reaches the original (the module's rule).
+/// still draws reaches the original (the module's rule), and gives each page the direct entries
+/// whose holders it restates.
 pub(super) fn adopt(document: &Document, applied: &mut [AppliedPage]) {
     let candidates: HashSet<ObjectId> = applied.iter().flat_map(copied).collect();
-    if candidates.is_empty() {
+    let mut directs: Vec<DirectEntry> = Vec::new();
+    let mut own_directs: Vec<HashSet<usize>> = Vec::with_capacity(applied.len());
+    for page in applied.iter() {
+        let mut own = HashSet::new();
+        for key in page.names.located.keys() {
+            if let Some(found) = direct_entry(document, page, key) {
+                let index = directs
+                    .iter()
+                    .position(|known| known.holder == found.holder && known.path == found.path)
+                    .unwrap_or_else(|| {
+                        directs.push(found);
+                        directs.len().saturating_sub(1)
+                    });
+                own.insert(index);
+            }
+        }
+        own_directs.push(own);
+    }
+    if candidates.is_empty() && directs.is_empty() {
         return;
     }
-    let drawn = drawn(document, applied, &candidates);
+    let (drawn, drawn_directs) = drawn(document, applied, (&candidates, &directs), &own_directs);
     // An object some page already replaces in place is not given a second edit in that place.
     let mut taken: HashSet<ObjectId> = applied
         .iter()
@@ -78,7 +128,8 @@ pub(super) fn adopt(document: &Document, applied: &mut [AppliedPage]) {
                 .collect::<Vec<_>>()
         })
         .collect();
-    for page in applied.iter_mut() {
+    let mut taken_directs: HashSet<usize> = HashSet::new();
+    for (page, own) in applied.iter_mut().zip(&own_directs) {
         for form in &mut page.forms {
             if form.private
                 && !form.placement_copy
@@ -98,7 +149,95 @@ pub(super) fn adopt(document: &Document, applied: &mut [AppliedPage]) {
             .collect();
         in_place.sort_unstable_by_key(|id| id.number);
         page.located_in_place = in_place;
+        let mut direct: Vec<usize> = own
+            .iter()
+            .copied()
+            .filter(|index| !drawn_directs.contains(index) && taken_directs.insert(*index))
+            .collect();
+        direct.sort_unstable();
+        page.direct_in_place = direct.into_iter().map(|i| directs[i].clone()).collect();
     }
+}
+
+/// Where a page's direct shading or pattern entry `key` is written, if an ancestor node states the
+/// resources that hold it (§7.7.3.4's inheritance).
+///
+/// A page's own `/Resources` is rebuilt with the page and holds nothing past it, so an entry there
+/// is not one. The entry found is checked against the page's effective resources, so a `/Parent`
+/// chain that disagrees with the tree the pages were read from finds nothing rather than another
+/// dictionary.
+fn direct_entry(document: &Document, page: &AppliedPage, key: &Key) -> Option<DirectEntry> {
+    let Key::Direct {
+        form: None,
+        category,
+        name,
+    } = key
+    else {
+        return None;
+    };
+    let mut node = page.page_id;
+    let mut found = None;
+    for _ in 0..MAX_DEPTH {
+        let object = document.get(node);
+        let Object::Dictionary(dict) = &object else {
+            return None;
+        };
+        match dict.get("Resources") {
+            Some(Object::Reference(id)) if matches!(document.get(*id), Object::Dictionary(_)) => {
+                found = Some((*id, Vec::new()));
+            }
+            Some(Object::Dictionary(_)) => found = Some((node, vec![b"Resources".to_vec()])),
+            // §7.3.9: a null or an absent entry is inherited from the parent.
+            _ => {}
+        }
+        if found.is_some() {
+            break;
+        }
+        node = dict.get("Parent")?.as_reference()?;
+    }
+    let (mut holder, mut path) = found?;
+    if node == page.page_id {
+        return None;
+    }
+    let mut current = document.get(holder);
+    for step in &path {
+        current = match &current {
+            Object::Dictionary(dict) => dict.get_by_name(&Name::new(step.as_slice()))?.clone(),
+            _ => return None,
+        };
+    }
+    let Object::Dictionary(resources) = &current else {
+        return None;
+    };
+    let table = match resources.get(category.key())? {
+        Object::Reference(id) => {
+            holder = *id;
+            path.clear();
+            document.get(*id)
+        }
+        direct => {
+            path.push(category.key().as_bytes().to_vec());
+            direct.clone()
+        }
+    };
+    let Object::Dictionary(table) = &table else {
+        return None;
+    };
+    let entry = table.get_by_name(&Name::new(name.as_slice()))?;
+    let effective = document.get_key(&page.resources, category.key());
+    let stated = effective
+        .as_dict()
+        .and_then(|effective| effective.get_by_name(&Name::new(name.as_slice())));
+    if matches!(entry, Object::Reference(_)) || stated != Some(entry) {
+        return None;
+    }
+    path.push(name.clone());
+    Some(DirectEntry {
+        holder,
+        path,
+        key: key.clone(),
+        entry: entry.clone(),
+    })
 }
 
 /// The objects a page's resources were given copies of: what its draws of them reach instead.
@@ -128,25 +267,36 @@ fn located(page: &AppliedPage) -> impl Iterator<Item = ObjectId> + '_ {
         })
 }
 
-/// Which of `candidates` something the output still draws reaches; every one of them where the
-/// search passed its bound.
+/// Which of `candidates` and of `directs` something the output still draws reaches; every one of
+/// them where the search passed its bound.
 fn drawn(
     document: &Document,
     applied: &[AppliedPage],
-    candidates: &HashSet<ObjectId>,
-) -> HashSet<ObjectId> {
+    (candidates, directs): (&HashSet<ObjectId>, &[DirectEntry]),
+    own_directs: &[HashSet<usize>],
+) -> (HashSet<ObjectId>, HashSet<usize>) {
     let mut search = Search {
         document,
         candidates,
+        directs,
         drawn: HashSet::new(),
+        drawn_directs: HashSet::new(),
         entered: HashSet::new(),
         tokens: 0,
     };
-    let copies_by_page: HashMap<ObjectId, HashSet<ObjectId>> = applied
+    let everything = || (candidates.clone(), (0..directs.len()).collect());
+    let copies_by_page: HashMap<ObjectId, Own> = applied
         .iter()
-        .map(|page| (page.page_id, copied(page).into_iter().collect()))
+        .zip(own_directs)
+        .map(|(page, direct)| {
+            let own = Own {
+                objects: copied(page).into_iter().collect(),
+                direct: direct.clone(),
+            };
+            (page.page_id, own)
+        })
         .collect();
-    let none = HashSet::new();
+    let none = Own::default();
     let pages = Pages::new(document);
     for index in 0..pages.len() {
         let Some(page) = pages.get(index) else {
@@ -178,7 +328,7 @@ fn drawn(
             search.reach(thumbnail, &none, 0, &mut HashSet::new());
         }
         if search.tokens > MAX_TOKENS {
-            return candidates.clone();
+            return everything();
         }
     }
     // §7.7.4's `/AP` name tree maps names to appearance streams a processor may draw.
@@ -193,9 +343,9 @@ fn drawn(
         }
     }
     if search.tokens > MAX_TOKENS {
-        return candidates.clone();
+        return everything();
     }
-    search.drawn
+    (search.drawn, search.drawn_directs)
 }
 
 /// One search of what the output draws.
@@ -203,8 +353,12 @@ struct Search<'a> {
     document: &'a Document,
     /// The originals asked about.
     candidates: &'a HashSet<ObjectId>,
+    /// The direct entries asked about.
+    directs: &'a [DirectEntry],
     /// Those found drawn.
     drawn: HashSet<ObjectId>,
+    /// The direct entries found drawn, by index.
+    drawn_directs: HashSet<usize>,
     /// Each form already entered with resources of its own, by the root that entered it.
     entered: HashSet<(usize, ObjectId)>,
     /// Content-stream tokens read so far.
@@ -213,22 +367,29 @@ struct Search<'a> {
 
 impl Search<'_> {
     /// Records `id` drawn unless the root drawing it names a copy of it instead.
-    fn mark(&mut self, id: ObjectId, copies: &HashSet<ObjectId>) {
-        if self.candidates.contains(&id) && !copies.contains(&id) {
+    fn mark(&mut self, id: ObjectId, copies: &Own) {
+        if self.candidates.contains(&id) && !copies.objects.contains(&id) {
             self.drawn.insert(id);
+        }
+    }
+
+    /// Records each direct entry equal to `value` drawn unless the root drawing it replaced it.
+    ///
+    /// Equality stands in for *the same entry*: a stream that resolves a name to the holder's
+    /// entry reaches a dictionary equal to it, and an equal one reached elsewhere counting too is
+    /// the error toward *drawn* the module allows.
+    fn mark_direct(&mut self, value: &Object, copies: &Own) {
+        for (index, direct) in self.directs.iter().enumerate() {
+            if direct.entry == *value && !copies.direct.contains(&index) {
+                self.drawn_directs.insert(index);
+            }
         }
     }
 
     /// Every candidate reached from `value` by references, as drawn: what the search does not
     /// read operator by operator. A `/Parent` is not followed, since it leads up a tree rather
     /// than into what something draws.
-    fn reach(
-        &mut self,
-        value: &Object,
-        copies: &HashSet<ObjectId>,
-        depth: usize,
-        seen: &mut HashSet<ObjectId>,
-    ) {
+    fn reach(&mut self, value: &Object, copies: &Own, depth: usize, seen: &mut HashSet<ObjectId>) {
         if depth >= MAX_DEPTH {
             return;
         }
@@ -246,7 +407,10 @@ impl Search<'_> {
                     self.reach(item, copies, next, seen);
                 }
             }
-            Object::Dictionary(dict) => self.reach_entries(dict, copies, next, seen),
+            Object::Dictionary(dict) => {
+                self.mark_direct(value, copies);
+                self.reach_entries(dict, copies, next, seen);
+            }
             Object::Stream(stream) => self.reach_entries(&stream.dict, copies, next, seen),
             _ => {}
         }
@@ -256,7 +420,7 @@ impl Search<'_> {
     fn reach_entries(
         &mut self,
         dict: &Dictionary,
-        copies: &HashSet<ObjectId>,
+        copies: &Own,
         depth: usize,
         seen: &mut HashSet<ObjectId>,
     ) {
@@ -273,7 +437,7 @@ impl Search<'_> {
         &mut self,
         value: &Object,
         fallback: &[Dictionary],
-        root: (usize, &HashSet<ObjectId>),
+        root: (usize, &Own),
         depth: usize,
     ) {
         if depth >= MAX_DEPTH {
@@ -300,7 +464,7 @@ impl Search<'_> {
         &mut self,
         entry: &Object,
         enclosing: &[Dictionary],
-        (root, copies): (usize, &HashSet<ObjectId>),
+        (root, copies): (usize, &Own),
         depth: usize,
     ) {
         let id = entry.as_reference();
@@ -344,7 +508,7 @@ impl Search<'_> {
         &mut self,
         content: &[u8],
         resources: &[Dictionary],
-        root: (usize, &HashSet<ObjectId>),
+        root: (usize, &Own),
         depth: usize,
     ) {
         if depth >= MAX_DEPTH {

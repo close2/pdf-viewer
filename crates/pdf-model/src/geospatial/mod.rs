@@ -574,10 +574,10 @@ mod tests {
             Err(Refusal::EpsgNotCarried(4978))
         );
         assert!(matches!(
-            alone(2056).reference_system(),
+            alone(2065).reference_system(),
             Err(Refusal::EpsgMethod {
-                code: 2056,
-                method_code: 9815,
+                code: 2065,
+                method_code: 9819,
                 ..
             })
         ));

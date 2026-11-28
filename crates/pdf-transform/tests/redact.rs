@@ -7886,6 +7886,130 @@ fn an_inherited_shading_pattern_only_the_redacted_page_paints_keeps_no_covered_s
     second_page_unchanged(&bytes, &out);
 }
 
+/// [`two_pages_inheriting`]'s fixture whose inherited resources state `entry` **directly**, its
+/// sampled function (object 7) the only object it references; object 6 is a font no stream uses.
+fn two_pages_inheriting_directly(entry: &str, (first, second): (&str, &str)) -> Vec<u8> {
+    let mut objects = sampled_radial("false false");
+    let shading = String::from_utf8(objects.remove(0)).expect("the fixture is ASCII");
+    two_pages_inheriting(
+        &entry.replace("SHADING", &shading),
+        (first, second),
+        [80.0, 80.0, 120.0, 120.0],
+        &[
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+            objects.remove(0),
+        ],
+    )
+}
+
+/// A shading pattern written directly in the resources both pages inherit, painted only on the
+/// redacted page: there is no object to take the edit in place, so the inherited dictionary is
+/// restated with the edited entry, no stream of the output holds the producer's table, and the
+/// other page draws what it drew (§7.7.3.4, §8.7.4.5.4, §12.5.6.23, ADR 3869).
+#[test]
+fn a_direct_shading_pattern_only_the_redacted_page_paints_keeps_no_covered_samples() {
+    let bytes = two_pages_inheriting_directly(
+        "<< /Pattern << /P0 << /PatternType 2 /Shading SHADING >> >> >>",
+        (
+            "/Pattern cs /P0 scn 20 20 160 160 re f",
+            "0 0 1 rg 20 20 50 50 re f",
+        ),
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let original: Vec<u8> = (0..17u8).map(|k| 40 + k * 12).collect();
+    assert!(
+        any_stream_holds(&bytes, &original),
+        "the fixture holds the table"
+    );
+    assert!(
+        !any_stream_holds(&out, &original),
+        "no stream holds the table with the inner circles' samples"
+    );
+    held_outside_and_blank_inside(&bytes, &out, [80.0, 80.0, 120.0, 120.0], &[]);
+    second_page_unchanged(&bytes, &out);
+}
+
+/// A shading written directly in the resources both pages inherit, painted by `sh` only on the
+/// redacted page: the same restatement (§7.7.3.4, §8.7.4.5.4, §12.5.6.23, ADR 3869).
+#[test]
+fn a_direct_shading_only_the_redacted_page_paints_keeps_no_covered_samples() {
+    let bytes = two_pages_inheriting_directly(
+        "<< /Shading << /Sh0 SHADING >> >>",
+        (
+            "q 20 20 160 160 re W n /Sh0 sh Q",
+            "0 0 1 rg 20 20 50 50 re f",
+        ),
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let original: Vec<u8> = (0..17u8).map(|k| 40 + k * 12).collect();
+    assert!(
+        !any_stream_holds(&out, &original),
+        "no stream holds the table with the inner circles' samples"
+    );
+    held_outside_and_blank_inside(&bytes, &out, [80.0, 80.0, 120.0, 120.0], &[]);
+    second_page_unchanged(&bytes, &out);
+}
+
+/// A shading written directly in inherited resources that the other page paints too is that
+/// page's drawing, and is kept for it: the producer's table stays and the other page draws what
+/// it drew (§7.7.3.4, §12.5.6.23, ADR 3869).
+#[test]
+fn a_direct_shading_the_other_page_paints_is_kept_for_it() {
+    let bytes = two_pages_inheriting_directly(
+        "<< /Shading << /Sh0 SHADING >> >>",
+        (
+            "q 20 20 160 160 re W n /Sh0 sh Q",
+            "q 0 0 60 60 re W n /Sh0 sh Q",
+        ),
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let original: Vec<u8> = (0..17u8).map(|k| 40 + k * 12).collect();
+    assert!(
+        any_stream_holds(&out, &original),
+        "the other page's table is kept"
+    );
+    held_outside_and_blank_inside(&bytes, &out, [80.0, 80.0, 120.0, 120.0], &[]);
+    second_page_unchanged(&bytes, &out);
+}
+
+/// A shading written directly in a category table the inherited resources name by reference, from
+/// a resource dictionary the `/Pages` node names by reference: the table is the object restated,
+/// and the other page still resolves every name it had (§7.7.3.4, §12.5.6.23, ADR 3869).
+#[test]
+fn a_direct_shading_in_a_table_named_by_reference_is_restated_in_the_table() {
+    let mut objects = sampled_radial("false false");
+    let shading = String::from_utf8(objects.remove(0)).expect("the fixture is ASCII");
+    let bytes = two_pages_inheriting(
+        "6 0 R",
+        ("q 20 20 160 160 re W n /Sh0 sh Q", "0 0 1 rg 20 20 50 50 re f"),
+        [80.0, 80.0, 120.0, 120.0],
+        &[
+            b"<< /Shading 8 0 R /ProcSet [/PDF] >>".to_vec(),
+            objects.remove(0),
+            format!("<< /Sh0 {shading} /Sh1 << /ShadingType 2 /ColorSpace /DeviceGray /Coords [0 0 1 0] /Function << /FunctionType 2 /Domain [0 1] /N 1 >> >> >>").into_bytes(),
+        ],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let original: Vec<u8> = (0..17u8).map(|k| 40 + k * 12).collect();
+    assert!(
+        !any_stream_holds(&out, &original),
+        "no stream holds the table with the inner circles' samples"
+    );
+    let document = Document::open_with_limits(out.clone(), Limits::DEFAULT).expect("it opens");
+    let second = pdf_model::Pages::new(&document).get(1).expect("page two");
+    let shadings = document.get_key(&second.resources, "Shading");
+    let shadings = shadings.as_dict().expect("the table");
+    assert!(
+        shadings.get("Sh0").is_some() && shadings.get("Sh1").is_some(),
+        "the other page resolves both names: {shadings:?}"
+    );
+    held_outside_and_blank_inside(&bytes, &out, [80.0, 80.0, 120.0, 120.0], &[]);
+    second_page_unchanged(&bytes, &out);
+}
 /// An element whose sequence a page's copy of a shared form lost, while the other page still
 /// draws the form whole, is restated without its descriptions all the same: §14.9.3's `/Alt` and
 /// §14.9.4's `/ActualText` describe the element's content as one, and the element still names

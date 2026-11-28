@@ -241,6 +241,11 @@ fn method(code: u32) -> Option<ProjectionMethod> {
         9810 => ProjectionMethod::PolarStereographicA,
         9829 => ProjectionMethod::PolarStereographicB,
         9830 => ProjectionMethod::PolarStereographicC,
+        9808 => ProjectionMethod::TransverseMercatorSouthOrientated,
+        9826 => ProjectionMethod::LambertConicConformalWestOrientated,
+        9812 => ProjectionMethod::HotineObliqueMercatorA,
+        9815 => ProjectionMethod::HotineObliqueMercatorB,
+        1052 => ProjectionMethod::ColombiaUrban,
         _ => return None,
     })
 }
@@ -266,11 +271,16 @@ fn projected(record: &Projected) -> Result<ProjectedSystem, Refusal> {
         // The parameter codes Guidance Note 7-2 prints beside each method; a natural and a false
         // origin play one role, as `super::system`'s reading of a WKT string's identifiers has it.
         match parameter {
-            8801 | 8821 => parameters.origin_latitude = Some(angle()?),
-            8802 | 8822 | 8833 => parameters.origin_longitude = Some(angle()?),
-            8805 => parameters.scale = Some(scale_value(value, unit, code)?),
-            8806 | 8826 => parameters.false_easting = Some(length()?),
-            8807 | 8827 => parameters.false_northing = Some(length()?),
+            // Hotine's projection centre (8811, 8812), scale on the initial line (8815) and
+            // easting and northing at the centre (8816, 8817) play the same roles.
+            8801 | 8811 | 8821 => parameters.origin_latitude = Some(angle()?),
+            8802 | 8812 | 8822 | 8833 => parameters.origin_longitude = Some(angle()?),
+            8805 | 8815 => parameters.scale = Some(scale_value(value, unit, code)?),
+            8806 | 8816 | 8826 => parameters.false_easting = Some(length()?),
+            8807 | 8817 | 8827 => parameters.false_northing = Some(length()?),
+            8813 => parameters.azimuth = Some(angle()?),
+            8814 => parameters.rectified_grid_angle = Some(angle()?),
+            1039 => parameters.origin_height = Some(length()?),
             // Polar Stereographic's latitude of standard parallel is its one parallel, and its
             // longitude of origin plays the natural origin's role.
             8823 | 8832 => parameters.parallel_1 = Some(angle()?),
